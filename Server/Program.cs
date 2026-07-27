@@ -222,7 +222,57 @@ app.MapGet("/api/dungeons", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var dungeons = await db.Dungeons.ToListAsync();
-    return Results.Ok(dungeons);
+    return Results.Ok(dungeons.Select(ToDungeonData));
+});
+
+// CRUD destiné au MapEditor. Mêmes limites que le CRUD d'espèces : pas d'authentification
+// admin dédiée pour cette première version (voir Docs/README.md).
+app.MapPost("/api/dungeons", async (DungeonData dungeon) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var entity = new DungeonEntity
+    {
+        Name = dungeon.Name,
+        KingdomId = dungeon.KingdomId,
+        Description = dungeon.Description,
+        Seed = dungeon.Seed,
+    };
+
+    db.Dungeons.Add(entity);
+    await db.SaveChangesAsync();
+    return Results.Ok(ToDungeonData(entity));
+});
+
+app.MapPut("/api/dungeons/{id:int}", async (int id, DungeonData updated) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var existing = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == id);
+    if (existing is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Donjon introuvable." });
+    }
+
+    existing.Name = updated.Name;
+    existing.KingdomId = updated.KingdomId;
+    existing.Description = updated.Description;
+    existing.Seed = updated.Seed;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(ToDungeonData(existing));
+});
+
+app.MapDelete("/api/dungeons/{id:int}", async (int id) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var existing = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == id);
+    if (existing is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Donjon introuvable." });
+    }
+
+    db.Dungeons.Remove(existing);
+    await db.SaveChangesAsync();
+    return Results.Ok();
 });
 
 app.MapGet("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}", async (int dungeonId, int floorNumber) =>
@@ -423,6 +473,22 @@ app.MapPost("/api/pvp/challenge", async (StartPvpCombatRequest request) =>
     }
 });
 
+app.MapGet("/api/kingdoms", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var kingdoms = await db.Kingdoms.ToListAsync();
+    var territories = await db.Territories.ToListAsync();
+
+    return Results.Ok(kingdoms.Select(k => new KingdomData
+    {
+        Id = k.Id,
+        Type = k.Type,
+        Name = k.Name,
+        CapitalName = k.CapitalName,
+        ControlledTerritoryIds = territories.Where(t => t.ControllingKingdomId == k.Id).Select(t => t.Id).ToList(),
+    }));
+});
+
 app.MapGet("/api/territories", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
@@ -493,4 +559,13 @@ static MonsterSpeciesData ToSpeciesData(MonsterSpeciesEntity entity) => new()
     BaseStats = entity.BaseStats,
     EvolvesIntoSpeciesId = entity.EvolvesIntoSpeciesId,
     EvolutionLevel = entity.EvolutionLevel,
+};
+
+static DungeonData ToDungeonData(DungeonEntity entity) => new()
+{
+    Id = entity.Id,
+    Name = entity.Name,
+    KingdomId = entity.KingdomId,
+    Description = entity.Description,
+    Seed = entity.Seed,
 };

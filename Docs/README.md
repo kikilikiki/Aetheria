@@ -203,7 +203,23 @@ de gameplay.
      admin dédiée pour cette version (outil interne supposé lancé contre un serveur de
      confiance — à sécuriser avant tout déploiement réel). Vérifié : cycle créer → modifier
      → lire → supprimer via l'API, lancement de l'application sans exception.
-   - ⬜ MapEditor, AdminPanel, installateur Windows, site de téléchargement.
+   - ✅ MapEditor — WPF, CRUD du catalogue de donjons (`GET/POST/PUT/DELETE /api/dungeons`,
+     nouveau `GET /api/kingdoms`) + prévisualisation textuelle de la génération procédurale
+     d'un étage (liste des salles générées). **Pas de rendu visuel de grille** — ce serait un
+     gros morceau à part (intégration OpenGL/Engine dans WPF), non fait ici, uniquement une
+     liste texte. Vérifié : royaumes et territoires bien remontés, cycle créer → prévisualiser
+     étage 10 (mini-boss confirmé) → supprimer.
+   - ⬜ AdminPanel, installateur Windows, site de téléchargement.
+
+> **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
+> bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
+> heuristique visant les programmes qui ouvrent des ports d'écoute réseau), alors que
+> `Client.exe`, `Launcher.exe` et `MonsterEditor.exe` s'exécutent sans problème. Contournement
+> légitime utilisé pour les tests : `dotnet build/bin/Aetheria.Server/Debug/net10.0/
+> Aetheria.Server.dll` au lieu de l'apphost natif — un mode de lancement .NET standard, pas un
+> contournement de sécurité. À garder en tête pour le déploiement réel : il faudra soit
+> distribuer/lancer le Server via `dotnet`, soit faire autoriser l'exécutable par la politique
+> de sécurité de la machine hôte.
 
 > **Piège rencontré et corrigé (le plus sournois du projet) :** `HashCode.Combine` a été
 > utilisé comme graine de génération procédurale des donjons (Phase G3) et du tirage des

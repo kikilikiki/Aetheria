@@ -1,12 +1,7 @@
 using Aetheria.Shared.Enums;
+using Aetheria.Shared.Models;
 
 namespace Aetheria.Server.World;
-
-/// <summary>Une salle d'étage de donjon et son contenu.</summary>
-public sealed record DungeonRoom(int Index, DungeonEncounterType EncounterType);
-
-/// <summary>Le contenu généré d'un étage : ses salles, dans l'ordre de traversée.</summary>
-public sealed record DungeonFloor(int FloorNumber, IReadOnlyList<DungeonRoom> Rooms);
 
 /// <summary>
 /// Génère le contenu d'un étage de donjon de façon déterministe à partir de

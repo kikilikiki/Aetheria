@@ -1,0 +1,60 @@
+<Window x:Class="Aetheria.MapEditor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Aetheria — MapEditor" Height="640" Width="900"
+        WindowStartupLocation="CenterScreen" Background="#101116">
+
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="16" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="16" />
+            <ColumnDefinition Width="220" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Liste des donjons -->
+        <DockPanel Grid.Column="0">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button Content="Charger" Command="{Binding LoadCommand}" Padding="10,6" Margin="0,0,6,0" />
+                <Button Content="Nouveau" Command="{Binding NewDungeonCommand}" Padding="10,6" />
+            </StackPanel>
+            <ListBox ItemsSource="{Binding Dungeons}" SelectedItem="{Binding SelectedDungeon}"
+                     DisplayMemberPath="Name" />
+        </DockPanel>
+
+        <!-- Formulaire d'édition -->
+        <StackPanel Grid.Column="2">
+            <TextBlock Text="Nom" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10" />
+
+            <TextBlock Text="Royaume" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <ComboBox ItemsSource="{Binding Kingdoms}" SelectedItem="{Binding SelectedKingdom}"
+                      DisplayMemberPath="Name" Padding="6" Margin="0,0,0,10" />
+
+            <TextBlock Text="Description" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10"
+                     AcceptsReturn="True" TextWrapping="Wrap" Height="60" />
+
+            <TextBlock Text="Graine (seed) de génération procédurale" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Seed, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10" />
+
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button Content="Enregistrer" Command="{Binding SaveCommand}" Padding="16,8" Margin="0,0,8,0" FontWeight="Bold" />
+                <Button Content="Supprimer" Command="{Binding DeleteCommand}" Padding="16,8" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding StatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap" Margin="0,10,0,0" />
+        </StackPanel>
+
+        <!-- Prévisualisation d'un étage généré -->
+        <DockPanel Grid.Column="4">
+            <TextBlock DockPanel.Dock="Top" Text="Prévisualiser un étage" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBox Text="{Binding PreviewFloorNumber, UpdateSourceTrigger=PropertyChanged}" Width="60" Padding="4" Margin="0,0,6,0" />
+                <Button Content="Générer" Command="{Binding PreviewFloorCommand}" Padding="10,6" />
+            </StackPanel>
+            <ListBox ItemsSource="{Binding PreviewRooms}" />
+        </DockPanel>
+    </Grid>
+</Window>
