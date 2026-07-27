@@ -44,7 +44,8 @@ namespace Aetheria.Database.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     Type = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: false),
-                    CapitalName = table.Column<string>(type: "text", nullable: false)
+                    CapitalName = table.Column<string>(type: "text", nullable: false),
+                    WarPoints = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -91,6 +92,22 @@ namespace Aetheria.Database.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Quests", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Seasons",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Number = table.Column<int>(type: "integer", nullable: false),
+                    StartedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    EndedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Seasons", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -150,6 +167,27 @@ namespace Aetheria.Database.Migrations
                     table.ForeignKey(
                         name: "FK_Dungeons_Kingdoms_KingdomId",
                         column: x => x.KingdomId,
+                        principalTable: "Kingdoms",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Territories",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    TerritoryType = table.Column<string>(type: "text", nullable: false),
+                    ControllingKingdomId = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Territories", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Territories_Kingdoms_ControllingKingdomId",
+                        column: x => x.ControllingKingdomId,
                         principalTable: "Kingdoms",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -581,6 +619,11 @@ namespace Aetheria.Database.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_Territories_ControllingKingdomId",
+                table: "Territories",
+                column: "ControllingKingdomId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Users_Email",
                 table: "Users",
                 column: "Email",
@@ -630,19 +673,25 @@ namespace Aetheria.Database.Migrations
                 name: "RecipeIngredients");
 
             migrationBuilder.DropTable(
+                name: "Seasons");
+
+            migrationBuilder.DropTable(
                 name: "Statistics");
 
             migrationBuilder.DropTable(
-                name: "Quests");
+                name: "Territories");
 
             migrationBuilder.DropTable(
-                name: "Kingdoms");
+                name: "Quests");
 
             migrationBuilder.DropTable(
                 name: "Guilds");
 
             migrationBuilder.DropTable(
                 name: "Recipes");
+
+            migrationBuilder.DropTable(
+                name: "Kingdoms");
 
             migrationBuilder.DropTable(
                 name: "Characters");

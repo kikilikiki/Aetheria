@@ -1,4 +1,5 @@
 using Aetheria.Database.Context;
+using Aetheria.Database.Entities;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World.Combat;
 using Aetheria.Shared.Enums;
@@ -10,10 +11,10 @@ using CombatActionType = Aetheria.Shared.Enums.CombatActionType;
 namespace Aetheria.Server.World;
 
 /// <summary>
-/// Combat tactique sur grille (voir <c>Docs/GameDesign.md</c> — section Combats). Mode Solo
-/// uniquement pour cette première version : le joueur et jusqu'à 4 de ses créatures contre un
-/// monstre sauvage contrôlé par une IA simple. Le mode Coopération (4 joueurs + 1 créature
-/// chacun) et les compétences/sorts (portée/zone au-delà de l'attaque de base) restent à faire.
+/// Combat tactique sur grille (voir <c>Docs/GameDesign.md</c> — section Combats) : mode PvE
+/// (joueur + jusqu'à 4 créatures contre un monstre sauvage, IA simple) et mode PvP (deux
+/// joueurs, défi direct). Le mode Coopération (4 joueurs contre un monstre) et les
+/// compétences/sorts (au-delà de l'attaque de base) restent à faire.
 /// </summary>
 public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenStore, CombatSessionStore combatStore)
 {
@@ -30,37 +31,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var wildSpecies = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == request.WildSpeciesId, ct)
             ?? throw new AccountOperationException("Espèce de créature inconnue.");
 
-        var playerMonsters = request.MonsterIds.Count == 0
-            ? []
-            : await db.Monsters
-                .Where(m => request.MonsterIds.Contains(m.Id) && m.OwnerCharacterId == character.Id)
-                .ToListAsync(ct);
-
-        var combatants = new List<Combatant>
-        {
-            new()
-            {
-                Id = character.Id, Name = character.Name, Team = 0, X = 0, Y = 3,
-                MaxHealth = 50, CurrentHealth = 50, Attack = 10, Defense = 8, Speed = 10,
-                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
-            },
-        };
-
-        (int X, int Y)[] monsterSlots = [(1, 1), (1, 2), (1, 4), (1, 5)];
-        for (var i = 0; i < playerMonsters.Count && i < monsterSlots.Length; i++)
-        {
-            var monster = playerMonsters[i];
-            var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == monster.SpeciesId, ct);
-            var displayName = monster.Nickname.Length > 0 ? monster.Nickname : species?.Name ?? "Créature";
-
-            combatants.Add(new Combatant
-            {
-                Id = monster.Id, Name = displayName, Team = 0, X = monsterSlots[i].X, Y = monsterSlots[i].Y,
-                MaxHealth = Math.Max(1, species?.BaseHealth ?? 20), CurrentHealth = Math.Max(1, species?.BaseHealth ?? 20),
-                Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
-                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
-            });
-        }
+        var combatants = await BuildPlayerCombatantsAsync(character, request.MonsterIds, team: 0, leftSide: true, ct);
 
         combatants.Add(new Combatant
         {
@@ -70,16 +41,46 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             MovementRange = 2, AttackRange = 1, IsPlayerControlled = false,
         });
 
-        var session = new CombatSession
-        {
-            Id = Guid.NewGuid(),
-            OwnerUserId = userId,
-            CharacterId = character.Id,
-            Combatants = combatants,
-        };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants };
+        session.TeamOwnerUserId[0] = userId;
+        session.TeamCharacterId[0] = character.Id;
 
         CombatEngine.Initialize(session);
         CombatEngine.RunAiTurnsUntilPlayerTurn(session);
+        combatStore.Add(session);
+
+        return ToState(session);
+    }
+
+    /// <summary>Défi PvP direct entre deux personnages (voir GDD — section PvP). Pas de matchmaking pour cette version.</summary>
+    public async Task<CombatSessionState> StartPvpAsync(StartPvpCombatRequest request, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var challenger = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
+
+        var opponent = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.OpponentCharacterId, ct)
+            ?? throw new AccountOperationException("Adversaire introuvable.");
+
+        if (opponent.Id == challenger.Id)
+        {
+            throw new AccountOperationException("Impossible de vous défier vous-même.");
+        }
+
+        var combatants = await BuildPlayerCombatantsAsync(challenger, request.MonsterIds, team: 0, leftSide: true, ct);
+        combatants.AddRange(await BuildPlayerCombatantsAsync(opponent, request.OpponentMonsterIds, team: 1, leftSide: false, ct));
+
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, Combatants = combatants };
+        session.TeamOwnerUserId[0] = userId;
+        session.TeamCharacterId[0] = challenger.Id;
+        session.TeamOwnerUserId[1] = opponent.UserId;
+        session.TeamCharacterId[1] = opponent.Id;
+
+        CombatEngine.Initialize(session);
         combatStore.Add(session);
 
         return ToState(session);
@@ -142,18 +143,15 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             throw new AccountOperationException("Combat introuvable ou terminé.");
         }
 
-        if (session.OwnerUserId != userId)
-        {
-            throw new AccountOperationException("Ce combat ne vous appartient pas.");
-        }
-
         if (session.IsFinished)
         {
             throw new AccountOperationException("Ce combat est déjà terminé.");
         }
 
         var actor = session.CurrentCombatant;
-        if (actor is not { IsPlayerControlled: true })
+        if (actor is not { IsPlayerControlled: true }
+            || !session.TeamOwnerUserId.TryGetValue(actor.Team, out var expectedUserId)
+            || expectedUserId != userId)
         {
             throw new AccountOperationException("Ce n'est pas votre tour.");
         }
@@ -180,7 +178,12 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 break;
 
             case CombatActionType.Capture:
-                await ResolveCaptureAsync(session, request, ct);
+                if (session.IsPvp)
+                {
+                    throw new AccountOperationException("Impossible de capturer un autre joueur.");
+                }
+
+                await ResolveCaptureAsync(session, actor, request, ct);
                 break;
 
             default:
@@ -194,6 +197,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         if (session.IsFinished)
         {
+            if (session.IsPvp)
+            {
+                await ApplyPvpResultAsync(session, ct);
+            }
+
             combatStore.Remove(session.Id);
         }
 
@@ -212,14 +220,55 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         return false;
     }
 
-    private async Task ResolveCaptureAsync(CombatSession session, CombatActionRequest request, CancellationToken ct)
+    private async Task<List<Combatant>> BuildPlayerCombatantsAsync(
+        CharacterEntity character, IReadOnlyList<Guid> monsterIds, int team, bool leftSide, CancellationToken ct)
+    {
+        var characterX = leftSide ? 0 : CombatSession.GridWidth - 1;
+        var monsterX = leftSide ? 1 : CombatSession.GridWidth - 2;
+
+        var combatants = new List<Combatant>
+        {
+            new()
+            {
+                Id = character.Id, Name = character.Name, Team = team, X = characterX, Y = 3,
+                MaxHealth = 50, CurrentHealth = 50, Attack = 10, Defense = 8, Speed = 10,
+                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
+            },
+        };
+
+        var playerMonsters = monsterIds.Count == 0
+            ? []
+            : await db.Monsters
+                .Where(m => monsterIds.Contains(m.Id) && m.OwnerCharacterId == character.Id)
+                .ToListAsync(ct);
+
+        (int X, int Y)[] monsterSlots = [(monsterX, 1), (monsterX, 2), (monsterX, 4), (monsterX, 5)];
+        for (var i = 0; i < playerMonsters.Count && i < monsterSlots.Length; i++)
+        {
+            var monster = playerMonsters[i];
+            var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == monster.SpeciesId, ct);
+            var displayName = monster.Nickname.Length > 0 ? monster.Nickname : species?.Name ?? "Créature";
+
+            combatants.Add(new Combatant
+            {
+                Id = monster.Id, Name = displayName, Team = team, X = monsterSlots[i].X, Y = monsterSlots[i].Y,
+                MaxHealth = Math.Max(1, species?.BaseHealth ?? 20), CurrentHealth = Math.Max(1, species?.BaseHealth ?? 20),
+                Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
+                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
+            });
+        }
+
+        return combatants;
+    }
+
+    private async Task ResolveCaptureAsync(CombatSession session, Combatant actor, CombatActionRequest request, CancellationToken ct)
     {
         if (request.CaptureItemId is not { } captureItemId)
         {
             throw new AccountOperationException("Objet de capture requis.");
         }
 
-        var wildCombatant = session.Combatants.FirstOrDefault(c => c.Team == 1 && c.IsAlive)
+        var wildCombatant = session.Combatants.FirstOrDefault(c => c.Team != actor.Team && c.IsAlive)
             ?? throw new AccountOperationException("Aucun monstre sauvage à capturer.");
 
         // L'identifiant d'espèce n'est pas dupliqué sur le combattant : on le retrouve par nom.
@@ -234,7 +283,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var result = await captureService.AttemptCaptureAsync(new CaptureAttemptRequest
         {
             SessionToken = request.SessionToken,
-            CharacterId = session.CharacterId,
+            CharacterId = session.TeamCharacterId[actor.Team],
             SpeciesId = species.Id,
             TargetHealthPercent = healthPercent,
             CaptureItemId = captureItemId,
@@ -242,7 +291,47 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         session.LastMessage = result.Message;
         session.IsFinished = true;
-        session.WinningTeam = 0;
+        session.WinningTeam = actor.Team;
+    }
+
+    private async Task ApplyPvpResultAsync(CombatSession session, CancellationToken ct)
+    {
+        if (session.WinningTeam is not { } winningTeam)
+        {
+            return;
+        }
+
+        var losingTeam = winningTeam == 0 ? 1 : 0;
+        if (!session.TeamCharacterId.TryGetValue(winningTeam, out var winnerCharacterId)
+            || !session.TeamCharacterId.TryGetValue(losingTeam, out var loserCharacterId))
+        {
+            return;
+        }
+
+        var winnerStats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == winnerCharacterId, ct);
+        if (winnerStats is not null)
+        {
+            winnerStats.Pvp.Wins++;
+            winnerStats.Pvp.WinStreak++;
+            winnerStats.Pvp.CurrentRank += 10;
+            winnerStats.Pvp.BestRank = Math.Max(winnerStats.Pvp.BestRank, winnerStats.Pvp.CurrentRank);
+        }
+
+        var loserStats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == loserCharacterId, ct);
+        if (loserStats is not null)
+        {
+            loserStats.Pvp.Losses++;
+            loserStats.Pvp.WinStreak = 0;
+            loserStats.Pvp.CurrentRank = Math.Max(0, loserStats.Pvp.CurrentRank - 5);
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var winnerCharacter = await db.Characters.FirstOrDefaultAsync(c => c.Id == winnerCharacterId, ct);
+        if (winnerCharacter is not null)
+        {
+            await new KingdomWarService(db).AwardWarPointsAsync(winnerCharacter.Kingdom, 10, ct);
+        }
     }
 
     private static CombatSessionState ToState(CombatSession session) => new(

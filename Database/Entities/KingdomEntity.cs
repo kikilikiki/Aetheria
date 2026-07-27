@@ -9,4 +9,7 @@ public sealed class KingdomEntity
     public KingdomType Type { get; set; }
     public required string Name { get; set; }
     public string CapitalName { get; set; } = string.Empty;
+
+    /// <summary>Points de guerre accumulés depuis la dernière résolution hebdomadaire (voir Server/World/KingdomWarService.cs).</summary>
+    public long WarPoints { get; set; }
 }

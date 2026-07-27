@@ -176,7 +176,26 @@ de gameplay.
      Monstre normale, Rare pour un mini-boss, Légendaire pour un boss/boss légendaire).
      Vérifié : salle Monstre → combat démarré, salle non-combat (Énigme) → rejetée, étage 10
      → Ombrelune (Rare), étage 50 → Dracaelith (Légendaire), conforme aux jalons du GDD.
-   - ⬜ Saisons.
+   - ✅ PvP classé (`CombatSession` étendu au multi-joueur réel — `TeamOwnerUserId`/
+     `TeamCharacterId` par équipe, `POST /api/pvp/challenge`) : défi direct entre deux
+     personnages, chacun contrôlé par son propre compte, alternance de tour stricte
+     vérifiée par jeton de session (l'action de l'un est rejetée hors de son tour). La
+     victoire met à jour `PvpStatistics` (victoires/défaites/série/rang) des deux côtés.
+     Vérifié de bout en bout avec deux comptes distincts : tentative hors tour rejetée,
+     alternance correcte, combat mené jusqu'au K.O.
+   - ✅ Guerres de royaumes (`TerritoryEntity`, `KingdomWarService`,
+     `GET /api/territories`, `GET/POST /api/kingdoms/wars/standings|resolve`) : chaque
+     victoire PvP crédite le royaume du vainqueur en points de guerre ; la résolution
+     hebdomadaire (déclenchée manuellement pour l'instant — un vrai job planifié viendrait
+     ensuite) donne l'ensemble des territoires au royaume en tête, puis remet les points à
+     zéro. **Simplification assumée** : pas de contestation territoire par territoire, un
+     royaume "gagne toute la carte" plutôt que des gains partiels — documenté comme tel.
+     Vérifié : victoire PvP → points crédités → résolution → territoires transférés
+     (y compris ceux d'autres royaumes) → points remis à zéro.
+   - ✅ Saisons (`SeasonEntity`, `SeasonService`, `GET /api/seasons/current`,
+     `POST /api/seasons/next`) : suivi du cycle actif/numérotation uniquement — le contenu
+     ajouté à chaque saison (monstres, donjons, cosmétiques, passe saison) reste un travail
+     de contenu à faire, pas simulé ici. Vérifié : Saison 1 active dès le premier démarrage.
 
 > **Piège rencontré et corrigé (le plus sournois du projet) :** `HashCode.Combine` a été
 > utilisé comme graine de génération procédurale des donjons (Phase G3) et du tirage des

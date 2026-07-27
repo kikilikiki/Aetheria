@@ -29,6 +29,8 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<RecipeEntity> Recipes => Set<RecipeEntity>();
     public DbSet<RecipeIngredientEntity> RecipeIngredients => Set<RecipeIngredientEntity>();
     public DbSet<GuildMemberEntity> GuildMembers => Set<GuildMemberEntity>();
+    public DbSet<TerritoryEntity> Territories => Set<TerritoryEntity>();
+    public DbSet<SeasonEntity> Seasons => Set<SeasonEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -198,6 +200,15 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             member.HasOne(m => m.Character)
                 .WithMany()
                 .HasForeignKey(m => m.CharacterId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<TerritoryEntity>(territory =>
+        {
+            territory.Property(t => t.TerritoryType).HasConversion<string>();
+            territory.HasOne(t => t.ControllingKingdom)
+                .WithMany()
+                .HasForeignKey(t => t.ControllingKingdomId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
     }

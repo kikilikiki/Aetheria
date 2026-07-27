@@ -79,6 +79,8 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     await MonsterCatalogSeeder.SeedAsync(db);
     await DungeonSeeder.SeedAsync(db);
     await ProfessionCatalogSeeder.SeedAsync(db);
+    await TerritorySeeder.SeedAsync(db);
+    await SeasonSeeder.SeedAsync(db);
 }
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
@@ -342,6 +344,61 @@ app.MapGet("/api/combat/{combatId:guid}", async (Guid combatId) =>
     return combatService.TryGetState(combatId, out var state)
         ? Results.Ok(state)
         : Results.NotFound(new ApiError { Message = "Combat introuvable ou terminé." });
+});
+
+app.MapPost("/api/pvp/challenge", async (StartPvpCombatRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+
+    try
+    {
+        return Results.Ok(await combatService.StartPvpAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/territories", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var territories = await db.Territories.ToListAsync();
+    return Results.Ok(territories);
+});
+
+app.MapGet("/api/kingdoms/wars/standings", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    return Results.Ok(await new KingdomWarService(db).GetStandingsAsync());
+});
+
+app.MapPost("/api/kingdoms/wars/resolve", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var message = await new KingdomWarService(db).ResolveWeeklyWarAsync();
+    return Results.Ok(new { message });
+});
+
+app.MapGet("/api/seasons/current", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+
+    try
+    {
+        return Results.Ok(await new SeasonService(db).GetCurrentAsync());
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.NotFound(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/seasons/next", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    return Results.Ok(await new SeasonService(db).StartNextSeasonAsync());
 });
 
 using var shutdownCts = new CancellationTokenSource();

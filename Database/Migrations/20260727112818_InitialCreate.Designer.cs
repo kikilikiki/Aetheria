@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Aetheria.Database.Migrations
 {
     [DbContext(typeof(AetheriaDbContext))]
-    [Migration("20260727102114_InitialCreate")]
+    [Migration("20260727112818_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -354,6 +354,9 @@ namespace Aetheria.Database.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<long>("WarPoints")
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
 
                     b.ToTable("Kingdoms");
@@ -577,6 +580,31 @@ namespace Aetheria.Database.Migrations
                     b.ToTable("RecipeIngredients");
                 });
 
+            modelBuilder.Entity("Aetheria.Database.Entities.SeasonEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("EndedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Seasons");
+                });
+
             modelBuilder.Entity("Aetheria.Database.Entities.StatisticsEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -592,6 +620,32 @@ namespace Aetheria.Database.Migrations
                         .IsUnique();
 
                     b.ToTable("Statistics");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.TerritoryEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ControllingKingdomId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TerritoryType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ControllingKingdomId");
+
+                    b.ToTable("Territories");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.UserEntity", b =>
@@ -1017,6 +1071,17 @@ namespace Aetheria.Database.Migrations
 
                     b.Navigation("Social")
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.TerritoryEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.KingdomEntity", "ControllingKingdom")
+                        .WithMany()
+                        .HasForeignKey("ControllingKingdomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ControllingKingdom");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.CharacterEntity", b =>
