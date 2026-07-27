@@ -89,16 +89,31 @@ de gameplay.
    - ✅ `Engine.Core.GameHost` : fenêtre + contexte OpenGL via Silk.NET (voir `Engine/Core/`).
    - ⬜ Rendu de sprites (batching, textures, caméra 2D) dans `Engine/Rendering/`.
    - ⬜ Système d'input (clavier/souris) dans `Engine/Input/`.
-3. ⬜ Serveur — écoute TCP, sessions, boucle de simulation (`Server/Networking`, `Server/World`).
-4. ⬜ Base de données — DbContext EF Core + entités + première migration (`Database/`).
-5. ⬜ Launcher (login, inscription, téléchargement, mises à jour, vérification d'intégrité).
-6. ⬜ Système de compte joueur (inscription/connexion, hash mot de passe, tokens, sessions).
-7. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
+3. ✅ Base de données — `AetheriaDbContext` EF Core, 12 tables du GDD + migration `InitialCreate`
+   (voir `Database/`). PostgreSQL en production, base en mémoire en dev si
+   `AETHERIA_DB_CONNECTION` n'est pas défini.
+4. ✅ Serveur — API HTTP de compte (`/api/account/register`, `/api/account/login`, hash BCrypt,
+   jetons de session) + serveur de jeu TCP (`Server/Networking`) avec framing de packets
+   (Ping/Pong, EnterWorld, PlayerMove) vérifié de bout en bout sur un vrai socket.
+   - ⬜ Monde partagé multi-joueurs (diffusion des positions, royaumes, instances de donjon) —
+     arrive avec les systèmes de jeu (étape 7).
+5. ⬜ Launcher (UI de login/inscription branchée sur l'API compte, téléchargement, mises à jour).
+6. ⬜ Rendu de sprites + input (suite de l'étape 2).
+7. ⬜ Boucle jouable de base côté Client (sélection de royaume, connexion, grille de combat).
+8. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
    donjons procéduraux, succès, classements, saisons...).
 
 Dépendance graphique du moteur : **Silk.NET** (Windowing + OpenGL + Input + Maths), choisie
 pour ses bindings modernes activement maintenus par la communauté .NET et son bon écosystème
 de documentation en C#. Voir `Engine/Aetheria.Engine.csproj` pour les versions exactes.
+
+### Configuration du Serveur
+
+| Variable d'environnement    | Rôle                                                              |
+|------------------------------|--------------------------------------------------------------------|
+| `AETHERIA_DB_CONNECTION`     | Chaîne de connexion PostgreSQL. Absente ⇒ base en mémoire (dev).   |
+
+Ports par défaut (voir `Shared/GameInfo.cs`) : `7777` (TCP jeu), `7778` (HTTP compte).
 
 ## Compiler le projet
 

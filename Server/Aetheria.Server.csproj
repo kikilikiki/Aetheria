@@ -14,4 +14,14 @@
     <ProjectReference Include="..\Database\Aetheria.Database.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Permet d'héberger Kestrel/Minimal API (compte joueur) sans passer au SDK Web. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
 </Project>

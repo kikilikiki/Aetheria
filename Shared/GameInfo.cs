@@ -15,4 +15,7 @@ public static class GameInfo
 
     /// <summary>Port TCP par défaut utilisé par le serveur de jeu.</summary>
     public const int DefaultGamePort = 7777;
+
+    /// <summary>Port HTTP par défaut de l'API de compte (inscription/connexion), utilisée par le Launcher.</summary>
+    public const int DefaultAccountApiPort = 7778;
 }
