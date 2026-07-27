@@ -4,10 +4,12 @@ using Aetheria.Database.Context;
 using Aetheria.Server.Networking;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World;
+using Aetheria.Server.World.Combat;
 using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
+using Aetheria.Shared.Models.Combat;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -36,6 +38,7 @@ builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 });
 
 builder.Services.AddSingleton<SessionTokenStore>();
+builder.Services.AddSingleton<CombatSessionStore>();
 builder.WebHost.UseUrls($"http://0.0.0.0:{GameInfo.DefaultAccountApiPort}");
 
 // Enums échangés en toutes lettres ("Guerrier", "Feu", ...) plutôt qu'en entiers opaques :
@@ -280,6 +283,49 @@ app.MapGet("/api/leaderboard/{category}", async (LeaderboardCategory category, i
     var leaderboardService = new LeaderboardService(db);
     var top = await leaderboardService.GetTopAsync(category, limit <= 0 ? 10 : limit);
     return Results.Ok(top);
+});
+
+app.MapPost("/api/combat/start", async (StartCombatRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+
+    try
+    {
+        return Results.Ok(await combatService.StartAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/combat/{combatId:guid}/action", async (Guid combatId, CombatActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+
+    try
+    {
+        return Results.Ok(await combatService.SubmitActionAsync(combatId, request));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/combat/{combatId:guid}", async (Guid combatId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+    return combatService.TryGetState(combatId, out var state)
+        ? Results.Ok(state)
+        : Results.NotFound(new ApiError { Message = "Combat introuvable ou terminé." });
 });
 
 using var shutdownCts = new CancellationTokenSource();

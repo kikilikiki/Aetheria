@@ -154,7 +154,21 @@ de gameplay.
      données existantes ; les autres catégories (PvP, temps de jeu, ...) attendent les
      systèmes correspondants. Vérifié de bout en bout : succès débloqué après capture,
      classement recalculé et lu après capture.
-   - ⬜ Combat tactique, saisons.
+   - ✅ Combat tactique sur grille (`Server/World/Combat` : `CombatEngine`, `CombatSession`,
+     `CombatSessionStore`, `CombatService`, `POST /api/combat/start`,
+     `POST /api/combat/{id}/action`, `GET /api/combat/{id}`) : grille 7x7, ordre de jeu par
+     vitesse, déplacement borné, dégâts Attaque−Défense, IA simple pour le monstre sauvage
+     (se rapproche puis attaque), mode Solo uniquement (joueur + jusqu'à 4 créatures contre un
+     monstre sauvage). L'action `Capture` calcule le vrai pourcentage de vie restant et appelle
+     le `CaptureService` existant — la capture ne prend plus un pourcentage de vie inventé à
+     la main, le combat le fournit réellement.
+     **Limites assumées** : pas de sorts/compétences (seulement une attaque de base à portée 1),
+     pas de terrain/obstacles/zones d'effet/combos, pas de mode Coopération (4 joueurs), les
+     PV du personnage ne sont pas persistés entre deux combats (repartent à 50 à chaque fois).
+     Vérifié de bout en bout : combat perdu (K.O., session nettoyée, action suivante rejetée),
+     puis combat où la capture est tentée en cours de combat et échoue proprement (objet
+     consommé, combat terminé).
+   - ⬜ Saisons.
 
 > **Piège rencontré et corrigé :** `ComplexProperty` (EF Core 8+, utilisé pour mapper
 > `StatBlock` en un seul bloc) fait planter le fournisseur InMemory sur certaines requêtes
