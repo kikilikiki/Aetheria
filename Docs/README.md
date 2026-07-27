@@ -131,8 +131,10 @@ de gameplay.
      d'étage), mini-boss/boss/boss légendaire garantis tous les 10/50/100 étages.
      **La disposition spatiale (grille, corridors) n'existe pas encore** — seule la séquence
      de rencontres est générée ; le placement visuel est un travail Client/MapEditor à venir.
-     Vérifié : étages normaux variés, jalons exacts aux étages 10/50/100, déterminisme
-     confirmé (même étage redemandé → contenu identique).
+     Vérifié : étages normaux variés, jalons exacts aux étages 10/50/100. Déterminisme
+     initialement vérifié seulement *au sein d'un même processus* — un vrai bug (voir
+     encadré ci-dessous, corrigé en Phase H2) faisait que le contenu changeait en fait à
+     chaque redémarrage du serveur ; re-vérifié depuis entre deux processus distincts.
    - ✅ Métiers et artisanat (`CharacterProfessionEntity`, `RecipeEntity`,
      `ProfessionService`, `GET /api/professions/recipes`, `POST /api/professions/gather`,
      `POST /api/professions/craft`) : chaîne de départ Mineur → Minerai de fer → Forgeron →
@@ -168,7 +170,24 @@ de gameplay.
      Vérifié de bout en bout : combat perdu (K.O., session nettoyée, action suivante rejetée),
      puis combat où la capture est tentée en cours de combat et échoue proprement (objet
      consommé, combat terminé).
+   - ✅ Intégration donjons + combat (`POST /api/dungeons/{id}/floors/{n}/rooms/{i}/engage`) :
+     engage directement le combat contre le monstre d'une salle générée procéduralement ;
+     la rareté de la créature suit le type de rencontre (Commun/PeuCommun pour une salle
+     Monstre normale, Rare pour un mini-boss, Légendaire pour un boss/boss légendaire).
+     Vérifié : salle Monstre → combat démarré, salle non-combat (Énigme) → rejetée, étage 10
+     → Ombrelune (Rare), étage 50 → Dracaelith (Légendaire), conforme aux jalons du GDD.
    - ⬜ Saisons.
+
+> **Piège rencontré et corrigé (le plus sournois du projet) :** `HashCode.Combine` a été
+> utilisé comme graine de génération procédurale des donjons (Phase G3) et du tirage des
+> monstres de donjon (Phase H2). Or `HashCode.Combine` est **délibérément randomisé par
+> processus** par le runtime .NET (protection anti-collision de table de hachage) — sa
+> documentation le précise, mais c'est facile à manquer. Conséquence : la génération
+> semblait déterministe tant que le serveur tournait (testée ainsi en G3), mais changeait
+> à chaque redémarrage, ce qui aurait cassé toute discussion entre joueurs sur le contenu
+> d'un étage précis. Détecté en re-testant l'intégration donjon+combat avec un nouveau
+> processus serveur. Corrigé par `DungeonFloorGenerator.StableSeed` (combinaison manuelle
+> `hash * 31 + valeur`), utilisé partout où une graine doit survivre à un redémarrage.
 
 > **Piège rencontré et corrigé :** `ComplexProperty` (EF Core 8+, utilisé pour mapper
 > `StatBlock` en un seul bloc) fait planter le fournisseur InMemory sur certaines requêtes

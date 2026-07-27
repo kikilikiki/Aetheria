@@ -46,7 +46,7 @@ public static class DungeonFloorGenerator
             return new DungeonFloor(floorNumber, [new DungeonRoom(0, bossEncounter)]);
         }
 
-        var random = new Random(HashCode.Combine(dungeonSeed, floorNumber));
+        var random = new Random(StableSeed(dungeonSeed, floorNumber));
         var rooms = new List<DungeonRoom>(RoomsPerFloor);
         for (var i = 0; i < RoomsPerFloor; i++)
         {
@@ -92,5 +92,26 @@ public static class DungeonFloorGenerator
         }
 
         return DungeonEncounterType.Monstre;
+    }
+
+    /// <summary>
+    /// Combine des entiers en une graine stable d'un lancement à l'autre du serveur.
+    /// <see cref="HashCode.Combine{T1, T2}"/> est délibérément randomisé par processus
+    /// (protection anti-collision) et NE DOIT PAS servir à une graine de génération procédurale
+    /// censée être reproductible — piège rencontré et corrigé pendant le développement (voir
+    /// <c>Docs/README.md</c>).
+    /// </summary>
+    public static int StableSeed(params ReadOnlySpan<int> values)
+    {
+        unchecked
+        {
+            var hash = 17;
+            foreach (var value in values)
+            {
+                hash = (hash * 31) + value;
+            }
+
+            return hash;
+        }
     }
 }

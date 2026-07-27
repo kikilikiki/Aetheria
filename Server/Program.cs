@@ -319,6 +319,22 @@ app.MapPost("/api/combat/{combatId:guid}/action", async (Guid combatId, CombatAc
     }
 });
 
+app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/engage",
+    async (int dungeonId, int floorNumber, int roomIndex, StartDungeonCombatRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+
+    try
+    {
+        return Results.Ok(await combatService.StartFromDungeonAsync(dungeonId, floorNumber, roomIndex, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 app.MapGet("/api/combat/{combatId:guid}", async (Guid combatId) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();

@@ -1,6 +1,7 @@
 using Aetheria.Database.Context;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World.Combat;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Combat;
 using Microsoft.EntityFrameworkCore;
@@ -82,6 +83,51 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         combatStore.Add(session);
 
         return ToState(session);
+    }
+
+    /// <summary>
+    /// Engage le combat contre le monstre d'une salle de donjon générée procéduralement
+    /// (voir <c>DungeonFloorGenerator</c>). La rareté de la créature choisie dépend du type de
+    /// rencontre (mini-boss/boss/boss légendaire = créatures plus rares), le tirage précis est
+    /// déterministe (mêmes graines que la génération de l'étage).
+    /// </summary>
+    public async Task<CombatSessionState> StartFromDungeonAsync(
+        int dungeonId, int floorNumber, int roomIndex, StartDungeonCombatRequest request, CancellationToken ct = default)
+    {
+        var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId, ct)
+            ?? throw new AccountOperationException("Donjon introuvable.");
+
+        var floor = DungeonFloorGenerator.GenerateFloor(dungeon.Seed, floorNumber);
+        var room = floor.Rooms.FirstOrDefault(r => r.Index == roomIndex)
+            ?? throw new AccountOperationException("Salle introuvable à cet étage.");
+
+        Rarity? requiredRarity = room.EncounterType switch
+        {
+            DungeonEncounterType.Monstre => null,
+            DungeonEncounterType.MiniBoss => Rarity.Rare,
+            DungeonEncounterType.Boss or DungeonEncounterType.BossLegendaire => Rarity.Legendaire,
+            _ => throw new AccountOperationException("Cette salle ne contient pas de monstre à combattre."),
+        };
+
+        var candidates = requiredRarity is { } rarity
+            ? await db.MonsterSpecies.Where(s => s.BaseRarity == rarity).ToListAsync(ct)
+            : await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun || s.BaseRarity == Rarity.PeuCommun).ToListAsync(ct);
+
+        if (candidates.Count == 0)
+        {
+            throw new AccountOperationException("Aucune créature disponible pour cette rencontre.");
+        }
+
+        var random = new Random(DungeonFloorGenerator.StableSeed(dungeon.Seed, floorNumber, roomIndex));
+        var species = candidates[random.Next(candidates.Count)];
+
+        return await StartAsync(new StartCombatRequest
+        {
+            SessionToken = request.SessionToken,
+            CharacterId = request.CharacterId,
+            MonsterIds = request.MonsterIds,
+            WildSpeciesId = species.Id,
+        }, ct);
     }
 
     public async Task<CombatSessionState> SubmitActionAsync(Guid combatId, CombatActionRequest request, CancellationToken ct = default)
