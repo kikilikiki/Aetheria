@@ -97,9 +97,14 @@ de gameplay.
    (Ping/Pong, EnterWorld, PlayerMove) vérifié de bout en bout sur un vrai socket.
    - ⬜ Monde partagé multi-joueurs (diffusion des positions, royaumes, instances de donjon) —
      arrive avec les systèmes de jeu (étape 7).
-5. ⬜ Launcher (UI de login/inscription branchée sur l'API compte, téléchargement, mises à jour).
+5. ✅ Launcher — WPF (`net10.0-windows`, MVVM via CommunityToolkit.Mvvm) : écran connexion/
+   inscription branché sur l'API compte, sélection de personnage, bouton Jouer qui lance
+   `Aetheria.Client.exe` avec le jeton de session en argument.
+   - ⬜ Téléchargement/mise à jour/réparation de fichiers : nécessite un serveur de
+     distribution de contenu qui n'existe pas encore — non implémenté plutôt que simulé.
 6. ⬜ Rendu de sprites + input (suite de l'étape 2).
-7. ⬜ Boucle jouable de base côté Client (sélection de royaume, connexion, grille de combat).
+7. ⬜ Boucle jouable de base côté Client (sélection de royaume, connexion, grille de combat) —
+   le Client lit déjà `--token`/`--characterId` conceptuellement ; le parsing reste à faire.
 8. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
    donjons procéduraux, succès, classements, saisons...).
 
