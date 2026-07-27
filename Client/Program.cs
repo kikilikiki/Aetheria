@@ -1,5 +1,7 @@
 using System.Numerics;
 using System.Text;
+using Aetheria.Client;
+using Aetheria.Client.Networking;
 using Aetheria.Engine.Core;
 using Aetheria.Engine.Input;
 using Aetheria.Engine.Rendering;
@@ -10,6 +12,75 @@ using Silk.NET.OpenGL;
 Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine($"{GameInfo.Name} Client v{GameInfo.Version}");
 
+var options = LaunchOptions.Parse(args);
+
+const float TileSize = 48f;
+const int GridSize = 8;
+
+var stateLock = new object();
+var gridPosition = new Vector2(GridSize / 2, GridSize / 2);
+var statusMessage = string.Empty;
+
+GameConnection? connection = null;
+
+if (options.SessionToken is not null && options.CharacterId is not null)
+{
+    Console.WriteLine($"Mode connecté : {options.Host}:{options.Port}, personnage {options.CharacterId}.");
+
+    connection = new GameConnection();
+    connection.EnterWorldAccepted += packet =>
+    {
+        lock (stateLock)
+        {
+            gridPosition = new Vector2(packet.PositionX, packet.PositionY);
+            statusMessage = "Connecté au monde.";
+        }
+
+        Console.WriteLine($"[Réseau] Entrée dans le monde acceptée en ({packet.PositionX}, {packet.PositionY}).");
+    };
+    connection.EnterWorldRejected += packet =>
+    {
+        lock (stateLock)
+        {
+            statusMessage = $"Connexion refusée : {packet.Reason}";
+        }
+
+        Console.WriteLine($"[Réseau] Entrée dans le monde refusée : {packet.Reason}");
+    };
+    connection.PositionUpdated += packet =>
+    {
+        lock (stateLock)
+        {
+            gridPosition = new Vector2(packet.PositionX, packet.PositionY);
+        }
+
+        Console.WriteLine($"[Réseau] Position confirmée : ({packet.PositionX}, {packet.PositionY}).");
+    };
+    connection.Disconnected += () =>
+    {
+        Console.WriteLine("[Réseau] Déconnecté du serveur.");
+        lock (stateLock)
+        {
+            statusMessage = "Déconnecté du serveur.";
+        }
+    };
+
+    try
+    {
+        connection.Connect(options.Host, options.Port);
+        connection.RequestEnterWorld(options.SessionToken, options.CharacterId.Value);
+    }
+    catch (Exception ex) when (ex is System.Net.Sockets.SocketException or IOException)
+    {
+        statusMessage = $"Impossible de se connecter au serveur : {ex.Message}";
+        connection = null;
+    }
+}
+else
+{
+    Console.WriteLine("Mode démo hors-ligne (lancez via le Launcher pour vous connecter au serveur).");
+}
+
 using var host = new GameHost($"{GameInfo.Name} — v{GameInfo.Version}", 1280, 720);
 
 SpriteBatch spriteBatch = null!;
@@ -17,11 +88,6 @@ Texture2D playerTexture = null!;
 Texture2D tileTexture = null!;
 KeyboardState keyboard = null!;
 var camera = new Camera2D { ViewportWidth = 1280, ViewportHeight = 720 };
-
-const float TileSize = 48f;
-const int GridSize = 8;
-var playerPosition = new Vector2(GridSize / 2 * TileSize, GridSize / 2 * TileSize);
-const float MoveSpeed = 220f;
 
 host.Load += () =>
 {
@@ -47,18 +113,45 @@ host.Update += deltaTime =>
 {
     keyboard.Update();
 
-    var direction = Vector2.Zero;
-    if (keyboard.IsDown(Key.W) || keyboard.IsDown(Key.Up)) direction.Y -= 1;
-    if (keyboard.IsDown(Key.S) || keyboard.IsDown(Key.Down)) direction.Y += 1;
-    if (keyboard.IsDown(Key.A) || keyboard.IsDown(Key.Left)) direction.X -= 1;
-    if (keyboard.IsDown(Key.D) || keyboard.IsDown(Key.Right)) direction.X += 1;
-
-    if (direction != Vector2.Zero)
+    if (connection is null)
     {
-        playerPosition += Vector2.Normalize(direction) * MoveSpeed * deltaTime;
-    }
+        // Mode démo : déplacement libre continu.
+        var direction = Vector2.Zero;
+        if (keyboard.IsDown(Key.W) || keyboard.IsDown(Key.Up)) direction.Y -= 1;
+        if (keyboard.IsDown(Key.S) || keyboard.IsDown(Key.Down)) direction.Y += 1;
+        if (keyboard.IsDown(Key.A) || keyboard.IsDown(Key.Left)) direction.X -= 1;
+        if (keyboard.IsDown(Key.D) || keyboard.IsDown(Key.Right)) direction.X += 1;
 
-    camera.Position = playerPosition;
+        if (direction != Vector2.Zero)
+        {
+            lock (stateLock)
+            {
+                gridPosition += Vector2.Normalize(direction) * (200f / TileSize) * deltaTime;
+            }
+        }
+    }
+    else
+    {
+        // Mode connecté : déplacement case par case, confirmé par le serveur (autoritaire).
+        var (dx, dy) = (0, 0);
+        if (keyboard.WasJustPressed(Key.W) || keyboard.WasJustPressed(Key.Up)) dy = -1;
+        else if (keyboard.WasJustPressed(Key.S) || keyboard.WasJustPressed(Key.Down)) dy = 1;
+        else if (keyboard.WasJustPressed(Key.A) || keyboard.WasJustPressed(Key.Left)) dx = -1;
+        else if (keyboard.WasJustPressed(Key.D) || keyboard.WasJustPressed(Key.Right)) dx = 1;
+
+        if (dx != 0 || dy != 0)
+        {
+            Vector2 current;
+            lock (stateLock)
+            {
+                current = gridPosition;
+            }
+
+            var targetX = Math.Clamp((int)current.X + dx, 0, GridSize - 1);
+            var targetY = Math.Clamp((int)current.Y + dy, 0, GridSize - 1);
+            connection.SendMove(targetX, targetY);
+        }
+    }
 };
 
 host.Render += _ =>
@@ -66,9 +159,17 @@ host.Render += _ =>
     host.Gl.ClearColor(0.06f, 0.06f, 0.09f, 1.0f);
     host.Gl.Clear(ClearBufferMask.ColorBufferBit);
 
+    Vector2 currentGridPosition;
+    lock (stateLock)
+    {
+        currentGridPosition = gridPosition;
+    }
+
+    var playerWorldPosition = currentGridPosition * TileSize;
+    camera.Position = playerWorldPosition;
+
     spriteBatch.Begin(camera);
 
-    // Grille de tuiles (aperçu du futur combat tactique — voir Docs/GameDesign.md).
     for (var y = 0; y < GridSize; y++)
     {
         for (var x = 0; x < GridSize; x++)
@@ -78,10 +179,12 @@ host.Render += _ =>
         }
     }
 
-    spriteBatch.Draw(playerTexture, playerPosition - new Vector2(TileSize / 4, TileSize / 4),
+    spriteBatch.Draw(playerTexture, playerWorldPosition - new Vector2(TileSize / 4, TileSize / 4),
         new Vector2(TileSize / 2, TileSize / 2), Vector4.One);
 
     spriteBatch.End();
 };
 
 host.Run();
+
+connection?.Dispose();

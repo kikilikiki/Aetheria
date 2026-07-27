@@ -104,12 +104,19 @@ de gameplay.
    `Aetheria.Client.exe` avec le jeton de session en argument.
    - ⬜ Téléchargement/mise à jour/réparation de fichiers : nécessite un serveur de
      distribution de contenu qui n'existe pas encore — non implémenté plutôt que simulé.
-6. 🔶 Boucle jouable de base côté Client : le Client affiche déjà une grille tactique de
-   démonstration (damier + sprite déplaçable au clavier WASD/flèches) via le moteur — vérifié en
-   lançant l'exécutable (aucune exception, "Moteur initialisé" confirmé). Reste à faire :
-   parsing de `--token`/`--characterId`, connexion réelle au Server, sélection de royaume.
-7. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
-   donjons procéduraux, succès, classements, saisons...).
+6. ✅ Boucle jouable de base côté Client — `Client/LaunchOptions` (parsing `--token`/
+   `--characterId`/`--host`/`--port`) + `Client/Networking/GameConnection` (TCP vers Server,
+   thread de réception dédié). Deux modes :
+   - Sans jeton (lancement direct, dev) : démo hors-ligne, déplacement libre continu.
+   - Avec jeton (lancé par le Launcher) : connexion réelle au Server, `EnterWorldRequest`,
+     déplacement case par case confirmé par le serveur (autoritaire).
+   - **Vérifié de bout en bout sur un vrai serveur** : inscription → connexion → jeton →
+     lancement du Client avec `--token`/--characterId` → connexion TCP → refus attendu
+     (`Personnage introuvable pour ce compte.`) reçu et affiché — la boucle complète
+     Launcher→Server→Client fonctionne, seule la création de personnage manque encore
+     pour un accès accepté (arrive avec les systèmes de jeu, étape 7).
+7. ⬜ Systèmes de jeu ajoutés progressivement (création de personnage, combat tactique,
+   capture, métiers, guildes, donjons procéduraux, succès, classements, saisons...).
 
 > **Limite de vérification connue :** je peux confirmer par les logs et l'absence de plantage
 > qu'un rendu s'exécute sans erreur, mais je n'ai pas d'outil pour capturer une image de la
