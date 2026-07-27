@@ -1,5 +1,6 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +9,8 @@ namespace Aetheria.Server.Persistence;
 /// <summary>Création de personnage (voir <c>Docs/GameDesign.md</c> — "Au début du jeu, chaque joueur choisit un royaume").</summary>
 public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tokenStore)
 {
+    private const int StarterCaptureSphereCount = 3;
+
     public async Task<CharacterSummary> CreateAsync(CreateCharacterRequest request, CancellationToken ct = default)
     {
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
@@ -36,6 +39,19 @@ public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tok
             Id = Guid.NewGuid(),
             CharacterId = character.Id,
         });
+
+        // Kit de départ : de quoi capturer sa première créature sans attendre un métier/HDV.
+        var captureSphere = await db.Items.FirstOrDefaultAsync(i => i.ItemType == ItemType.ObjetDeCapture, ct);
+        if (captureSphere is not null)
+        {
+            db.InventoryItems.Add(new InventoryItemEntity
+            {
+                Id = Guid.NewGuid(),
+                CharacterId = character.Id,
+                ItemId = captureSphere.Id,
+                Quantity = StarterCaptureSphereCount,
+            });
+        }
 
         await db.SaveChangesAsync(ct);
 

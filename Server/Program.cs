@@ -3,7 +3,9 @@ using System.Text.Json.Serialization;
 using Aetheria.Database.Context;
 using Aetheria.Server.Networking;
 using Aetheria.Server.Persistence;
+using Aetheria.Server.World;
 using Aetheria.Shared;
+using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -64,6 +66,7 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     }
 
     await DatabaseSeeder.SeedAsync(db);
+    await MonsterCatalogSeeder.SeedAsync(db);
 }
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
@@ -109,6 +112,29 @@ app.MapPost("/api/characters", async (CreateCharacterRequest request) =>
     {
         var summary = await characterService.CreateAsync(request);
         return Results.Ok(summary);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/monsters/species", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var species = await db.MonsterSpecies.ToListAsync();
+    return Results.Ok(species);
+});
+
+app.MapPost("/api/monsters/capture", async (CaptureAttemptRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var captureService = new CaptureService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        var result = await captureService.AttemptCaptureAsync(request);
+        return Results.Ok(result);
     }
     catch (AccountOperationException ex)
     {

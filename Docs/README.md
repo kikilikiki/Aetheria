@@ -117,8 +117,23 @@ de gameplay.
 7. 🔶 Systèmes de jeu (voir `Server/Persistence` et `Server/World`) :
    - ✅ Création de personnage (`CharacterService`, `POST /api/characters`) — débloque le
      test ci-dessus.
-   - ⬜ Combat tactique, capture, métiers, guildes, donjons procéduraux, succès,
-     classements, saisons.
+   - ✅ Catalogue de monstres + capture (`MonsterSpeciesEntity`, `CaptureService`,
+     `POST /api/monsters/capture`, `GET /api/monsters/species`) : 5 espèces de démarrage
+     (une par royaume + une légendaire), objet "Sphère de capture" offert à la création de
+     personnage. La formule de réussite dépend de la vie restante simulée du monstre
+     (`TargetHealthPercent`) et de sa rareté — **le combat tactique lui-même n'existe pas
+     encore**, ce endpoint prend son résultat en entrée plutôt que de le simuler.
+     Vérifié de bout en bout : capture échouée à haute vie, réussie à vie basse, objet de
+     capture bien consommé (409 une fois l'inventaire épuisé).
+   - ⬜ Combat tactique, métiers, guildes, donjons procéduraux, succès, classements, saisons.
+
+> **Piège rencontré et corrigé :** `ComplexProperty` (EF Core 8+, utilisé pour mapper
+> `StatBlock` en un seul bloc) fait planter le fournisseur InMemory sur certaines requêtes
+> (`KeyNotFoundException` interne). Corrigé en aplatissant `StatBlock` en colonnes scalaires
+> (`Base*`/`StatBonus*`) avec une propriété `[NotMapped]` de confort — voir `ItemEntity` et
+> `MonsterSpeciesEntity`. Non re-testé sur PostgreSQL réel (indisponible dans cet
+> environnement), mais l'approche par colonnes scalaires est de toute façon la plus
+> largement compatible entre fournisseurs EF Core.
 
 > **Limite de vérification connue :** je peux confirmer par les logs et l'absence de plantage
 > qu'un rendu s'exécute sans erreur, mais je n'ai pas d'outil pour capturer une image de la

@@ -23,6 +23,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<CharacterQuestProgressEntity> CharacterQuestProgress => Set<CharacterQuestProgressEntity>();
     public DbSet<CollectionEntity> Collections => Set<CollectionEntity>();
     public DbSet<LeaderboardEntity> Leaderboard => Set<LeaderboardEntity>();
+    public DbSet<MonsterSpeciesEntity> MonsterSpecies => Set<MonsterSpeciesEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,9 +77,6 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
 
         modelBuilder.Entity<ItemEntity>(item =>
         {
-            // StatBlock est un struct (record struct) : ComplexProperty (EF Core 8+) plutôt
-            // que OwnsOne, réservé aux types référence.
-            item.ComplexProperty(i => i.StatBonus);
             item.Property(i => i.ItemType).HasConversion<string>();
             item.Property(i => i.Rarity).HasConversion<string>();
         });
@@ -137,6 +135,12 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
 
             leaderboard.HasIndex(l => new { l.Category, l.Score });
             leaderboard.Property(l => l.Category).HasConversion<string>();
+        });
+
+        modelBuilder.Entity<MonsterSpeciesEntity>(species =>
+        {
+            species.Property(s => s.Element).HasConversion<string>();
+            species.Property(s => s.BaseRarity).HasConversion<string>();
         });
     }
 }

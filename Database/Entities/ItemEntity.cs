@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 
@@ -15,7 +16,29 @@ public sealed class ItemEntity
     public ItemType ItemType { get; set; }
     public Rarity Rarity { get; set; } = Rarity.Commun;
 
-    public StatBlock StatBonus { get; set; } = StatBlock.Zero;
+    // Colonnes scalaires plutôt qu'un ComplexProperty : le fournisseur EF Core InMemory (utilisé
+    // en dev sans PostgreSQL) plante sur les complex types dans certaines requêtes (bug connu).
+    public int StatBonusHealth { get; set; }
+    public int StatBonusAttack { get; set; }
+    public int StatBonusDefense { get; set; }
+    public int StatBonusSpeed { get; set; }
+    public int StatBonusIntelligence { get; set; }
+    public int StatBonusResistance { get; set; }
+
+    [NotMapped]
+    public StatBlock StatBonus
+    {
+        get => new(StatBonusHealth, StatBonusAttack, StatBonusDefense, StatBonusSpeed, StatBonusIntelligence, StatBonusResistance);
+        set
+        {
+            StatBonusHealth = value.Health;
+            StatBonusAttack = value.Attack;
+            StatBonusDefense = value.Defense;
+            StatBonusSpeed = value.Speed;
+            StatBonusIntelligence = value.Intelligence;
+            StatBonusResistance = value.Resistance;
+        }
+    }
 
     public bool IsStackable { get; set; } = true;
     public int MaxStackSize { get; set; } = 99;

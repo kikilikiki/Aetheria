@@ -22,14 +22,14 @@ namespace Aetheria.Database.Migrations
                     Description = table.Column<string>(type: "text", nullable: false),
                     ItemType = table.Column<string>(type: "text", nullable: false),
                     Rarity = table.Column<string>(type: "text", nullable: false),
+                    StatBonusHealth = table.Column<int>(type: "integer", nullable: false),
+                    StatBonusAttack = table.Column<int>(type: "integer", nullable: false),
+                    StatBonusDefense = table.Column<int>(type: "integer", nullable: false),
+                    StatBonusSpeed = table.Column<int>(type: "integer", nullable: false),
+                    StatBonusIntelligence = table.Column<int>(type: "integer", nullable: false),
+                    StatBonusResistance = table.Column<int>(type: "integer", nullable: false),
                     IsStackable = table.Column<bool>(type: "boolean", nullable: false),
-                    MaxStackSize = table.Column<int>(type: "integer", nullable: false),
-                    StatBonus_Attack = table.Column<int>(type: "integer", nullable: false),
-                    StatBonus_Defense = table.Column<int>(type: "integer", nullable: false),
-                    StatBonus_Health = table.Column<int>(type: "integer", nullable: false),
-                    StatBonus_Intelligence = table.Column<int>(type: "integer", nullable: false),
-                    StatBonus_Resistance = table.Column<int>(type: "integer", nullable: false),
-                    StatBonus_Speed = table.Column<int>(type: "integer", nullable: false)
+                    MaxStackSize = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -49,6 +49,31 @@ namespace Aetheria.Database.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Kingdoms", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "MonsterSpecies",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Element = table.Column<string>(type: "text", nullable: false),
+                    BaseRarity = table.Column<string>(type: "text", nullable: false),
+                    Habitat = table.Column<string>(type: "text", nullable: false),
+                    Lore = table.Column<string>(type: "text", nullable: false),
+                    BaseHealth = table.Column<int>(type: "integer", nullable: false),
+                    BaseAttack = table.Column<int>(type: "integer", nullable: false),
+                    BaseDefense = table.Column<int>(type: "integer", nullable: false),
+                    BaseSpeed = table.Column<int>(type: "integer", nullable: false),
+                    BaseIntelligence = table.Column<int>(type: "integer", nullable: false),
+                    BaseResistance = table.Column<int>(type: "integer", nullable: false),
+                    EvolvesIntoSpeciesId = table.Column<int>(type: "integer", nullable: true),
+                    EvolutionLevel = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_MonsterSpecies", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -433,6 +458,9 @@ namespace Aetheria.Database.Migrations
 
             migrationBuilder.DropTable(
                 name: "Monsters");
+
+            migrationBuilder.DropTable(
+                name: "MonsterSpecies");
 
             migrationBuilder.DropTable(
                 name: "Statistics");
