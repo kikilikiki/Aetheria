@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Aetheria.AdminPanel : outils d'administration (gestion joueurs, statistiques, bannissements). -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aetheria.AdminPanel</RootNamespace>
+    <AssemblyName>Aetheria.AdminPanel</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\Aetheria.Shared.csproj" />
+    <ProjectReference Include="..\Database\Aetheria.Database.csproj" />
+  </ItemGroup>
+
+</Project>

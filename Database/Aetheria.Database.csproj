@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Aetheria.Database : accès aux données via Entity Framework Core (entités, migrations, DbContext). -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aetheria.Database</RootNamespace>
+    <AssemblyName>Aetheria.Database</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\Aetheria.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

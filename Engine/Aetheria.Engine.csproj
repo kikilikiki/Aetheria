@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Aetheria.Engine : moteur de jeu maison (rendu, ECS, physique, input, boucle de jeu). -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aetheria.Engine</RootNamespace>
+    <AssemblyName>Aetheria.Engine</AssemblyName>
+  </PropertyGroup>
+
+</Project>

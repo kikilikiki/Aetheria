@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Aetheria.Client : jeu joueur (rendu, interface, combats, exploration) basé sur Aetheria.Engine. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aetheria.Client</RootNamespace>
+    <AssemblyName>Aetheria.Client</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Engine\Aetheria.Engine.csproj" />
+    <ProjectReference Include="..\Shared\Aetheria.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

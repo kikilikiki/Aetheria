@@ -1,0 +1,36 @@
+<Project>
+
+  <!--
+    Fichier de configuration MSBuild partagé par TOUS les projets de la solution Aetheria.
+    Toute propriété définie ici s'applique automatiquement à chaque .csproj du dépôt,
+    sans avoir besoin de la répéter dans chaque projet.
+  -->
+
+  <PropertyGroup>
+    <!-- Version du langage et du framework cible pour l'ensemble du projet -->
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Qualité de code -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+
+    <!-- Métadonnées communes des assemblies -->
+    <Company>Aetheria Studio</Company>
+    <Product>Aetheria</Product>
+    <Copyright>Copyright © Aetheria Studio</Copyright>
+    <Authors>Aetheria Studio</Authors>
+    <NeutralLanguage>fr</NeutralLanguage>
+
+    <!-- Génère les fichiers exécutables/bibliothèques dans un dossier de sortie prévisible -->
+    <BaseOutputPath>$(MSBuildThisFileDirectory)build\bin\$(MSBuildProjectName)\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)build\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+
+    <!-- Permet de générer des exécutables Windows autonomes (voir README de déploiement) -->
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+</Project>

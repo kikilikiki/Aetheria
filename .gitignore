@@ -1,0 +1,28 @@
+# Sorties de compilation (redirigées vers build/ par Directory.Build.props)
+build/
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Fichiers de publication
+publish/
+*.pubxml.user
+
+# Base de données locale / secrets
+*.db
+*.db-shm
+*.db-wal
+appsettings.*.local.json
+.env
+
+# Divers OS
+.DS_Store
+Thumbs.db
+
+# Configuration locale des outils (Claude Code, etc.)
+.claude/

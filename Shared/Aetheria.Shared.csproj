@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Aetheria.Shared : modèles, protocole réseau et contrats communs à Client, Server, Launcher, etc. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aetheria.Shared</RootNamespace>
+    <AssemblyName>Aetheria.Shared</AssemblyName>
+  </PropertyGroup>
+
+</Project>
