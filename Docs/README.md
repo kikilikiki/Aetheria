@@ -84,11 +84,13 @@ Priorité choisie : consolider les fondations techniques (moteur + serveur) avan
 de gameplay.
 
 1. ✅ Solution Visual Studio + tous les projets C# + architecture.
-2. 🔶 Moteur — fenêtre + boucle de jeu + ECS.
+2. ✅ Moteur — fenêtre + boucle de jeu + ECS + rendu + input.
    - ✅ `Engine.ECS` : `World`, `Entity`, `ComponentPool<T>`, `ISystem` (voir `Engine/ECS/`).
    - ✅ `Engine.Core.GameHost` : fenêtre + contexte OpenGL via Silk.NET (voir `Engine/Core/`).
-   - ⬜ Rendu de sprites (batching, textures, caméra 2D) dans `Engine/Rendering/`.
-   - ⬜ Système d'input (clavier/souris) dans `Engine/Input/`.
+   - ✅ `Engine.Rendering` : `Shader`, `Texture2D` (via StbImageSharp), `Camera2D` orthographique,
+     `SpriteBatch` (batching par texture, VAO/VBO/EBO dynamiques) — voir `Engine/Rendering/`.
+   - ✅ `Engine.Input` : `KeyboardState` (polling + détection "vient d'être pressée"),
+     `MouseState`, exposés via `GameHost.Input` — voir `Engine/Input/`.
 3. ✅ Base de données — `AetheriaDbContext` EF Core, 12 tables du GDD + migration `InitialCreate`
    (voir `Database/`). PostgreSQL en production, base en mémoire en dev si
    `AETHERIA_DB_CONNECTION` n'est pas défini.
@@ -102,11 +104,17 @@ de gameplay.
    `Aetheria.Client.exe` avec le jeton de session en argument.
    - ⬜ Téléchargement/mise à jour/réparation de fichiers : nécessite un serveur de
      distribution de contenu qui n'existe pas encore — non implémenté plutôt que simulé.
-6. ⬜ Rendu de sprites + input (suite de l'étape 2).
-7. ⬜ Boucle jouable de base côté Client (sélection de royaume, connexion, grille de combat) —
-   le Client lit déjà `--token`/`--characterId` conceptuellement ; le parsing reste à faire.
-8. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
+6. 🔶 Boucle jouable de base côté Client : le Client affiche déjà une grille tactique de
+   démonstration (damier + sprite déplaçable au clavier WASD/flèches) via le moteur — vérifié en
+   lançant l'exécutable (aucune exception, "Moteur initialisé" confirmé). Reste à faire :
+   parsing de `--token`/`--characterId`, connexion réelle au Server, sélection de royaume.
+7. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
    donjons procéduraux, succès, classements, saisons...).
+
+> **Limite de vérification connue :** je peux confirmer par les logs et l'absence de plantage
+> qu'un rendu s'exécute sans erreur, mais je n'ai pas d'outil pour capturer une image de la
+> fenêtre native et vérifier visuellement le résultat pixel par pixel — à valider par un humain
+> en lançant `Aetheria.Client.exe`.
 
 Dépendance graphique du moteur : **Silk.NET** (Windowing + OpenGL + Input + Maths), choisie
 pour ses bindings modernes activement maintenus par la communauté .NET et son bon écosystème

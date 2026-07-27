@@ -1,3 +1,4 @@
+using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
@@ -15,6 +16,9 @@ public sealed class GameHost : IDisposable
 
     /// <summary>Contexte OpenGL, disponible une fois <see cref="Load"/> déclenché.</summary>
     public GL Gl { get; private set; } = null!;
+
+    /// <summary>Contexte clavier/souris, disponible une fois <see cref="Load"/> déclenché.</summary>
+    public IInputContext Input { get; private set; } = null!;
 
     /// <summary>Déclenché une seule fois quand la fenêtre et le contexte OpenGL sont prêts.</summary>
     public event Action? Load;
@@ -49,6 +53,7 @@ public sealed class GameHost : IDisposable
     private void OnLoad()
     {
         Gl = GL.GetApi(_window);
+        Input = _window.CreateInput();
         Load?.Invoke();
     }
 
