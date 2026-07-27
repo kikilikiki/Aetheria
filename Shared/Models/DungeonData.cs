@@ -1,0 +1,15 @@
+namespace Aetheria.Shared.Models;
+
+/// <summary>
+/// Description d'un donjon (une région entière). La génération procédurale des étages se
+/// fait à partir de <see cref="Seed"/> (voir Server/World et <c>Docs/GameDesign.md</c> —
+/// section Donjons : mini-boss tous les 10 étages, boss tous les 50, boss légendaire tous les 100).
+/// </summary>
+public sealed class DungeonData
+{
+    public required int Id { get; init; }
+    public required string Name { get; init; }
+    public required int KingdomId { get; init; }
+    public string Description { get; init; } = string.Empty;
+    public int Seed { get; init; }
+}
