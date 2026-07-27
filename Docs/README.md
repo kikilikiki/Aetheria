@@ -80,13 +80,25 @@ projets de type application (`Client`, `Server`, `Launcher`, `MapEditor`, `Monst
 
 ## Feuille de route (suivie étape par étape)
 
-1. ✅ Solution Visual Studio + tous les projets C# + architecture (ce document).
-2. ⬜ Launcher (login, inscription, téléchargement, mises à jour, vérification d'intégrité).
-3. ⬜ Système de compte joueur (inscription/connexion, hash mot de passe, tokens, sessions).
-4. ⬜ Serveur (réseau TCP, monde persistant, synchronisation).
-5. ⬜ Moteur (fenêtre, boucle de jeu, rendu, ECS, input).
-6. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
+Priorité choisie : consolider les fondations techniques (moteur + serveur) avant les systèmes
+de gameplay.
+
+1. ✅ Solution Visual Studio + tous les projets C# + architecture.
+2. 🔶 Moteur — fenêtre + boucle de jeu + ECS.
+   - ✅ `Engine.ECS` : `World`, `Entity`, `ComponentPool<T>`, `ISystem` (voir `Engine/ECS/`).
+   - ✅ `Engine.Core.GameHost` : fenêtre + contexte OpenGL via Silk.NET (voir `Engine/Core/`).
+   - ⬜ Rendu de sprites (batching, textures, caméra 2D) dans `Engine/Rendering/`.
+   - ⬜ Système d'input (clavier/souris) dans `Engine/Input/`.
+3. ⬜ Serveur — écoute TCP, sessions, boucle de simulation (`Server/Networking`, `Server/World`).
+4. ⬜ Base de données — DbContext EF Core + entités + première migration (`Database/`).
+5. ⬜ Launcher (login, inscription, téléchargement, mises à jour, vérification d'intégrité).
+6. ⬜ Système de compte joueur (inscription/connexion, hash mot de passe, tokens, sessions).
+7. ⬜ Systèmes de jeu ajoutés progressivement (combat tactique, capture, métiers, guildes,
    donjons procéduraux, succès, classements, saisons...).
+
+Dépendance graphique du moteur : **Silk.NET** (Windowing + OpenGL + Input + Maths), choisie
+pour ses bindings modernes activement maintenus par la communauté .NET et son bon écosystème
+de documentation en C#. Voir `Engine/Aetheria.Engine.csproj` pour les versions exactes.
 
 ## Compiler le projet
 
