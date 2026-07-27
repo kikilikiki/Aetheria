@@ -125,7 +125,15 @@ de gameplay.
      encore**, ce endpoint prend son résultat en entrée plutôt que de le simuler.
      Vérifié de bout en bout : capture échouée à haute vie, réussie à vie basse, objet de
      capture bien consommé (409 une fois l'inventaire épuisé).
-   - ⬜ Combat tactique, métiers, guildes, donjons procéduraux, succès, classements, saisons.
+   - ✅ Donjons procéduraux (`DungeonEntity`, `DungeonFloorGenerator`,
+     `GET /api/dungeons`, `GET /api/dungeons/{id}/floors/{n}`) : 5 donjons de démarrage
+     (repris du GDD), génération déterministe des salles par étage (seed du donjon + numéro
+     d'étage), mini-boss/boss/boss légendaire garantis tous les 10/50/100 étages.
+     **La disposition spatiale (grille, corridors) n'existe pas encore** — seule la séquence
+     de rencontres est générée ; le placement visuel est un travail Client/MapEditor à venir.
+     Vérifié : étages normaux variés, jalons exacts aux étages 10/50/100, déterminisme
+     confirmé (même étage redemandé → contenu identique).
+   - ⬜ Combat tactique, métiers, guildes, succès, classements, saisons.
 
 > **Piège rencontré et corrigé :** `ComplexProperty` (EF Core 8+, utilisé pour mapper
 > `StatBlock` en un seul bloc) fait planter le fournisseur InMemory sur certaines requêtes

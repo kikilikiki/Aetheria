@@ -111,6 +111,28 @@ namespace Aetheria.Database.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Dungeons",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    KingdomId = table.Column<int>(type: "integer", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Seed = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Dungeons", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Dungeons_Kingdoms_KingdomId",
+                        column: x => x.KingdomId,
+                        principalTable: "Kingdoms",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Achievements",
                 columns: table => new
                 {
@@ -384,6 +406,11 @@ namespace Aetheria.Database.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Dungeons_KingdomId",
+                table: "Dungeons",
+                column: "KingdomId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Guilds_LeaderCharacterId",
                 table: "Guilds",
                 column: "LeaderCharacterId");
@@ -445,13 +472,13 @@ namespace Aetheria.Database.Migrations
                 name: "Collections");
 
             migrationBuilder.DropTable(
+                name: "Dungeons");
+
+            migrationBuilder.DropTable(
                 name: "Guilds");
 
             migrationBuilder.DropTable(
                 name: "Inventory");
-
-            migrationBuilder.DropTable(
-                name: "Kingdoms");
 
             migrationBuilder.DropTable(
                 name: "Leaderboard");
@@ -467,6 +494,9 @@ namespace Aetheria.Database.Migrations
 
             migrationBuilder.DropTable(
                 name: "Quests");
+
+            migrationBuilder.DropTable(
+                name: "Kingdoms");
 
             migrationBuilder.DropTable(
                 name: "Items");

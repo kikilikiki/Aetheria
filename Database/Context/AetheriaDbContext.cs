@@ -24,6 +24,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<CollectionEntity> Collections => Set<CollectionEntity>();
     public DbSet<LeaderboardEntity> Leaderboard => Set<LeaderboardEntity>();
     public DbSet<MonsterSpeciesEntity> MonsterSpecies => Set<MonsterSpeciesEntity>();
+    public DbSet<DungeonEntity> Dungeons => Set<DungeonEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -142,5 +143,11 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             species.Property(s => s.Element).HasConversion<string>();
             species.Property(s => s.BaseRarity).HasConversion<string>();
         });
+
+        modelBuilder.Entity<DungeonEntity>()
+            .HasOne(d => d.Kingdom)
+            .WithMany()
+            .HasForeignKey(d => d.KingdomId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -67,6 +67,7 @@ await using (var db = await dbFactory.CreateDbContextAsync())
 
     await DatabaseSeeder.SeedAsync(db);
     await MonsterCatalogSeeder.SeedAsync(db);
+    await DungeonSeeder.SeedAsync(db);
 }
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
@@ -140,6 +141,31 @@ app.MapPost("/api/monsters/capture", async (CaptureAttemptRequest request) =>
     {
         return Results.Conflict(new ApiError { Message = ex.Message });
     }
+});
+
+app.MapGet("/api/dungeons", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var dungeons = await db.Dungeons.ToListAsync();
+    return Results.Ok(dungeons);
+});
+
+app.MapGet("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}", async (int dungeonId, int floorNumber) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId);
+    if (dungeon is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Donjon introuvable." });
+    }
+
+    if (floorNumber <= 0)
+    {
+        return Results.BadRequest(new ApiError { Message = "Le numéro d'étage doit être positif." });
+    }
+
+    var floor = DungeonFloorGenerator.GenerateFloor(dungeon.Seed, floorNumber);
+    return Results.Ok(floor);
 });
 
 using var shutdownCts = new CancellationTokenSource();

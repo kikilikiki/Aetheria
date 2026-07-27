@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Aetheria.Database.Migrations
 {
     [DbContext(typeof(AetheriaDbContext))]
-    [Migration("20260727100453_InitialCreate")]
+    [Migration("20260727101009_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -139,6 +139,35 @@ namespace Aetheria.Database.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Collections");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.DungeonEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("KingdomId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Seed")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KingdomId");
+
+                    b.ToTable("Dungeons");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.GuildEntity", b =>
@@ -542,6 +571,17 @@ namespace Aetheria.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.DungeonEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.KingdomEntity", "Kingdom")
+                        .WithMany()
+                        .HasForeignKey("KingdomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Kingdom");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.GuildEntity", b =>
