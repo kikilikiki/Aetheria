@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using Aetheria.Database.Context;
 using Aetheria.Server.Networking;
 using Aetheria.Server.Persistence;
@@ -33,6 +34,11 @@ builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 
 builder.Services.AddSingleton<SessionTokenStore>();
 builder.WebHost.UseUrls($"http://0.0.0.0:{GameInfo.DefaultAccountApiPort}");
+
+// Enums échangés en toutes lettres ("Guerrier", "Feu", ...) plutôt qu'en entiers opaques :
+// plus lisible pour tout client de l'API (Launcher, outils d'admin, tests manuels).
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 var app = builder.Build();
 
@@ -91,6 +97,22 @@ app.MapPost("/api/account/login", async (LoginRequest request) =>
     catch (AccountOperationException ex)
     {
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+});
+
+app.MapPost("/api/characters", async (CreateCharacterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var characterService = new CharacterService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        var summary = await characterService.CreateAsync(request);
+        return Results.Ok(summary);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
     }
 });
 

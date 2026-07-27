@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:Aetheria.Launcher"
         mc:Ignorable="d"
         Title="{Binding Title}"
-        Height="560" Width="420"
+        Height="700" Width="420"
         WindowStartupLocation="CenterScreen"
         Background="#101116"
         ResizeMode="CanMinimize">
@@ -48,7 +48,7 @@
         <StackPanel Grid.Row="1" x:Name="CharacterPanel"
                     Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="Choisissez votre personnage" Foreground="#A0A0B0" Margin="0,0,0,8" />
-            <ListBox ItemsSource="{Binding Characters}" SelectedItem="{Binding SelectedCharacter}" Height="280">
+            <ListBox ItemsSource="{Binding Characters}" SelectedItem="{Binding SelectedCharacter}" Height="160">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Name}" FontSize="14" />
@@ -56,10 +56,25 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
                 <Button Content="Jouer" Command="{Binding PlayCommand}" Padding="24,10" Margin="0,0,8,0" FontWeight="Bold" />
                 <Button Content="Déconnexion" Command="{Binding LogoutCommand}" Padding="16,10" />
             </StackPanel>
+
+            <Separator Margin="0,20,0,12" />
+
+            <TextBlock Text="Créer un nouveau personnage" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+
+            <TextBlock Text="Nom" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding NewCharacterName, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10" />
+
+            <TextBlock Text="Classe" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <ComboBox ItemsSource="{Binding AvailableClasses}" SelectedItem="{Binding SelectedClass}" Padding="6" Margin="0,0,0,10" />
+
+            <TextBlock Text="Royaume" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <ComboBox ItemsSource="{Binding AvailableKingdoms}" SelectedItem="{Binding SelectedKingdom}" Padding="6" Margin="0,0,0,12" />
+
+            <Button Content="Créer un personnage" Command="{Binding CreateCharacterCommand}" Padding="16,8" HorizontalAlignment="Center" />
         </StackPanel>
 
         <StackPanel Grid.Row="2" Margin="0,16,0,0">

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Aetheria.Launcher.Services;
 using Aetheria.Shared;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -43,7 +44,20 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private CharacterSummary? _selectedCharacter;
 
+    [ObservableProperty]
+    private string _newCharacterName = string.Empty;
+
+    [ObservableProperty]
+    private CharacterClass _selectedClass = CharacterClass.Guerrier;
+
+    [ObservableProperty]
+    private KingdomType _selectedKingdom = KingdomType.Feu;
+
     public ObservableCollection<CharacterSummary> Characters { get; } = new();
+
+    public IReadOnlyList<CharacterClass> AvailableClasses { get; } = Enum.GetValues<CharacterClass>();
+
+    public IReadOnlyList<KingdomType> AvailableKingdoms { get; } = Enum.GetValues<KingdomType>();
 
     [RelayCommand]
     private async Task Register()
@@ -88,7 +102,7 @@ public sealed partial class MainViewModel : ObservableObject
             SelectedCharacter = Characters.FirstOrDefault();
             IsLoggedIn = true;
             StatusMessage = Characters.Count == 0
-                ? "Connecté. Aucun personnage : la création de personnage arrive dans une prochaine étape."
+                ? "Connecté. Créez votre premier personnage ci-dessous."
                 : null;
         }
         finally
@@ -108,6 +122,39 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = null;
     }
 
+    private bool CanCreateCharacter() => SessionToken is not null && NewCharacterName.Trim().Length >= 3;
+
+    [RelayCommand(CanExecute = nameof(CanCreateCharacter))]
+    private async Task CreateCharacter()
+    {
+        if (SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _accountApi.CreateCharacterAsync(SessionToken, NewCharacterName.Trim(), SelectedClass, SelectedKingdom);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            Characters.Add(result.Value!);
+            SelectedCharacter = result.Value;
+            NewCharacterName = string.Empty;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    partial void OnNewCharacterNameChanged(string value) => CreateCharacterCommand.NotifyCanExecuteChanged();
+
     private bool CanPlay() => SelectedCharacter is not null && SessionToken is not null;
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
@@ -126,5 +173,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnSelectedCharacterChanged(CharacterSummary? value) => PlayCommand.NotifyCanExecuteChanged();
 
-    partial void OnSessionTokenChanged(string? value) => PlayCommand.NotifyCanExecuteChanged();
+    partial void OnSessionTokenChanged(string? value)
+    {
+        PlayCommand.NotifyCanExecuteChanged();
+        CreateCharacterCommand.NotifyCanExecuteChanged();
+    }
 }

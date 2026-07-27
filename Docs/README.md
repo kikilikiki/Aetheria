@@ -110,13 +110,15 @@ de gameplay.
    - Sans jeton (lancement direct, dev) : démo hors-ligne, déplacement libre continu.
    - Avec jeton (lancé par le Launcher) : connexion réelle au Server, `EnterWorldRequest`,
      déplacement case par case confirmé par le serveur (autoritaire).
-   - **Vérifié de bout en bout sur un vrai serveur** : inscription → connexion → jeton →
-     lancement du Client avec `--token`/--characterId` → connexion TCP → refus attendu
-     (`Personnage introuvable pour ce compte.`) reçu et affiché — la boucle complète
-     Launcher→Server→Client fonctionne, seule la création de personnage manque encore
-     pour un accès accepté (arrive avec les systèmes de jeu, étape 7).
-7. ⬜ Systèmes de jeu ajoutés progressivement (création de personnage, combat tactique,
-   capture, métiers, guildes, donjons procéduraux, succès, classements, saisons...).
+   - **Vérifié de bout en bout sur un vrai serveur**, refus ET acceptation : inscription →
+     connexion → création de personnage → lancement du Client avec `--token`/`--characterId`
+     → connexion TCP → `EnterWorldAccepted` reçu et affiché (`Entrée dans le monde acceptée
+     en (0, 0)`). La boucle complète Launcher→Server→Database→Client fonctionne réellement.
+7. 🔶 Systèmes de jeu (voir `Server/Persistence` et `Server/World`) :
+   - ✅ Création de personnage (`CharacterService`, `POST /api/characters`) — débloque le
+     test ci-dessus.
+   - ⬜ Combat tactique, capture, métiers, guildes, donjons procéduraux, succès,
+     classements, saisons.
 
 > **Limite de vérification connue :** je peux confirmer par les logs et l'absence de plantage
 > qu'un rendu s'exécute sans erreur, mais je n'ai pas d'outil pour capturer une image de la
