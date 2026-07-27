@@ -4,6 +4,10 @@ MMORPG tactique (combats sur grille façon Dofus + capture/collection façon Pok
 donjons procéduraux rogue-lite) développé entièrement en C#, avec un moteur de jeu maison
 (aucun moteur tiers type Unity/Unreal).
 
+Pour la vision complète du jeu (univers, royaumes, monstres, combats, donjons, métiers,
+guildes, succès, classements, saisons...), voir le
+[Document de conception](GameDesign.md).
+
 ## Architecture du dépôt
 
 ```
@@ -40,6 +44,11 @@ Aetheria/
 │   └── Migrations/               Migrations EF Core (générées automatiquement)
 └── Docs/                         Documentation (ce dossier)
 ```
+
+> **Planifié (hors solution .NET) :** `Sites/` — site web public permettant de télécharger le
+> launcher (`AetheriaInstaller.exe`). Ce sera un projet séparé (site statique ou ASP.NET),
+> non inclus dans `Aetheria.sln` car il ne partage pas de code avec le jeu. À construire une
+> fois le Launcher fonctionnel.
 
 ## Graphe de dépendances entre projets
 
