@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using Aetheria.Database.Context;
+using Aetheria.Database.Entities;
 using Aetheria.Server.Networking;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World;
@@ -137,7 +138,68 @@ app.MapGet("/api/monsters/species", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var species = await db.MonsterSpecies.ToListAsync();
-    return Results.Ok(species);
+    return Results.Ok(species.Select(ToSpeciesData));
+});
+
+// CRUD destiné au MonsterEditor. Expose Shared.Models.MonsterSpeciesData (pas l'entité EF Core)
+// pour que l'outil n'ait besoin de référencer que Shared, pas Database — voir Docs/README.md
+// pour le graphe de dépendances. Pas d'authentification admin dédiée pour cette première
+// version (outil interne supposé lancé contre un serveur de confiance) — à sécuriser avant
+// tout déploiement réel.
+app.MapPost("/api/monsters/species", async (MonsterSpeciesData species) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var entity = new MonsterSpeciesEntity
+    {
+        Name = species.Name,
+        Element = species.Element,
+        BaseRarity = species.BaseRarity,
+        Habitat = species.Habitat,
+        Lore = species.Lore,
+        BaseStats = species.BaseStats,
+        EvolvesIntoSpeciesId = species.EvolvesIntoSpeciesId,
+        EvolutionLevel = species.EvolutionLevel,
+    };
+
+    db.MonsterSpecies.Add(entity);
+    await db.SaveChangesAsync();
+    return Results.Ok(ToSpeciesData(entity));
+});
+
+app.MapPut("/api/monsters/species/{id:int}", async (int id, MonsterSpeciesData updated) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var existing = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == id);
+    if (existing is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Espèce introuvable." });
+    }
+
+    existing.Name = updated.Name;
+    existing.Element = updated.Element;
+    existing.BaseRarity = updated.BaseRarity;
+    existing.Habitat = updated.Habitat;
+    existing.Lore = updated.Lore;
+    existing.BaseStats = updated.BaseStats;
+    existing.EvolvesIntoSpeciesId = updated.EvolvesIntoSpeciesId;
+    existing.EvolutionLevel = updated.EvolutionLevel;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(ToSpeciesData(existing));
+});
+
+app.MapDelete("/api/monsters/species/{id:int}", async (int id) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var existing = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == id);
+    if (existing is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Espèce introuvable." });
+    }
+
+    db.MonsterSpecies.Remove(existing);
+    await db.SaveChangesAsync();
+    return Results.Ok();
 });
 
 app.MapPost("/api/monsters/capture", async (CaptureAttemptRequest request) =>
@@ -417,3 +479,18 @@ var tcpTask = tcpGameServer.RunAsync(GameInfo.DefaultGamePort, shutdownCts.Token
 var httpTask = app.RunAsync(shutdownCts.Token);
 
 await Task.WhenAll(tcpTask, httpTask);
+
+return;
+
+static MonsterSpeciesData ToSpeciesData(MonsterSpeciesEntity entity) => new()
+{
+    Id = entity.Id,
+    Name = entity.Name,
+    Element = entity.Element,
+    BaseRarity = entity.BaseRarity,
+    Habitat = entity.Habitat,
+    Lore = entity.Lore,
+    BaseStats = entity.BaseStats,
+    EvolvesIntoSpeciesId = entity.EvolvesIntoSpeciesId,
+    EvolutionLevel = entity.EvolutionLevel,
+};

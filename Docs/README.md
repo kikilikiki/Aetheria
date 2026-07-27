@@ -114,7 +114,7 @@ de gameplay.
      connexion → création de personnage → lancement du Client avec `--token`/`--characterId`
      → connexion TCP → `EnterWorldAccepted` reçu et affiché (`Entrée dans le monde acceptée
      en (0, 0)`). La boucle complète Launcher→Server→Database→Client fonctionne réellement.
-7. 🔶 Systèmes de jeu (voir `Server/Persistence` et `Server/World`) :
+7. ✅ Systèmes de jeu (voir `Server/Persistence` et `Server/World`) :
    - ✅ Création de personnage (`CharacterService`, `POST /api/characters`) — débloque le
      test ci-dessus.
    - ✅ Catalogue de monstres + capture (`MonsterSpeciesEntity`, `CaptureService`,
@@ -196,6 +196,14 @@ de gameplay.
      `POST /api/seasons/next`) : suivi du cycle actif/numérotation uniquement — le contenu
      ajouté à chaque saison (monstres, donjons, cosmétiques, passe saison) reste un travail
      de contenu à faire, pas simulé ici. Vérifié : Saison 1 active dès le premier démarrage.
+8. 🔶 Outils et distribution :
+   - ✅ MonsterEditor — WPF, CRUD complet du bestiaire (`GET/POST/PUT/DELETE
+     /api/monsters/species`, exposé via `Shared.Models.MonsterSpeciesData` plutôt que
+     l'entité EF Core, pour que l'outil ne référence que `Shared`). Pas d'authentification
+     admin dédiée pour cette version (outil interne supposé lancé contre un serveur de
+     confiance — à sécuriser avant tout déploiement réel). Vérifié : cycle créer → modifier
+     → lire → supprimer via l'API, lancement de l'application sans exception.
+   - ⬜ MapEditor, AdminPanel, installateur Windows, site de téléchargement.
 
 > **Piège rencontré et corrigé (le plus sournois du projet) :** `HashCode.Combine` a été
 > utilisé comme graine de génération procédurale des donjons (Phase G3) et du tirage des

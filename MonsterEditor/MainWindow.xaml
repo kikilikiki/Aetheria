@@ -1,0 +1,109 @@
+<Window x:Class="Aetheria.MonsterEditor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Aetheria — MonsterEditor" Height="640" Width="820"
+        WindowStartupLocation="CenterScreen" Background="#101116">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260" />
+            <ColumnDefinition Width="16" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Liste des espèces -->
+        <DockPanel Grid.Column="0">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button Content="Charger" Command="{Binding LoadCommand}" Padding="10,6" Margin="0,0,6,0" />
+                <Button Content="Nouveau" Command="{Binding NewSpeciesCommand}" Padding="10,6" />
+            </StackPanel>
+            <ListBox ItemsSource="{Binding Species}" SelectedItem="{Binding SelectedSpecies}"
+                     DisplayMemberPath="Name" />
+        </DockPanel>
+
+        <!-- Formulaire d'édition -->
+        <StackPanel Grid.Column="2">
+            <TextBlock Text="Nom" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10" />
+
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Élément" Foreground="#A0A0B0" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableElements}" SelectedItem="{Binding Element}" Padding="6" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Rareté" Foreground="#A0A0B0" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableRarities}" SelectedItem="{Binding BaseRarity}" Padding="6" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="Habitat" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Habitat, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10" />
+
+            <TextBlock Text="Histoire" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding Lore, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10"
+                     AcceptsReturn="True" TextWrapping="Wrap" Height="60" />
+
+            <TextBlock Text="Statistiques de base" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,6" />
+            <UniformGrid Columns="3" Margin="0,0,0,10">
+                <StackPanel Margin="0,0,8,8">
+                    <TextBlock Text="Vie" Foreground="#A0A0B0" />
+                    <TextBox Text="{Binding Health, UpdateSourceTrigger=PropertyChanged}" Padding="4" />
+                </StackPanel>
+                <StackPanel Margin="0,0,8,8">
+                    <TextBlock Text="Attaque" Foreground="#A0A0B0" />
+                    <TextBox Text="{Binding Attack, UpdateSourceTrigger=PropertyChanged}" Padding="4" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,8">
+                    <TextBlock Text="Défense" Foreground="#A0A0B0" />
+                    <TextBox Text="{Binding Defense, UpdateSourceTrigger=PropertyChanged}" Padding="4" />
+                </StackPanel>
+                <StackPanel Margin="0,0,8,0">
+                    <TextBlock Text="Vitesse" Foreground="#A0A0B0" />
+                    <TextBox Text="{Binding Speed, UpdateSourceTrigger=PropertyChanged}" Padding="4" />
+                </StackPanel>
+                <StackPanel Margin="0,0,8,0">
+                    <TextBlock Text="Intelligence" Foreground="#A0A0B0" />
+                    <TextBox Text="{Binding Intelligence, UpdateSourceTrigger=PropertyChanged}" Padding="4" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="Résistance" Foreground="#A0A0B0" />
+                    <TextBox Text="{Binding Resistance, UpdateSourceTrigger=PropertyChanged}" Padding="4" />
+                </StackPanel>
+            </UniformGrid>
+
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Évolue vers (ID, vide = aucune)" Foreground="#A0A0B0" Margin="0,0,0,4" />
+                    <TextBox Text="{Binding EvolvesIntoSpeciesId, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" Padding="6" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Niveau d'évolution" Foreground="#A0A0B0" Margin="0,0,0,4" />
+                    <TextBox Text="{Binding EvolutionLevel, UpdateSourceTrigger=PropertyChanged}" Padding="6" />
+                </StackPanel>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button Content="Enregistrer" Command="{Binding SaveCommand}" Padding="16,8" Margin="0,0,8,0" FontWeight="Bold" />
+                <Button Content="Supprimer" Command="{Binding DeleteCommand}" Padding="16,8" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding StatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap" Margin="0,10,0,0" />
+            <TextBlock Text="Chargement..." Foreground="#A0A0B0" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+        </StackPanel>
+    </Grid>
+</Window>
