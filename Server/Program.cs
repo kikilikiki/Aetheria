@@ -10,6 +10,7 @@ using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
+using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.Combat;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -527,6 +528,85 @@ app.MapPost("/api/seasons/next", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     return Results.Ok(await new SeasonService(db).StartNextSeasonAsync());
+});
+
+// Endpoints AdminPanel. Pas d'authentification admin dédiée pour cette première version
+// (outil interne supposé lancé contre un serveur de confiance) — à sécuriser avant tout
+// déploiement réel (voir Docs/README.md).
+app.MapGet("/api/admin/users", async (string? search) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var query = db.Users.AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(search))
+    {
+        query = query.Where(u => u.Username.Contains(search) || u.Email.Contains(search));
+    }
+
+    var users = await query.Include(u => u.Characters).ToListAsync();
+
+    return Results.Ok(users.Select(u => new AdminUserSummary
+    {
+        Id = u.Id,
+        Username = u.Username,
+        Email = u.Email,
+        IsBanned = u.IsBanned,
+        BanReason = u.BanReason,
+        CreatedAtUtc = u.CreatedAtUtc,
+        CharacterCount = u.Characters.Count,
+    }));
+});
+
+app.MapPost("/api/admin/users/{userId:guid}/ban", async (Guid userId, BanUserRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    user.IsBanned = true;
+    user.BanReason = request.Reason;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+app.MapPost("/api/admin/users/{userId:guid}/unban", async (Guid userId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    user.IsBanned = false;
+    user.BanReason = null;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+app.MapGet("/api/admin/stats", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+
+    var totalUsers = await db.Users.CountAsync();
+    var bannedUsers = await db.Users.CountAsync(u => u.IsBanned);
+    var totalCharacters = await db.Characters.CountAsync();
+    var totalMonstersCaptured = await db.Monsters.CountAsync();
+    var totalGuilds = await db.Guilds.CountAsync();
+    var activeSeason = await db.Seasons.FirstOrDefaultAsync(s => s.IsActive);
+
+    return Results.Ok(new AdminGlobalStats
+    {
+        TotalUsers = totalUsers,
+        BannedUsers = bannedUsers,
+        TotalCharacters = totalCharacters,
+        TotalMonstersCaptured = totalMonstersCaptured,
+        TotalGuilds = totalGuilds,
+        ActiveSeasonNumber = activeSeason?.Number ?? 0,
+    });
 });
 
 using var shutdownCts = new CancellationTokenSource();

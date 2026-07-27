@@ -209,7 +209,13 @@ de gameplay.
      gros morceau à part (intégration OpenGL/Engine dans WPF), non fait ici, uniquement une
      liste texte. Vérifié : royaumes et territoires bien remontés, cycle créer → prévisualiser
      étage 10 (mini-boss confirmé) → supprimer.
-   - ⬜ AdminPanel, installateur Windows, site de téléchargement.
+   - ✅ AdminPanel — WPF, `GET /api/admin/users` (recherche), `POST /api/admin/users/{id}/ban`,
+     `POST /api/admin/users/{id}/unban`, `GET /api/admin/stats` (comptes, bannis, personnages,
+     créatures capturées, guildes, saison active). Le bannissement est effectif immédiatement :
+     `AccountService.LoginAsync` (Phase C) rejette déjà les comptes bannis avec leur raison.
+     Vérifié de bout en bout : recherche, bannissement → connexion refusée avec la raison →
+     débannissement → connexion à nouveau acceptée, statistiques globales à jour.
+   - ⬜ Installateur Windows, site de téléchargement.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
