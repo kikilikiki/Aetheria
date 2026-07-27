@@ -39,8 +39,14 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{GameInfo.DefaultAccountApiPort}");
 
 // Enums échangés en toutes lettres ("Guerrier", "Feu", ...) plutôt qu'en entiers opaques :
 // plus lisible pour tout client de l'API (Launcher, outils d'admin, tests manuels).
+// IgnoreCycles : les catalogues (Recipes -> Ingredients -> Recipe -> ...) exposent des
+// entités EF Core directement plutôt que des DTO dédiés ; à terme ces endpoints de lecture
+// devraient projeter vers des DTO Shared/Models pour ne pas dépendre de la forme des entités.
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    options.SerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
 
 var app = builder.Build();
 
@@ -68,6 +74,7 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     await DatabaseSeeder.SeedAsync(db);
     await MonsterCatalogSeeder.SeedAsync(db);
     await DungeonSeeder.SeedAsync(db);
+    await ProfessionCatalogSeeder.SeedAsync(db);
 }
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
@@ -166,6 +173,43 @@ app.MapGet("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}", async (int 
 
     var floor = DungeonFloorGenerator.GenerateFloor(dungeon.Seed, floorNumber);
     return Results.Ok(floor);
+});
+
+app.MapGet("/api/professions/recipes", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var recipes = await db.Recipes.Include(r => r.Ingredients).ToListAsync();
+    return Results.Ok(recipes);
+});
+
+app.MapPost("/api/professions/gather", async (GatherRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var professionService = new ProfessionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await professionService.GatherAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/professions/craft", async (CraftRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var professionService = new ProfessionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await professionService.CraftAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
 });
 
 using var shutdownCts = new CancellationTokenSource();

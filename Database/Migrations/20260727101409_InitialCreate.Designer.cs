@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Aetheria.Database.Migrations
 {
     [DbContext(typeof(AetheriaDbContext))]
-    [Migration("20260727101009_InitialCreate")]
+    [Migration("20260727101409_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -89,6 +89,33 @@ namespace Aetheria.Database.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Characters");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.CharacterProfessionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Experience")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Profession")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId", "Profession")
+                        .IsUnique();
+
+                    b.ToTable("CharacterProfessions");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.CharacterQuestProgressEntity", b =>
@@ -466,6 +493,62 @@ namespace Aetheria.Database.Migrations
                     b.ToTable("Quests");
                 });
 
+            modelBuilder.Entity("Aetheria.Database.Entities.RecipeEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Profession")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("RequiredLevel")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ResultItemId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ResultQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ResultItemId");
+
+                    b.ToTable("Recipes");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.RecipeIngredientEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RecipeId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("RecipeId");
+
+                    b.ToTable("RecipeIngredients");
+                });
+
             modelBuilder.Entity("Aetheria.Database.Entities.StatisticsEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -541,6 +624,17 @@ namespace Aetheria.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.CharacterProfessionEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.CharacterEntity", "Character")
+                        .WithMany()
+                        .HasForeignKey("CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Character");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.CharacterQuestProgressEntity", b =>
@@ -634,6 +728,36 @@ namespace Aetheria.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("OwnerCharacter");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.RecipeEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.ItemEntity", "ResultItem")
+                        .WithMany()
+                        .HasForeignKey("ResultItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ResultItem");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.RecipeIngredientEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.ItemEntity", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Aetheria.Database.Entities.RecipeEntity", "Recipe")
+                        .WithMany("Ingredients")
+                        .HasForeignKey("RecipeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Item");
+
+                    b.Navigation("Recipe");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.StatisticsEntity", b =>
@@ -855,6 +979,11 @@ namespace Aetheria.Database.Migrations
                     b.Navigation("Monsters");
 
                     b.Navigation("Statistics");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.RecipeEntity", b =>
+                {
+                    b.Navigation("Ingredients");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.UserEntity", b =>

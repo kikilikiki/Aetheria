@@ -25,6 +25,9 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<LeaderboardEntity> Leaderboard => Set<LeaderboardEntity>();
     public DbSet<MonsterSpeciesEntity> MonsterSpecies => Set<MonsterSpeciesEntity>();
     public DbSet<DungeonEntity> Dungeons => Set<DungeonEntity>();
+    public DbSet<CharacterProfessionEntity> CharacterProfessions => Set<CharacterProfessionEntity>();
+    public DbSet<RecipeEntity> Recipes => Set<RecipeEntity>();
+    public DbSet<RecipeIngredientEntity> RecipeIngredients => Set<RecipeIngredientEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -148,6 +151,35 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             .HasOne(d => d.Kingdom)
             .WithMany()
             .HasForeignKey(d => d.KingdomId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<CharacterProfessionEntity>(profession =>
+        {
+            profession.HasIndex(p => new { p.CharacterId, p.Profession }).IsUnique();
+            profession.HasOne(p => p.Character)
+                .WithMany()
+                .HasForeignKey(p => p.CharacterId)
+                .OnDelete(DeleteBehavior.Cascade);
+            profession.Property(p => p.Profession).HasConversion<string>();
+        });
+
+        modelBuilder.Entity<RecipeEntity>(recipe =>
+        {
+            recipe.Property(r => r.Profession).HasConversion<string>();
+            recipe.HasOne(r => r.ResultItem)
+                .WithMany()
+                .HasForeignKey(r => r.ResultItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            recipe.HasMany(r => r.Ingredients)
+                .WithOne(i => i.Recipe)
+                .HasForeignKey(i => i.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RecipeIngredientEntity>()
+            .HasOne(i => i.Item)
+            .WithMany()
+            .HasForeignKey(i => i.ItemId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

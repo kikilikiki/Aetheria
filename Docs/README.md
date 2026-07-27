@@ -133,7 +133,13 @@ de gameplay.
      de rencontres est générée ; le placement visuel est un travail Client/MapEditor à venir.
      Vérifié : étages normaux variés, jalons exacts aux étages 10/50/100, déterminisme
      confirmé (même étage redemandé → contenu identique).
-   - ⬜ Combat tactique, métiers, guildes, succès, classements, saisons.
+   - ✅ Métiers et artisanat (`CharacterProfessionEntity`, `RecipeEntity`,
+     `ProfessionService`, `GET /api/professions/recipes`, `POST /api/professions/gather`,
+     `POST /api/professions/craft`) : chaîne de départ Mineur → Minerai de fer → Forgeron →
+     Épée de fer (GDD), courbe de niveau simple (XP requise au niveau N = N × 100).
+     Vérifié de bout en bout : craft refusé sans assez de minerai, refusé avec 2/3, réussi
+     avec 3/3 (ingrédients consommés), montée de niveau du métier confirmée (niveau 1→2).
+   - ⬜ Combat tactique, guildes, succès, classements, saisons.
 
 > **Piège rencontré et corrigé :** `ComplexProperty` (EF Core 8+, utilisé pour mapper
 > `StatBlock` en un seul bloc) fait planter le fournisseur InMemory sur certaines requêtes

@@ -111,6 +111,29 @@ namespace Aetheria.Database.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Recipes",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Profession = table.Column<string>(type: "text", nullable: false),
+                    RequiredLevel = table.Column<int>(type: "integer", nullable: false),
+                    ResultItemId = table.Column<int>(type: "integer", nullable: false),
+                    ResultQuantity = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Recipes", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Recipes_Items_ResultItemId",
+                        column: x => x.ResultItemId,
+                        principalTable: "Items",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Dungeons",
                 columns: table => new
                 {
@@ -193,6 +216,53 @@ namespace Aetheria.Database.Migrations
                         name: "FK_Collections_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "RecipeIngredients",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    RecipeId = table.Column<int>(type: "integer", nullable: false),
+                    ItemId = table.Column<int>(type: "integer", nullable: false),
+                    Quantity = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RecipeIngredients", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RecipeIngredients_Items_ItemId",
+                        column: x => x.ItemId,
+                        principalTable: "Items",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_RecipeIngredients_Recipes_RecipeId",
+                        column: x => x.RecipeId,
+                        principalTable: "Recipes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CharacterProfessions",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    CharacterId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Profession = table.Column<string>(type: "text", nullable: false),
+                    Level = table.Column<int>(type: "integer", nullable: false),
+                    Experience = table.Column<long>(type: "bigint", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CharacterProfessions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_CharacterProfessions_Characters_CharacterId",
+                        column: x => x.CharacterId,
+                        principalTable: "Characters",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -380,6 +450,12 @@ namespace Aetheria.Database.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_CharacterProfessions_CharacterId_Profession",
+                table: "CharacterProfessions",
+                columns: new[] { "CharacterId", "Profession" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_CharacterQuestProgress_CharacterId",
                 table: "CharacterQuestProgress",
                 column: "CharacterId");
@@ -441,6 +517,21 @@ namespace Aetheria.Database.Migrations
                 column: "OwnerCharacterId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_RecipeIngredients_ItemId",
+                table: "RecipeIngredients",
+                column: "ItemId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RecipeIngredients_RecipeId",
+                table: "RecipeIngredients",
+                column: "RecipeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Recipes_ResultItemId",
+                table: "Recipes",
+                column: "ResultItemId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Statistics_CharacterId",
                 table: "Statistics",
                 column: "CharacterId",
@@ -464,6 +555,9 @@ namespace Aetheria.Database.Migrations
         {
             migrationBuilder.DropTable(
                 name: "Achievements");
+
+            migrationBuilder.DropTable(
+                name: "CharacterProfessions");
 
             migrationBuilder.DropTable(
                 name: "CharacterQuestProgress");
@@ -490,6 +584,9 @@ namespace Aetheria.Database.Migrations
                 name: "MonsterSpecies");
 
             migrationBuilder.DropTable(
+                name: "RecipeIngredients");
+
+            migrationBuilder.DropTable(
                 name: "Statistics");
 
             migrationBuilder.DropTable(
@@ -499,10 +596,13 @@ namespace Aetheria.Database.Migrations
                 name: "Kingdoms");
 
             migrationBuilder.DropTable(
-                name: "Items");
+                name: "Recipes");
 
             migrationBuilder.DropTable(
                 name: "Characters");
+
+            migrationBuilder.DropTable(
+                name: "Items");
 
             migrationBuilder.DropTable(
                 name: "Users");
