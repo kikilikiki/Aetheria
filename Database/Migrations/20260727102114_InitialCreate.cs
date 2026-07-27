@@ -444,6 +444,32 @@ namespace Aetheria.Database.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "GuildMembers",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    GuildId = table.Column<Guid>(type: "uuid", nullable: false),
+                    CharacterId = table.Column<Guid>(type: "uuid", nullable: false),
+                    JoinedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_GuildMembers", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_GuildMembers_Characters_CharacterId",
+                        column: x => x.CharacterId,
+                        principalTable: "Characters",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_GuildMembers_Guilds_GuildId",
+                        column: x => x.GuildId,
+                        principalTable: "Guilds",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_Achievements_UserId",
                 table: "Achievements",
@@ -487,9 +513,26 @@ namespace Aetheria.Database.Migrations
                 column: "KingdomId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_GuildMembers_CharacterId",
+                table: "GuildMembers",
+                column: "CharacterId",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_GuildMembers_GuildId",
+                table: "GuildMembers",
+                column: "GuildId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Guilds_LeaderCharacterId",
                 table: "Guilds",
                 column: "LeaderCharacterId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Guilds_Name",
+                table: "Guilds",
+                column: "Name",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Inventory_CharacterId",
@@ -569,7 +612,7 @@ namespace Aetheria.Database.Migrations
                 name: "Dungeons");
 
             migrationBuilder.DropTable(
-                name: "Guilds");
+                name: "GuildMembers");
 
             migrationBuilder.DropTable(
                 name: "Inventory");
@@ -594,6 +637,9 @@ namespace Aetheria.Database.Migrations
 
             migrationBuilder.DropTable(
                 name: "Kingdoms");
+
+            migrationBuilder.DropTable(
+                name: "Guilds");
 
             migrationBuilder.DropTable(
                 name: "Recipes");

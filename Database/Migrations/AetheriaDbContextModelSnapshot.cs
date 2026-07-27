@@ -220,7 +220,35 @@ namespace Aetheria.Database.Migrations
 
                     b.HasIndex("LeaderCharacterId");
 
+                    b.HasIndex("Name")
+                        .IsUnique();
+
                     b.ToTable("Guilds");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildMemberEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GuildId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("JoinedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId")
+                        .IsUnique();
+
+                    b.HasIndex("GuildId");
+
+                    b.ToTable("GuildMembers");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.InventoryItemEntity", b =>
@@ -684,6 +712,25 @@ namespace Aetheria.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("LeaderCharacter");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildMemberEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.CharacterEntity", "Character")
+                        .WithMany()
+                        .HasForeignKey("CharacterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Aetheria.Database.Entities.GuildEntity", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Character");
+
+                    b.Navigation("Guild");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.InventoryItemEntity", b =>

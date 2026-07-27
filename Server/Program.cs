@@ -212,6 +212,36 @@ app.MapPost("/api/professions/craft", async (CraftRequest request) =>
     }
 });
 
+app.MapPost("/api/guilds", async (CreateGuildRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await guildService.CreateAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/guilds/{guildId:guid}/join", async (Guid guildId, JoinGuildRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await guildService.JoinAsync(guildId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 using var shutdownCts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
 {

@@ -28,6 +28,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<CharacterProfessionEntity> CharacterProfessions => Set<CharacterProfessionEntity>();
     public DbSet<RecipeEntity> Recipes => Set<RecipeEntity>();
     public DbSet<RecipeIngredientEntity> RecipeIngredients => Set<RecipeIngredientEntity>();
+    public DbSet<GuildMemberEntity> GuildMembers => Set<GuildMemberEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,11 +96,14 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             stats.OwnsOne(s => s.Social);
         });
 
-        modelBuilder.Entity<GuildEntity>()
-            .HasOne(g => g.LeaderCharacter)
-            .WithMany()
-            .HasForeignKey(g => g.LeaderCharacterId)
-            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GuildEntity>(guild =>
+        {
+            guild.HasIndex(g => g.Name).IsUnique();
+            guild.HasOne(g => g.LeaderCharacter)
+                .WithMany()
+                .HasForeignKey(g => g.LeaderCharacterId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
 
         modelBuilder.Entity<KingdomEntity>()
             .Property(k => k.Type)
@@ -181,5 +185,20 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             .WithMany()
             .HasForeignKey(i => i.ItemId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<GuildMemberEntity>(member =>
+        {
+            member.HasIndex(m => m.CharacterId).IsUnique();
+
+            member.HasOne(m => m.Guild)
+                .WithMany()
+                .HasForeignKey(m => m.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            member.HasOne(m => m.Character)
+                .WithMany()
+                .HasForeignKey(m => m.CharacterId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }

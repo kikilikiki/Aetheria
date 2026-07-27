@@ -139,7 +139,12 @@ de gameplay.
      Épée de fer (GDD), courbe de niveau simple (XP requise au niveau N = N × 100).
      Vérifié de bout en bout : craft refusé sans assez de minerai, refusé avec 2/3, réussi
      avec 3/3 (ingrédients consommés), montée de niveau du métier confirmée (niveau 1→2).
-   - ⬜ Combat tactique, guildes, succès, classements, saisons.
+   - ✅ Guildes (`GuildMemberEntity`, `GuildService`, `POST /api/guilds`,
+     `POST /api/guilds/{id}/join`) : un personnage n'appartient qu'à une seule guilde à la
+     fois, noms de guilde uniques. Vérifié de bout en bout : création, refus de nom
+     dupliqué (par le même personnage ET par un autre), adhésion, liste des membres à jour,
+     refus d'une deuxième adhésion.
+   - ⬜ Combat tactique, succès, classements, saisons.
 
 > **Piège rencontré et corrigé :** `ComplexProperty` (EF Core 8+, utilisé pour mapper
 > `StatBlock` en un seul bloc) fait planter le fournisseur InMemory sur certaines requêtes
