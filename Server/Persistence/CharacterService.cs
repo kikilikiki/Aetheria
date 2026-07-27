@@ -1,5 +1,6 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
+using Aetheria.Server.World;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +55,8 @@ public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tok
         }
 
         await db.SaveChangesAsync(ct);
+
+        await new AchievementService(db).UnlockAsync(userId, "bienvenue", ct);
 
         return new CharacterSummary { Id = character.Id, Name = character.Name, Level = character.Level };
     }

@@ -84,6 +84,8 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
         var leveledUp = GrantExperience(profession, 25);
         await db.SaveChangesAsync(ct);
 
+        await new AchievementService(db).UnlockAsync(character.UserId, "premier_craft", ct);
+
         return BuildResponse(profession, leveledUp, $"{recipe.Name} fabriqué avec succès.");
     }
 

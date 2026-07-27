@@ -144,7 +144,17 @@ de gameplay.
      fois, noms de guilde uniques. Vérifié de bout en bout : création, refus de nom
      dupliqué (par le même personnage ET par un autre), adhésion, liste des membres à jour,
      refus d'une deuxième adhésion.
-   - ⬜ Combat tactique, succès, classements, saisons.
+   - ✅ Succès + classements (`AchievementCatalog`, `AchievementService`, `LeaderboardService`,
+     `GET /api/achievements/catalog`, `GET /api/achievements`,
+     `POST/GET /api/leaderboard/{category}`) : 4 succès de départ, débloqués automatiquement
+     par les autres services (création de personnage → "bienvenue", capture → "premier
+     compagnon", craft → "artisan débutant", création de guilde → "fondateur") plutôt
+     qu'exposés comme un endpoint "débloquez ce que vous voulez" (vecteur de triche).
+     Classements Richesse/Métiers/MonstresCaptures calculables dès maintenant à partir des
+     données existantes ; les autres catégories (PvP, temps de jeu, ...) attendent les
+     systèmes correspondants. Vérifié de bout en bout : succès débloqué après capture,
+     classement recalculé et lu après capture.
+   - ⬜ Combat tactique, saisons.
 
 > **Piège rencontré et corrigé :** `ComplexProperty` (EF Core 8+, utilisé pour mapper
 > `StatBlock` en un seul bloc) fait planter le fournisseur InMemory sur certaines requêtes

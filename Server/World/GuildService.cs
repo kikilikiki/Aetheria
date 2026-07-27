@@ -35,6 +35,8 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
 
         await db.SaveChangesAsync(ct);
 
+        await new AchievementService(db).UnlockAsync(character.UserId, "fondateur_de_guilde", ct);
+
         return await BuildSummaryAsync(guild.Id, ct);
     }
 

@@ -76,6 +76,8 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
         db.Monsters.Add(monster);
         await db.SaveChangesAsync(ct);
 
+        await new AchievementService(db).UnlockAsync(character.UserId, "premiere_capture", ct);
+
         return new CaptureAttemptResponse
         {
             Success = true,

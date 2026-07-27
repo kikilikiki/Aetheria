@@ -5,6 +5,7 @@ using Aetheria.Server.Networking;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World;
 using Aetheria.Shared;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Microsoft.AspNetCore.Builder;
@@ -240,6 +241,45 @@ app.MapPost("/api/guilds/{guildId:guid}/join", async (Guid guildId, JoinGuildReq
     {
         return Results.Conflict(new ApiError { Message = ex.Message });
     }
+});
+
+app.MapGet("/api/achievements/catalog", () => Results.Ok(AchievementCatalog.All));
+
+app.MapGet("/api/achievements", async (string sessionToken) =>
+{
+    if (!app.Services.GetRequiredService<SessionTokenStore>().TryValidate(sessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var unlockedKeys = await new AchievementService(db).GetUnlockedKeysAsync(userId);
+    var unlocked = unlockedKeys.Select(AchievementCatalog.Find).Where(a => a is not null);
+    return Results.Ok(unlocked);
+});
+
+app.MapPost("/api/leaderboard/{category}/refresh", async (LeaderboardCategory category) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var leaderboardService = new LeaderboardService(db);
+
+    try
+    {
+        await leaderboardService.RefreshAsync(category);
+        return Results.Ok();
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/leaderboard/{category}", async (LeaderboardCategory category, int limit) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var leaderboardService = new LeaderboardService(db);
+    var top = await leaderboardService.GetTopAsync(category, limit <= 0 ? 10 : limit);
+    return Results.Ok(top);
 });
 
 using var shutdownCts = new CancellationTokenSource();
