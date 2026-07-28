@@ -116,6 +116,17 @@ int? captureSphereItemId = null;
 Task<CombatResult>? combatStartTask = null;
 Task<CombatResult>? combatActionTask = null;
 
+// Sondage périodique de l'état de combat (voir GDD/demande utilisateur — "la synchronisation est
+// comme si elle était inexistante, je veux de la synchro instantanée") : en combat de groupe, le
+// tour d'un autre joueur (allié dans le même groupe, voir CombatSession.PartyId) n'était jamais
+// répercuté sur ce client tant qu'il ne soumettait pas sa propre action — combatState restait
+// figé indéfiniment, y compris une fois redevenu son tour. Sondé même pendant son propre tour
+// (un adversaire PvP humain peut aussi agir en parallèle), à un rythme court sans marteler le
+// serveur.
+Task<CombatSessionState?>? combatPollTask = null;
+var combatPollClock = 0f;
+const float CombatPollIntervalSeconds = 0.35f;
+
 // Butin de victoire (voir GDD — 4 objets à départager, tirage aléatoire en cas d'égalité) :
 // affiché après un combat gagné, avant de revenir à la scène d'intérieur.
 LootSessionState? activeLoot = null;
@@ -363,6 +374,8 @@ host.Update += deltaTime =>
             combatState = startedTask.Result.State;
             combatSelectedAction = null;
             combatMessage = null;
+            combatPollClock = 0f;
+            combatPollTask = null;
             sceneMode = SceneMode.Combat;
         }
         else
@@ -408,7 +421,7 @@ host.Update += deltaTime =>
 
     if (sceneMode == SceneMode.Combat)
     {
-        UpdateCombat();
+        UpdateCombat(deltaTime);
         return;
     }
 
@@ -2264,7 +2277,7 @@ void SendCombatAction(CombatActionType actionType, int x, int y, int? captureIte
     combatSelectedAction = null;
 }
 
-void UpdateCombat()
+void UpdateCombat(float deltaTime)
 {
     if (combatActionTask is { IsCompleted: true } task)
     {
@@ -2287,10 +2300,30 @@ void UpdateCombat()
         return;
     }
 
+    if (combatPollTask is { IsCompleted: true } pollTask)
+    {
+        // combatActionTask reste prioritaire : si une action vient d'être soumise entre le
+        // lancement de ce sondage et sa réponse, on ignore une réponse de sondage potentiellement
+        // plus ancienne plutôt que d'écraser l'état frais qu'elle vient de renvoyer.
+        if (!pollTask.IsFaulted && pollTask.Result is { } freshState && combatActionTask is null)
+        {
+            combatState = freshState;
+        }
+
+        combatPollTask = null;
+    }
+
     if (combatState.IsFinished)
     {
         UpdateLoot();
         return;
+    }
+
+    combatPollClock += deltaTime;
+    if (combatPollClock >= CombatPollIntervalSeconds && combatPollTask is null && combatApi is not null)
+    {
+        combatPollClock = 0f;
+        combatPollTask = combatApi.GetStateAsync(combatState.CombatId);
     }
 
     var myTurn = combatState.CurrentTurnCombatantId is { } currentId
