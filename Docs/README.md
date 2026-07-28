@@ -244,13 +244,17 @@ de gameplay.
      bureau de la machine) : copie des 4 fichiers du payload confirmée, raccourci `.lnk`
      inspecté et pointant vers le bon exécutable avec le bon dossier de travail. Pas de
      désinstallateur ni d'entrée dans le registre Windows pour cette première version.
-   - ✅ Site de téléchargement (`Sites/index.html`) — page statique HTML/CSS pur (aucune
-     dépendance, aucune étape de build), hors solution .NET. Présentation du jeu,
-     fonctionnalités, royaumes, bouton de téléchargement pointant vers une URL réelle
-     (`github.com/kikilikiki/Aetheria/releases`) plutôt qu'une URL inventée — **aucune
-     release n'y est encore publiée**, ce qui est indiqué explicitement sur la page.
-     Vérifié : structure HTML valide (balises équilibrées), pas de rendu visuel possible
-     sans navigateur dans cet environnement.
+   - ✅ Site de téléchargement (`Sites/index.html`, `Sites/conditions-generales.html`) — page
+     statique HTML/CSS pur, hors solution .NET. Bouton "Installer le Launcher" en lien
+     `download` direct vers `Sites/downloads/AetheriaSetup.zip` (un vrai paquet construit à
+     partir des builds Release réelles — `AetheriaInstaller.exe` + `Payload/` avec
+     Launcher+Client — pas une redirection GitHub Releases). Footer avec copyright et lien
+     vers une page CGU complète (compte, règles de conduite, propriété intellectuelle,
+     absence de garantie, données personnelles). Références à des jeux tiers retirées du
+     texte de présentation. Vérifié : structure HTML valide des deux pages, zip extrait et
+     `AetheriaInstaller.exe` relancé depuis l'extraction (le paquet fonctionne réellement).
+     Limite assumée : paquet reconstruit et commité manuellement, pas de CI de publication ;
+     build "framework-dependent" (nécessite le runtime .NET 10 Desktop sur la machine cible).
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
