@@ -34,6 +34,9 @@ Sites/downloads/CommunityToolkit.Mvvm.dll
 appsettings.*.local.json
 .env
 
+# État local du bot Discord (dernier commit annoncé) — voir Server/Discord/GitChangelogAnnouncer.cs
+.discord-last-announced
+
 # Divers OS
 .DS_Store
 Thumbs.db

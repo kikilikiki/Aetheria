@@ -92,6 +92,12 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     await SeasonSeeder.SeedAsync(db);
 }
 
+// Annonce automatique des nouveaux commits Git dans Discord à chaque démarrage (voir GDD/demande
+// utilisateur — aucune étape manuelle : relancer le serveur EST la mise à jour). Fire-and-forget
+// (ne bloque pas le démarrage si Discord est indisponible) ; DiscordAnnouncer/GitChangelogAnnouncer
+// avalent déjà leurs propres erreurs et journalisent, jamais d'exception non gérée ici.
+_ = GitChangelogAnnouncer.AnnounceNewCommitsAsync(app.Services.GetRequiredService<DiscordAnnouncer>(), app.Logger);
+
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
 
 app.MapPost("/api/account/register", async (RegisterRequest request) =>

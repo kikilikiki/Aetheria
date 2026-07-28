@@ -466,20 +466,36 @@ de gameplay.
      `AetheriaInstaller.exe` relancé depuis l'extraction (le paquet fonctionne réellement).
      Limite assumée : paquet reconstruit et commité manuellement, pas de CI de publication ;
      build "framework-dependent" (nécessite le runtime .NET 10 Desktop sur la machine cible).
-   - ✅ Annonces Discord (`Server/Discord/DiscordAnnouncer.cs`,
-     `POST /api/admin/discord/announce`) : poste un embed dans un salon Discord fixe à chaque
-     mise à jour notable, via l'API REST des bots (`Authorization: Bot <token>`) plutôt qu'une
-     connexion gateway complète — pas besoin de recevoir d'évènements Discord pour de simples
-     annonces sortantes. "Hébergé" par le processus `Aetheria.Server` existant : pas de bot
-     séparé à faire tourner. Le jeton (`DISCORD_BOT_TOKEN`) et l'identifiant de salon optionnel
+   - ✅ Annonces Discord (`Server/Discord/DiscordAnnouncer.cs`) : poste un embed dans un salon
+     Discord fixe via l'API REST des bots (`Authorization: Bot <token>`) plutôt qu'une connexion
+     gateway complète — pas besoin de recevoir d'évènements Discord pour de simples annonces
+     sortantes. "Hébergé" par le processus `Aetheria.Server` existant : pas de bot séparé à faire
+     tourner. Le jeton (`DISCORD_BOT_TOKEN`) et l'identifiant de salon optionnel
      (`DISCORD_ANNOUNCE_CHANNEL_ID`) se configurent via un fichier `.env` à la racine (voir
      `.env.exemple` — copier en `.env`, jamais commité), chargé par `DotEnv.LoadIfPresent()` au
-     démarrage. Réservé aux comptes admin (`AdminAuthService`, comme les autres actions
-     sensibles). `Tools/discord-announce.ps1` automatise l'appel (connexion admin + annonce) en
-     une seule commande. **Non vérifié de bout en bout avec un vrai jeton/salon Discord** (aucun
-     jeton disponible dans cet environnement de développement) — seule la sérialisation de la
-     requête et la compilation ont été vérifiées ; sans jeton configuré, l'appel est journalisé
-     et ignoré proprement (`IsConfigured == false`) plutôt que de faire planter le serveur.
+     démarrage.
+     - ✅ **Annonce automatique** (`Server/Discord/GitChangelogAnnouncer.cs`, appelé une fois au
+       démarrage du serveur) : compare le commit `HEAD` courant à celui de la dernière annonce
+       (mémorisé dans `.discord-last-announced` à la racine du dépôt, jamais commité — voir
+       `.gitignore`) et poste automatiquement un embed listant les sujets des nouveaux commits si
+       `HEAD` a changé, sans aucune action manuelle. Repose sur le flux de travail réel du projet
+       ("modifier le code → reconstruire → relancer le serveur") : relancer le serveur EST la
+       mise à jour, donc pas besoin d'un hook Git séparé ni d'un service de surveillance de
+       fichiers. Premier démarrage (pas encore de fichier d'état) : annonce les 20 derniers
+       commits plutôt que tout l'historique. Vérifié via un harnais console isolé sur un vrai
+       dépôt Git jetable (jeton Discord factice) : premier démarrage écrit l'état et tente
+       l'annonce, un second démarrage sans nouveau commit ne fait rien, un nouveau commit
+       redéclenche bien une annonce (et seulement de ce commit-là) et met à jour l'état.
+     - ✅ Endpoint manuel (`POST /api/admin/discord/announce`, réservé aux comptes admin via
+       `AdminAuthService`) conservé en plus de l'annonce automatique, pour un message ad hoc hors
+       du cycle de vie du serveur. `Tools/discord-announce.ps1` automatise cet appel (connexion
+       admin + annonce) en une seule commande.
+     - **Non vérifié de bout en bout avec un vrai jeton/salon Discord** (aucun jeton disponible
+       dans cet environnement de développement) — la logique de détection des nouveaux commits a
+       été vérifiée avec un vrai dépôt Git (voir ci-dessus), mais l'envoi réel à Discord seulement
+       par relecture de code + un jeton factice (échec 401 attendu, capturé proprement). Sans
+       jeton configuré, l'appel est journalisé et ignoré proprement (`IsConfigured == false`)
+       plutôt que de faire planter le serveur.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

@@ -106,8 +106,11 @@ normalement et journalise simplement que l'annonce est ignorée.
    salon visé (identifiant configurable via `DISCORD_ANNOUNCE_CHANNEL_ID`, sinon un salon par
    défaut est codé dans `DiscordAnnouncer.cs`).
 
-3. Lancez `Tools/discord-announce.ps1` (avec vos identifiants admin) pour poster une annonce
-   manuellement, ou appelez `POST /api/admin/discord/announce` directement.
+3. C'est tout : une fois `.env` configuré, chaque démarrage du serveur poste automatiquement un
+   embed listant les commits ajoutés depuis la dernière annonce (voir
+   `Server/Discord/GitChangelogAnnouncer.cs`) — aucune étape manuelle. Pour un message ponctuel
+   hors redémarrage, `Tools/discord-announce.ps1` (avec vos identifiants admin) ou
+   `POST /api/admin/discord/announce` restent disponibles.
 
 ## Licence
 
