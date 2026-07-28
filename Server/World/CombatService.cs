@@ -349,7 +349,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             CombatEngine.RunAiTurnsUntilPlayerTurn(session);
         }
 
-        Guid? lootId = null;
         if (session.IsFinished)
         {
             if (session.IsArenaMatch)
@@ -362,13 +361,17 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
             else if (request.ActionType != CombatActionType.Capture)
             {
-                lootId = await ApplyPveVictoryRewardsAsync(session, ct);
+                session.LootId = await ApplyPveVictoryRewardsAsync(session, ct);
             }
 
-            combatStore.Remove(session.Id);
+            // Ne retire plus la session immédiatement (voir CombatSessionStore — purgée après un
+            // court délai) : un coéquipier dont le client sonde encore l'état après la fin du
+            // combat (voir GDD/demande utilisateur — "bloqué contre la cible, ça ne fonctionne
+            // pas") doit pouvoir le lire comme terminé, avec le même LootId, pas comme introuvable.
+            session.FinishedAtUtc = DateTime.UtcNow;
         }
 
-        return ToState(session, lootId);
+        return ToState(session);
     }
 
     /// <summary>
@@ -698,7 +701,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         return (int)Math.Round(rating + k * (actualScore - expectedScore));
     }
 
-    private static CombatSessionState ToState(CombatSession session, Guid? lootId = null) => new(
+    private static CombatSessionState ToState(CombatSession session) => new(
         session.Id,
         CombatSession.GridWidth,
         CombatSession.GridHeight,
@@ -709,6 +712,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         session.IsFinished,
         session.WinningTeam,
         session.LastMessage,
-        lootId,
+        session.LootId,
         session.IsDungeonCombat);
 }

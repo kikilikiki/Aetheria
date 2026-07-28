@@ -37,5 +37,21 @@ public sealed class CombatSession
     public int? WinningTeam { get; set; }
     public string? LastMessage { get; set; }
 
+    /// <summary>
+    /// Butin de victoire PvE (voir <c>LootSessionState</c>), renseigné une seule fois sur la
+    /// session elle-même plutôt que retourné seulement à l'appelant qui a porté le coup final —
+    /// sinon un coéquipier qui sonde l'état après coup (voir GDD/demande utilisateur — "bloqué
+    /// contre la cible, ça ne fonctionne pas") ne verrait jamais ce butin.
+    /// </summary>
+    public Guid? LootId { get; set; }
+
+    /// <summary>
+    /// Renseigné dès que le combat se termine (voir <see cref="CombatSessionStore"/>) : la
+    /// session n'est plus retirée immédiatement du store pour que tout coéquipier qui sonde
+    /// encore l'état (voir GDD/demande utilisateur — combat de groupe désynchronisé) la voie
+    /// bien terminée au lieu d'un combat introuvable, avant d'être purgée après un court délai.
+    /// </summary>
+    public DateTime? FinishedAtUtc { get; set; }
+
     public Combatant? CurrentCombatant => Combatants.Count == 0 ? null : Combatants[TurnIndex % Combatants.Count];
 }

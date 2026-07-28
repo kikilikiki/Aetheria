@@ -778,6 +778,28 @@ de gameplay.
       le routeur, "NAT hairpin") n'ajoute qu'environ 5-10ms par rapport à `localhost` sur cette
       installation — négligeable, la latence rapportée venait bien du défaut de sondage ci-dessus,
       pas du réseau.
+26. ✅ Correctif : joueur bloqué après la fin d'un combat de groupe qu'il n'a pas terminé lui-même
+    (voir retour utilisateur — "bloqué contre la cible, ça ne fonctionne pas"). Deux causes
+    combinées, révélées par le sondage ajouté au point 25 :
+    - `CombatService.SubmitActionAsync` retirait la session du `CombatSessionStore` dès la fin du
+      combat — un coéquipier dont le client sondait encore l'état après coup recevait "Combat
+      introuvable" au lieu d'un état "terminé", et restait bloqué sur l'écran de combat figé
+      indéfiniment (toute tentative d'action échouait ensuite, puisque le combat n'existait plus).
+      Corrigé : une session terminée (`CombatSession.FinishedAtUtc`) n'est plus retirée
+      immédiatement, mais purgée après 3 minutes (`CombatSessionStore.PruneFinished`, appelée
+      opportunément à chaque nouveau combat plutôt que via une tâche d'arrière-plan dédiée).
+    - Le butin de victoire (`LootId`) n'était renvoyé qu'au joueur ayant porté le coup final —
+      jamais persisté sur la session elle-même. Un coéquipier récupérant l'état via sondage ne
+      voyait donc jamais le butin partagé. Corrigé en stockant `LootId` sur `CombatSession`.
+    - Corrige au passage la même classe de bug pour l'Arène (2+ joueurs par équipe) et le PvP,
+      qui partagent la même mécanique de fin de combat.
+27. ✅ Corrections d'interface du Launcher (retours utilisateur) :
+    - Menus déroulants (grade, format d'arène, etc.) illisibles — le popup du `ComboBox`
+      n'héritait pas du thème sombre (fond clair par défaut) alors que le texte héritait quand
+      même du `Foreground` clair du contrôle fermé, donnant du texte clair sur fond clair. Corrigé
+      par un style `ComboBoxItem` explicite (fond sombre, texte clair, surbrillance au survol).
+    - Barre de défilement ajoutée (toujours visible, pas seulement "Auto") sur le panneau
+      d'actions du panneau Communauté.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
