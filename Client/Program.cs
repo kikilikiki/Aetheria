@@ -61,6 +61,12 @@ var isPlayerMoving = false;
 var sceneMode = SceneMode.Outdoor;
 NearbyInteraction? nearbyInteraction = null;
 
+// Tutoriel (voir GDD/demande utilisateur — "ajoute un tutoriel pour expliquer comment jouer") :
+// superposé au monde extérieur comme le dialogue PNJ, ouvert/fermé avec F1 à tout moment (pas
+// seulement au premier lancement), navigable page par page.
+var showTutorial = false;
+var tutorialPage = 0;
+
 // Intérieur (bâtiment ou donjon) affiché quand sceneMode == Interior — pas de vraie scène 3D/2D
 // détaillée, un fond stylisé + un texte, voir DrawInteriorScene.
 var interiorTitle = string.Empty;
@@ -391,6 +397,11 @@ host.Update += deltaTime =>
     if (UpdateActiveDialogueIfAny())
     {
         return; // Le monde se fige pendant un dialogue, comme dans un RPG classique.
+    }
+
+    if (UpdateTutorial())
+    {
+        return; // Le monde se fige pendant le tutoriel, comme pendant un dialogue/panneau.
     }
 
     if (activePanel != PanelKind.None)
@@ -777,6 +788,106 @@ bool UpdateActiveDialogueIfAny()
     }
 
     return true;
+}
+
+/// <summary>
+/// Tutoriel (touche F1, voir GDD/demande utilisateur) : ouvrable/fermable à tout moment depuis
+/// l'extérieur, pas seulement au premier lancement — pas de suivi "déjà vu" persisté pour cette
+/// version, F1 reste toujours disponible comme rappel. Retourne vrai si le tutoriel est affiché
+/// (le monde se fige, comme un dialogue).
+/// </summary>
+bool UpdateTutorial()
+{
+    if (keyboard.WasJustPressed(Key.F1))
+    {
+        showTutorial = !showTutorial;
+        tutorialPage = 0;
+        return showTutorial;
+    }
+
+    if (!showTutorial)
+    {
+        return false;
+    }
+
+    var pages = TutorialPages();
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        showTutorial = false;
+    }
+    else if (keyboard.WasJustPressed(Key.Right) || keyboard.WasJustPressed(Key.Enter))
+    {
+        tutorialPage = Math.Min(tutorialPage + 1, pages.Length - 1);
+    }
+    else if (keyboard.WasJustPressed(Key.Left))
+    {
+        tutorialPage = Math.Max(tutorialPage - 1, 0);
+    }
+
+    return true;
+}
+
+static (string Title, string[] Lines)[] TutorialPages() =>
+[
+    ("BIENVENUE DANS AETHERIA",
+    [
+        "Ce tutoriel explique les bases du jeu.",
+        "Flèches G/D ou Entrée pour avancer, Echap pour fermer.",
+        "Rouvrable à tout moment avec F1.",
+    ]),
+    ("SE DEPLACER",
+    [
+        "WASD (ou ZQSD en clavier AZERTY) pour se déplacer,",
+        "ou cliquez sur la carte pour tracer un chemin.",
+        "F9 change la disposition clavier détectée.",
+    ]),
+    ("INTERAGIR",
+    [
+        "Approchez-vous d'un PNJ, d'un bâtiment ou d'un donjon :",
+        "un message apparaît en bas de l'écran.",
+        "Appuyez sur E pour parler ou entrer.",
+    ]),
+    ("PANNEAUX EN JEU",
+    [
+        "I : Inventaire   M : Montres   P : Groupe",
+        "G : Guilde   B : Boutique   V : Arène classée",
+        "Ou cliquez les boutons en haut à droite de l'écran.",
+    ]),
+    ("COMBAT",
+    [
+        "Choisissez une action : 1 Déplacer, 2 Attaquer,",
+        "3 Passer, 4 Capturer (avec une Sphère de capture).",
+        "Visez avec les flèches + Entrée, ou cliquez",
+        "directement une case en surbrillance sur la grille.",
+    ]),
+    ("DONJONS",
+    [
+        "Un donjon apparaît à un endroit aléatoire de la carte",
+        "et change de position toutes les heures.",
+        "À l'intérieur : avancez de salle en salle avec Entrée",
+        "(combats, coffres d'or, et autres événements).",
+    ]),
+];
+
+/// <summary>Rendu du tutoriel (voir <see cref="UpdateTutorial"/>) : une page de texte à la fois, façon écran d'intérieur.</summary>
+void DrawTutorialOverlay(int w, int h)
+{
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.04f, 0.04f, 0.07f, 0.96f));
+
+    var pages = TutorialPages();
+    var page = pages[Math.Clamp(tutorialPage, 0, pages.Length - 1)];
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, page.Title.ToUpperInvariant(), new Vector2(w / 2f, h * 0.24f), 3.4f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+
+    var lineY = h * 0.40f;
+    foreach (var line in page.Lines)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, line, new Vector2(w / 2f, lineY), 2.2f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+        lineY += TextRenderer.LineHeight(2.2f) + 8f;
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"PAGE {tutorialPage + 1}/{pages.Length}", new Vector2(w / 2f, h * 0.78f), 1.7f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES : NAVIGUER - ECHAP OU F1 : FERMER", new Vector2(w / 2f, h - 40f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 }
 
 static string[] BuildingFlavor(string name) => name switch
@@ -2457,6 +2568,12 @@ void DrawOutdoorHud()
     var w = uiCamera.ViewportWidth;
     var h = uiCamera.ViewportHeight;
 
+    if (showTutorial)
+    {
+        DrawTutorialOverlay(w, h);
+        return;
+    }
+
     if (activeDialogueNpc is not null)
     {
         DrawDialogueBox(w, h);
@@ -2489,7 +2606,7 @@ void DrawOutdoorHud()
     // Rappel des touches en bas à gauche (adapte le libellé à la disposition détectée/choisie —
     // voir GDD, les touches elles-mêmes fonctionnent déjà nativement dans les deux cas).
     var moveKeysLabel = isAzerty ? "ZQSD" : "WASD";
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER",
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER - F1 : AIDE",
         new Vector2(12, h - 26f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 0.85f));
 
     if (activeDialogueNpc is null)
