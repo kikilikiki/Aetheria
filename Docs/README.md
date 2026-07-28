@@ -154,7 +154,7 @@ de gameplay.
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche
 > (une autre application ouverte sur la machine). L'image a été supprimée immédiatement sans
 > être exploitée. Depuis, toute capture d'écran cible exclusivement un processus lancé par
-> Claude lui-même via son handle de fenêtre (Win32 `PrintWindow`), jamais l'écran entier.
+> feelsman lui-même via son handle de fenêtre (Win32 `PrintWindow`), jamais l'écran entier.
 7. ✅ Systèmes de jeu (voir `Server/Persistence` et `Server/World`) :
    - ✅ Création de personnage (`CharacterService`, `POST /api/characters`) — débloque le
      test ci-dessus.
