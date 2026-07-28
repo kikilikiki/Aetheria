@@ -108,7 +108,12 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
 
         session.Winners = winners;
         session.IsResolved = true;
-        lootStore.Remove(session.Id);
+
+        // Ne retire plus la session immédiatement (voir LootSessionStore — purgée après un court
+        // délai) : un coéquipier dont le client sonde encore l'état après la résolution (voir
+        // GDD/demande utilisateur — "la première personne à avoir fait le choix a connexion au
+        // serveur impossible") doit pouvoir le lire comme résolu, pas comme introuvable (404).
+        session.ResolvedAtUtc = DateTime.UtcNow;
     }
 
     private async Task GrantItemAsync(Guid characterId, int itemId, CancellationToken ct)
