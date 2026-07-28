@@ -254,6 +254,26 @@ app.MapGet("/api/characters/{id:guid}/monsters", async (Guid id) =>
     return Results.Ok(monsters.Select(ToMonsterInstanceData));
 });
 
+// Inventaire (voir GDD — bouton Inventaire en jeu).
+app.MapGet("/api/characters/{id:guid}/inventory", async (Guid id) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var inventory = await db.InventoryItems
+        .Include(inv => inv.Item)
+        .Where(inv => inv.CharacterId == id)
+        .ToListAsync();
+
+    return Results.Ok(inventory.Where(inv => inv.Item is not null).Select(inv => new InventoryItemSummary
+    {
+        ItemId = inv.ItemId,
+        Name = inv.Item!.Name,
+        Description = inv.Item.Description,
+        ItemType = inv.Item.ItemType,
+        Rarity = inv.Item.Rarity,
+        Quantity = inv.Quantity,
+    }));
+});
+
 app.MapPost("/api/characters/{id:guid}/starter", async (Guid id, StarterChoiceRequest request) =>
 {
     if (id != request.CharacterId)
@@ -410,6 +430,37 @@ app.MapPost("/api/guilds/{guildId:guid}/join", async (Guid guildId, JoinGuildReq
     try
     {
         return Results.Ok(await guildService.JoinAsync(guildId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/guilds/mine", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    var guild = await guildService.GetForCharacterAsync(characterId);
+    return guild is null ? Results.NoContent() : Results.Ok(guild);
+});
+
+// Boutique (voir GDD — bouton Boutique en jeu).
+app.MapGet("/api/shop/catalog", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var shopService = new ShopService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await shopService.GetCatalogAsync());
+});
+
+app.MapPost("/api/shop/buy", async (ShopPurchaseRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var shopService = new ShopService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await shopService.BuyAsync(request));
     }
     catch (AccountOperationException ex)
     {

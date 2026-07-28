@@ -117,7 +117,37 @@ public static class MonsterCatalogSeeder
                 Rarity = Rarity.Commun,
                 IsStackable = true,
                 MaxStackSize = 99,
+                Price = 50,
             });
+        }
+
+        // Quelques objets de boutique de démarrage (voir GDD — bouton Boutique en jeu).
+        var existingItemNames = (await db.Items.Select(i => i.Name).ToListAsync(ct)).ToHashSet();
+        var wantedShopItems = new List<ItemEntity>
+        {
+            new()
+            {
+                Name = "Potion de soin", Description = "Restaure une partie des points de vie en combat.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Commun, IsStackable = true, MaxStackSize = 20, Price = 25,
+            },
+            new()
+            {
+                Name = "Épée courte", Description = "Une lame simple mais fiable, pour débuter l'aventure.",
+                ItemType = ItemType.Arme, Rarity = Rarity.Commun, IsStackable = false, MaxStackSize = 1, Price = 120,
+                StatBonus = new StatBlock(0, 6, 0, 0, 0, 0),
+            },
+            new()
+            {
+                Name = "Armure de cuir", Description = "Une protection légère adaptée aux débutants.",
+                ItemType = ItemType.Armure, Rarity = Rarity.Commun, IsStackable = false, MaxStackSize = 1, Price = 100,
+                StatBonus = new StatBlock(0, 0, 6, 0, 0, 0),
+            },
+        };
+
+        var missingShopItems = wantedShopItems.Where(i => !existingItemNames.Contains(i.Name)).ToList();
+        if (missingShopItems.Count > 0)
+        {
+            db.Items.AddRange(missingShopItems);
         }
 
         await db.SaveChangesAsync(ct);
