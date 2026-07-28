@@ -92,11 +92,12 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     await SeasonSeeder.SeedAsync(db);
 }
 
-// Annonce automatique des nouveaux commits Git dans Discord à chaque démarrage (voir GDD/demande
-// utilisateur — aucune étape manuelle : relancer le serveur EST la mise à jour). Fire-and-forget
-// (ne bloque pas le démarrage si Discord est indisponible) ; DiscordAnnouncer/GitChangelogAnnouncer
-// avalent déjà leurs propres erreurs et journalisent, jamais d'exception non gérée ici.
-_ = GitChangelogAnnouncer.AnnounceNewCommitsAsync(app.Services.GetRequiredService<DiscordAnnouncer>(), app.Logger);
+// Journalise les nouveaux commits Git à chaque démarrage (voir GDD/demande utilisateur — aucune
+// étape manuelle : relancer le serveur EST la mise à jour). Ne poste plus directement sur
+// Discord : accumulé dans PendingChangesLog, envoyé une fois par jour à 23h par
+// DailyDigestScheduler (voir plus bas) — fire-and-forget, GitChangelogAnnouncer journalise déjà
+// ses propres erreurs, jamais d'exception non gérée ici.
+_ = GitChangelogAnnouncer.LogNewCommitsAsync(app.Logger);
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
 
@@ -1081,7 +1082,14 @@ var tcpGameServer = new TcpGameServer(
 var tcpTask = tcpGameServer.RunAsync(GameInfo.DefaultGamePort, shutdownCts.Token);
 var httpTask = app.RunAsync(shutdownCts.Token);
 
-await Task.WhenAll(tcpTask, httpTask);
+// Récapitulatif Discord quotidien à 23h (voir demande utilisateur) — tourne en tâche de fond
+// pendant toute la durée de vie du serveur, voir DailyDigestScheduler.
+var dailyDigestScheduler = new DailyDigestScheduler(
+    app.Services.GetRequiredService<DiscordAnnouncer>(),
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<DailyDigestScheduler>());
+var dailyDigestTask = dailyDigestScheduler.RunAsync(shutdownCts.Token);
+
+await Task.WhenAll(tcpTask, httpTask, dailyDigestTask);
 
 return;
 
