@@ -196,6 +196,15 @@ public sealed partial class MainViewModel : ObservableObject
 
     private static bool IsValidEmail(string email)
     {
+        // MailAddress lève ArgumentException (pas FormatException) pour une chaîne vide, et
+        // ArgumentNullException pour null — ni l'une ni l'autre n'était interceptée ici, ce qui
+        // faisait planter le Launcher (exception non gérée) plutôt que d'afficher un message
+        // d'erreur quand le champ email était laissé vide au clic sur "Créer un compte".
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return false;
+        }
+
         try
         {
             var address = new System.Net.Mail.MailAddress(email);
