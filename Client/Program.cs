@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Numerics;
 using System.Text;
 using Aetheria.Client;
@@ -7,6 +8,9 @@ using Aetheria.Engine.Core;
 using Aetheria.Engine.Input;
 using Aetheria.Engine.Rendering;
 using Aetheria.Shared;
+using Aetheria.Shared.Enums;
+using Aetheria.Shared.Models;
+using Aetheria.Shared.Models.Account;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
 
@@ -18,7 +22,9 @@ var options = LaunchOptions.Parse(args);
 var worldMap = new WorldMap(size: 50);
 Console.WriteLine($"Monde généré : {worldMap.Size}x{worldMap.Size} cases, {worldMap.Buildings.Count} bâtiments, " +
     $"{worldMap.Npcs.Count} PNJ, entrée de donjon « {worldMap.DungeonName} » en " +
-    $"({worldMap.DungeonEntrance.X}, {worldMap.DungeonEntrance.Y}). Clic gauche pour se déplacer.");
+    $"({worldMap.DungeonEntrance.X}, {worldMap.DungeonEntrance.Y}). Clic gauche pour se déplacer, E pour interagir.");
+
+const int StarterColumns = 5;
 
 var stateLock = new object();
 var gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
@@ -26,72 +32,92 @@ var statusMessage = string.Empty;
 
 var moveQueue = new Queue<(int X, int Y)>();
 var isAwaitingServerStep = false;
-var interactionShown = new Dictionary<string, bool>();
 var animationClock = 0f;
 var isPlayerMoving = false;
 
+// Scène active : le monde extérieur, une scène d'intérieur plein écran (bâtiment/donjon), ou la
+// sélection du premier compagnon. Voir Docs/README.md pour les limites assumées de chacune.
+var sceneMode = SceneMode.Outdoor;
+NearbyInteraction? nearbyInteraction = null;
+
+// Intérieur (bâtiment ou donjon) affiché quand sceneMode == Interior — pas de vraie scène 3D/2D
+// détaillée, un fond stylisé + un texte, voir DrawInteriorScene.
+var interiorTitle = string.Empty;
+var interiorBodyLines = Array.Empty<string>();
+var interiorAccent = new Vector4(0.5f, 0.5f, 0.5f, 1f);
+
+// Dialogue PNJ, superposé au monde extérieur (le déplacement se fige tant qu'il est ouvert).
+Npc? activeDialogueNpc = null;
+var dialogueLineIndex = 0;
+
+// Sélection du starter (voir Server/World/StarterService.cs) : Introduction (texte narratif) ->
+// Choosing (grille de ~10 créatures communes) -> Confirming (gros plan animé + lore) -> Sending
+// (appel HTTP en cours) -> retour à Confirming en cas d'échec, ou Outdoor en cas de succès.
+var starterStage = StarterStage.Introduction;
+List<MonsterSpeciesData> starterChoices = [];
+var starterCursor = 0;
+int? starterConfirmIndex = null;
+var starterAnimClock = 0f;
+string? starterErrorMessage = null;
+Task<StarterChoiceResponse>? starterRequestTask = null;
+StarterApiClient? starterApi = null;
+
+// Création de personnage (voir GDD) : Name (saisie du nom) -> Appearance (personnalisation,
+// aperçu animé) -> ClassKingdom -> Confirm -> Sending. Pas de vraie caméra 3D (le moteur est
+// isométrique 2D) : l'effet "caméra dynamique" est approximé par une rotation/zoom simulés sur
+// l'aperçu — voir DrawCharacterPreview et Docs/README.md pour cette limite assumée.
+var createStage = CreateStage.Name;
+var createName = string.Empty;
+var createClassIndex = 0;
+var createKingdomIndex = 0;
+var createSkinIndex = 0;
+var createHairStyleIndex = 0;
+var createHairColorIndex = 0;
+var createClothesColorIndex = 0;
+var createAccessoryIndex = 0;
+var createAppearanceField = 0;
+var createPreviewClock = 0f;
+string? createErrorMessage = null;
+Task<CreateCharacterResult>? createTask = null;
+var classValues = Enum.GetValues<CharacterClass>();
+var kingdomValues = Enum.GetValues<KingdomType>();
+
 GameConnection? connection = null;
+CharacterApiClient? characterApi = null;
 
-if (options.SessionToken is not null && options.CharacterId is not null)
+// Sélection/création de personnage (voir GDD) : ne se fait plus dans le Launcher, mais en jeu,
+// avant la connexion TCP proprement dite. `--characterId` reste accepté pour compatibilité
+// (anciens raccourcis) : dans ce cas on saute directement l'écran de sélection.
+Guid? chosenCharacterId = options.CharacterId;
+List<CharacterSummary> myCharacters = [];
+var characterCursor = 0;
+
+var isConnectedMode = options.SessionToken is not null;
+
+if (isConnectedMode)
 {
-    Console.WriteLine($"Mode connecté : {options.Host}:{options.Port}, personnage {options.CharacterId}.");
+    starterApi = new StarterApiClient(options.Host);
+    characterApi = new CharacterApiClient(options.Host);
 
-    connection = new GameConnection();
-    connection.EnterWorldAccepted += packet =>
+    if (chosenCharacterId is null)
     {
-        lock (stateLock)
+        try
         {
-            gridPosition = new Vector2(packet.PositionX, packet.PositionY);
-            statusMessage = "Connecté au monde.";
+            myCharacters = await characterApi.GetMyCharactersAsync(options.SessionToken!);
         }
-
-        Console.WriteLine($"[Réseau] Entrée dans le monde acceptée en ({packet.PositionX}, {packet.PositionY}).");
-    };
-    connection.EnterWorldRejected += packet =>
-    {
-        lock (stateLock)
+        catch (HttpRequestException ex)
         {
-            statusMessage = $"Connexion refusée : {packet.Reason}";
+            Console.WriteLine($"[Personnage] Impossible de récupérer la liste des personnages : {ex.Message}");
         }
 
-        Console.WriteLine($"[Réseau] Entrée dans le monde refusée : {packet.Reason}");
-    };
-    connection.PositionUpdated += packet =>
-    {
-        lock (stateLock)
-        {
-            gridPosition = new Vector2(packet.PositionX, packet.PositionY);
-        }
-
-        // Marche automatique : si un chemin cliqué est en cours, on enchaîne la prochaine case.
-        if (moveQueue.Count > 0)
-        {
-            var next = moveQueue.Dequeue();
-            connection.SendMove(next.X, next.Y);
-        }
-        else
-        {
-            isAwaitingServerStep = false;
-        }
-    };
-    connection.Disconnected += () =>
-    {
-        Console.WriteLine("[Réseau] Déconnecté du serveur.");
-        lock (stateLock)
-        {
-            statusMessage = "Déconnecté du serveur.";
-        }
-    };
-
-    try
-    {
-        connection.Connect(options.Host, options.Port);
-        connection.RequestEnterWorld(options.SessionToken, options.CharacterId.Value);
+        sceneMode = myCharacters.Count > 0 ? SceneMode.CharacterSelect : SceneMode.CharacterCreate;
     }
-    catch (Exception ex) when (ex is System.Net.Sockets.SocketException or IOException)
+    else
     {
-        statusMessage = $"Impossible de se connecter au serveur : {ex.Message}";
-        connection = null;
+        // Compatibilité : --characterId fourni directement (anciens raccourcis) — on se
+        // connecte tout de suite, sans passer par l'écran de sélection.
+        ConnectAndEnterWorld(chosenCharacterId.Value);
+        await CheckStarterNeedAsync(chosenCharacterId.Value);
     }
 }
 else
@@ -106,6 +132,7 @@ Texture2D whiteTexture = null!;
 KeyboardState keyboard = null!;
 MouseState mouse = null!;
 var camera = new Camera2D { ViewportWidth = 1280, ViewportHeight = 720, Zoom = 1.4f };
+var uiCamera = new Camera2D { ViewportWidth = 1280, ViewportHeight = 720, Zoom = 1f };
 
 host.Load += () =>
 {
@@ -125,6 +152,8 @@ host.Resize += (width, height) =>
     host.Gl.Viewport(0, 0, (uint)width, (uint)height);
     camera.ViewportWidth = width;
     camera.ViewportHeight = height;
+    uiCamera.ViewportWidth = width;
+    uiCamera.ViewportHeight = height;
 };
 
 host.Update += deltaTime =>
@@ -132,6 +161,62 @@ host.Update += deltaTime =>
     keyboard.Update();
     mouse.Update();
     animationClock += deltaTime;
+
+    if (sceneMode == SceneMode.CharacterSelect)
+    {
+        UpdateCharacterSelect();
+        return;
+    }
+
+    if (sceneMode == SceneMode.CharacterCreate)
+    {
+        createPreviewClock += deltaTime;
+        UpdateCharacterCreate();
+        return;
+    }
+
+    if (sceneMode == SceneMode.Loading)
+    {
+        return;
+    }
+
+    if (sceneMode == SceneMode.StarterSelection)
+    {
+        UpdateStarterSelection(deltaTime);
+        return;
+    }
+
+    if (sceneMode == SceneMode.Interior)
+    {
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            sceneMode = SceneMode.Outdoor;
+        }
+
+        return;
+    }
+
+    // À partir d'ici, sceneMode == SceneMode.Outdoor.
+    if (activeDialogueNpc is not null)
+    {
+        if (keyboard.WasJustPressed(Key.E) || keyboard.WasJustPressed(Key.Enter))
+        {
+            var lines = NpcDialogues.Lines.GetValueOrDefault(activeDialogueNpc.Name, ["..."]);
+            dialogueLineIndex++;
+            if (dialogueLineIndex >= lines.Length)
+            {
+                activeDialogueNpc = null;
+                dialogueLineIndex = 0;
+            }
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            activeDialogueNpc = null;
+            dialogueLineIndex = 0;
+        }
+
+        return; // Le monde se fige pendant un dialogue, comme dans un RPG classique.
+    }
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -232,43 +317,31 @@ host.Update += deltaTime =>
 
     isPlayerMoving = Vector2.DistanceSquared(positionBeforeInput, positionAfterInput) > 0.0001f;
 
-    // Interactions de proximité : bâtiments et portail de donjon (voir Docs/README.md pour les
-    // limites assumées — pas de scène d'intérieur, seulement un message clair).
-    foreach (var building in worldMap.Buildings)
-    {
-        var key = $"building:{building.Name}";
-        var distance = Vector2.Distance(positionAfterInput, new Vector2(building.GridX, building.GridY));
-        if (distance < 1.6f)
-        {
-            if (!interactionShown.GetValueOrDefault(key))
-            {
-                interactionShown[key] = true;
-                Console.WriteLine($"[Monde] Vous entrez dans « {building.Name} ». " +
-                    "(Pas encore de scène d'intérieur — voir Docs/README.md.)");
-            }
-        }
-        else
-        {
-            interactionShown[key] = false;
-        }
-    }
+    // Interaction la plus proche (bâtiment, donjon, PNJ) : un texte "Appuyez sur E" apparaît, et
+    // E déclenche réellement l'action (entrer, parler) — voir DrawOutdoorHud.
+    nearbyInteraction = ComputeNearbyInteraction(positionAfterInput);
 
-    var dungeonDistance = Vector2.Distance(
-        positionAfterInput, new Vector2(worldMap.DungeonEntrance.X, worldMap.DungeonEntrance.Y));
-
-    if (dungeonDistance < 1.6f)
+    if (nearbyInteraction is { } interaction && keyboard.WasJustPressed(Key.E))
     {
-        if (!interactionShown.GetValueOrDefault("dungeon"))
+        switch (interaction.Kind)
         {
-            interactionShown["dungeon"] = true;
-            Console.WriteLine($"[Monde] Vous franchissez le portail du « {worldMap.DungeonName} »... " +
-                "(le donjon lui-même — génération d'étage + combat — existe déjà côté serveur, voir " +
-                "POST /api/dungeons/{id}/floors/{n}/rooms/{i}/engage ; la scène visuelle d'intérieur reste à faire.)");
+            case InteractionKind.Npc:
+                activeDialogueNpc = interaction.Npc;
+                dialogueLineIndex = 0;
+                break;
+            case InteractionKind.Building:
+                sceneMode = SceneMode.Interior;
+                interiorTitle = interaction.Building!.Name;
+                interiorBodyLines = BuildingFlavor(interaction.Building.Name);
+                interiorAccent = interaction.Building.RoofColor;
+                break;
+            case InteractionKind.Dungeon:
+                sceneMode = SceneMode.Interior;
+                interiorTitle = worldMap.DungeonName;
+                interiorBodyLines = DungeonFlavor();
+                interiorAccent = WorldMap.PortalMidColorBright;
+                break;
         }
-    }
-    else
-    {
-        interactionShown["dungeon"] = false;
     }
 };
 
@@ -277,48 +350,80 @@ host.Render += _ =>
     host.Gl.ClearColor(0.05f, 0.05f, 0.08f, 1.0f);
     host.Gl.Clear(ClearBufferMask.ColorBufferBit);
 
-    Vector2 currentGridPosition;
-    lock (stateLock)
+    if (sceneMode == SceneMode.Outdoor)
     {
-        currentGridPosition = gridPosition;
-    }
-
-    camera.Position = IsoMath.GridToIso(currentGridPosition.X, currentGridPosition.Y);
-
-    spriteBatch.Begin(camera);
-
-    // Le sol : les tuiles ne se chevauchent jamais entre elles, aucun tri de profondeur requis.
-    for (var y = 0; y < worldMap.Size; y++)
-    {
-        for (var x = 0; x < worldMap.Size; x++)
+        Vector2 currentGridPosition;
+        lock (stateLock)
         {
-            DrawIsoDiamond(new Vector2(x, y), 1f, worldMap.TileColors[x, y]);
+            currentGridPosition = gridPosition;
         }
+
+        camera.Position = IsoMath.GridToIso(currentGridPosition.X, currentGridPosition.Y);
+
+        spriteBatch.Begin(camera);
+
+        // Le sol : les tuiles ne se chevauchent jamais entre elles, aucun tri de profondeur requis.
+        for (var y = 0; y < worldMap.Size; y++)
+        {
+            for (var x = 0; x < worldMap.Size; x++)
+            {
+                DrawIsoDiamond(new Vector2(x, y), 1f, worldMap.TileColors[x, y]);
+            }
+        }
+
+        // Éléments en hauteur (bâtiments, portail, PNJ, joueur) : triés par profondeur pour une occlusion correcte.
+        var playerBob = MathF.Sin(animationClock * (isPlayerMoving ? 9f : 2.4f)) * (isPlayerMoving ? 3.2f : 1.1f);
+
+        var depthJobs = new List<(float Depth, Action Draw)>(worldMap.Buildings.Count + worldMap.Npcs.Count + 2)
+        {
+            (currentGridPosition.X + currentGridPosition.Y + 0.5f, () => DrawPlayerFigure(currentGridPosition, playerBob)),
+            (worldMap.DungeonEntrance.X + worldMap.DungeonEntrance.Y,
+                () => DrawPortal(new Vector2(worldMap.DungeonEntrance.X, worldMap.DungeonEntrance.Y), animationClock)),
+        };
+
+        foreach (var building in worldMap.Buildings)
+        {
+            depthJobs.Add((building.GridX + building.GridY, () => DrawBuilding(building)));
+        }
+
+        foreach (var npc in worldMap.Npcs)
+        {
+            depthJobs.Add((npc.GridX + npc.GridY + 0.3f, () => DrawNpcFigure(npc, animationClock)));
+        }
+
+        foreach (var job in depthJobs.OrderBy(j => j.Depth))
+        {
+            job.Draw();
+        }
+
+        spriteBatch.End();
     }
 
-    // Éléments en hauteur (bâtiments, portail, PNJ, joueur) : triés par profondeur pour une occlusion correcte.
-    var playerBob = MathF.Sin(animationClock * (isPlayerMoving ? 9f : 2.4f)) * (isPlayerMoving ? 3.2f : 1.1f);
+    // Superposition écran (HUD, dialogue, scène d'intérieur, sélection du starter) : toujours
+    // par-dessus le monde, dans un repère écran indépendant du zoom/de la position de la caméra.
+    uiCamera.Position = new Vector2(uiCamera.ViewportWidth / 2f, uiCamera.ViewportHeight / 2f);
+    spriteBatch.Begin(uiCamera);
 
-    var depthJobs = new List<(float Depth, Action Draw)>(worldMap.Buildings.Count + worldMap.Npcs.Count + 2)
+    switch (sceneMode)
     {
-        (currentGridPosition.X + currentGridPosition.Y + 0.5f, () => DrawPlayerFigure(currentGridPosition, playerBob)),
-        (worldMap.DungeonEntrance.X + worldMap.DungeonEntrance.Y,
-            () => DrawPortal(new Vector2(worldMap.DungeonEntrance.X, worldMap.DungeonEntrance.Y), animationClock)),
-    };
-
-    foreach (var building in worldMap.Buildings)
-    {
-        depthJobs.Add((building.GridX + building.GridY, () => DrawBuilding(building)));
-    }
-
-    foreach (var npc in worldMap.Npcs)
-    {
-        depthJobs.Add((npc.GridX + npc.GridY + 0.3f, () => DrawNpcFigure(npc, animationClock)));
-    }
-
-    foreach (var job in depthJobs.OrderBy(j => j.Depth))
-    {
-        job.Draw();
+        case SceneMode.CharacterSelect:
+            DrawCharacterSelect();
+            break;
+        case SceneMode.CharacterCreate:
+            DrawCharacterCreate();
+            break;
+        case SceneMode.Loading:
+            DrawLoading();
+            break;
+        case SceneMode.StarterSelection:
+            DrawStarterSelection();
+            break;
+        case SceneMode.Interior:
+            DrawInteriorScene();
+            break;
+        case SceneMode.Outdoor:
+            DrawOutdoorHud();
+            break;
     }
 
     spriteBatch.End();
@@ -327,6 +432,8 @@ host.Render += _ =>
 host.Run();
 
 connection?.Dispose();
+starterApi?.Dispose();
+characterApi?.Dispose();
 
 static Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, int Y) to)
 {
@@ -348,6 +455,453 @@ static Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, in
 
     return queue;
 }
+
+NearbyInteraction? ComputeNearbyInteraction(Vector2 position)
+{
+    const float threshold = 1.6f;
+    NearbyInteraction? best = null;
+    var bestDistance = threshold;
+
+    foreach (var building in worldMap.Buildings)
+    {
+        var distance = Vector2.Distance(position, new Vector2(building.GridX, building.GridY));
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            best = new NearbyInteraction(InteractionKind.Building, building.Name, building, null);
+        }
+    }
+
+    var dungeonDistance = Vector2.Distance(position, new Vector2(worldMap.DungeonEntrance.X, worldMap.DungeonEntrance.Y));
+    if (dungeonDistance < bestDistance)
+    {
+        bestDistance = dungeonDistance;
+        best = new NearbyInteraction(InteractionKind.Dungeon, worldMap.DungeonName, null, null);
+    }
+
+    foreach (var npc in worldMap.Npcs)
+    {
+        var distance = Vector2.Distance(position, new Vector2(npc.GridX, npc.GridY));
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            best = new NearbyInteraction(InteractionKind.Npc, npc.Name, null, npc);
+        }
+    }
+
+    return best;
+}
+
+static string[] BuildingFlavor(string name) => name switch
+{
+    "Capitale" => ["Le hall du château résonne", "de conversations feutrées."],
+    "Village" => ["Les villageois vaquent", "à leurs occupations."],
+    "Hôtel des ventes" => ["Des étals présentent", "les objets à vendre."],
+    "Forge" => ["La chaleur de la forge", "vous accueille."],
+    "Guilde" => ["Les emblèmes des guildes", "ornent les murs."],
+    _ => ["Vous entrez à l'intérieur."],
+};
+
+static string[] DungeonFlavor() =>
+[
+    "Le portail s'ouvre sur des couloirs sombres.",
+    "Étages, combats et récompenses sont gérés",
+    "par le système de donjons du serveur.",
+];
+
+static string WrapText(string text, int maxCharsPerLine)
+{
+    var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    var builder = new StringBuilder();
+    var lineLength = 0;
+
+    foreach (var word in words)
+    {
+        if (lineLength > 0 && lineLength + 1 + word.Length > maxCharsPerLine)
+        {
+            builder.Append('\n');
+            lineLength = 0;
+        }
+        else if (lineLength > 0)
+        {
+            builder.Append(' ');
+            lineLength++;
+        }
+
+        builder.Append(word);
+        lineLength += word.Length;
+    }
+
+    return builder.ToString();
+}
+
+static Vector4 ElementColor(Element element) => element switch
+{
+    Element.Feu => new Vector4(0.85f, 0.35f, 0.20f, 1f),
+    Element.Eau => new Vector4(0.25f, 0.55f, 0.85f, 1f),
+    Element.Nature => new Vector4(0.35f, 0.65f, 0.30f, 1f),
+    Element.Glace => new Vector4(0.55f, 0.80f, 0.90f, 1f),
+    Element.Foudre => new Vector4(0.90f, 0.85f, 0.25f, 1f),
+    Element.Terre => new Vector4(0.60f, 0.45f, 0.30f, 1f),
+    Element.Air => new Vector4(0.75f, 0.85f, 0.90f, 1f),
+    Element.Lumiere => new Vector4(0.95f, 0.90f, 0.65f, 1f),
+    Element.Ombre => new Vector4(0.40f, 0.30f, 0.50f, 1f),
+    _ => new Vector4(0.65f, 0.65f, 0.65f, 1f),
+};
+
+void ConnectAndEnterWorld(Guid characterId)
+{
+    Console.WriteLine($"Mode connecté : {options.Host}:{options.Port}, personnage {characterId}.");
+
+    connection = new GameConnection();
+    connection.EnterWorldAccepted += packet =>
+    {
+        lock (stateLock)
+        {
+            gridPosition = new Vector2(packet.PositionX, packet.PositionY);
+            statusMessage = "Connecté au monde.";
+        }
+
+        Console.WriteLine($"[Réseau] Entrée dans le monde acceptée en ({packet.PositionX}, {packet.PositionY}).");
+    };
+    connection.EnterWorldRejected += packet =>
+    {
+        lock (stateLock)
+        {
+            statusMessage = $"Connexion refusée : {packet.Reason}";
+        }
+
+        Console.WriteLine($"[Réseau] Entrée dans le monde refusée : {packet.Reason}");
+    };
+    connection.PositionUpdated += packet =>
+    {
+        lock (stateLock)
+        {
+            gridPosition = new Vector2(packet.PositionX, packet.PositionY);
+        }
+
+        // Marche automatique : si un chemin cliqué est en cours, on enchaîne la prochaine case.
+        if (moveQueue.Count > 0)
+        {
+            var next = moveQueue.Dequeue();
+            connection.SendMove(next.X, next.Y);
+        }
+        else
+        {
+            isAwaitingServerStep = false;
+        }
+    };
+    connection.Disconnected += () =>
+    {
+        Console.WriteLine("[Réseau] Déconnecté du serveur.");
+        lock (stateLock)
+        {
+            statusMessage = "Déconnecté du serveur.";
+        }
+    };
+
+    try
+    {
+        connection.Connect(options.Host, options.Port);
+        connection.RequestEnterWorld(options.SessionToken!, characterId);
+    }
+    catch (Exception ex) when (ex is System.Net.Sockets.SocketException or IOException)
+    {
+        lock (stateLock)
+        {
+            statusMessage = $"Impossible de se connecter au serveur : {ex.Message}";
+        }
+
+        connection = null;
+    }
+}
+
+/// <summary>
+/// Scène d'introduction du starter (voir GDD) : seulement si ce personnage ne possède encore
+/// aucune créature (sinon il a déjà fait son choix par le passé). Bascule <see cref="sceneMode"/>
+/// elle-même en Outdoor ou StarterSelection une fois résolue.
+/// </summary>
+async Task CheckStarterNeedAsync(Guid characterId)
+{
+    if (starterApi is null)
+    {
+        sceneMode = SceneMode.Outdoor;
+        return;
+    }
+
+    try
+    {
+        var existingMonsters = await starterApi.GetCharacterMonstersAsync(characterId);
+        if (existingMonsters.Count == 0)
+        {
+            starterChoices = await starterApi.GetStarterSpeciesAsync();
+            if (starterChoices.Count > 0)
+            {
+                sceneMode = SceneMode.StarterSelection;
+                Console.WriteLine($"[Starter] {starterChoices.Count} compagnons communs disponibles pour le premier choix.");
+                return;
+            }
+        }
+        else
+        {
+            Console.WriteLine($"[Starter] Personnage déjà accompagné de {existingMonsters.Count} créature(s), pas de nouvelle sélection.");
+        }
+    }
+    catch (HttpRequestException ex)
+    {
+        Console.WriteLine($"[Starter] Impossible de vérifier les compagnons existants : {ex.Message}");
+    }
+
+    sceneMode = SceneMode.Outdoor;
+}
+
+void ResetCreationState()
+{
+    createStage = CreateStage.Name;
+    createName = string.Empty;
+    createClassIndex = 0;
+    createKingdomIndex = 0;
+    createSkinIndex = 0;
+    createHairStyleIndex = 0;
+    createHairColorIndex = 0;
+    createClothesColorIndex = 0;
+    createAccessoryIndex = 0;
+    createAppearanceField = 0;
+    createErrorMessage = null;
+}
+
+void UpdateCharacterSelect()
+{
+    var optionCount = myCharacters.Count + 1; // +1 pour "Nouveau personnage"
+
+    if (keyboard.WasJustPressed(Key.Down)) characterCursor = Math.Min(characterCursor + 1, optionCount - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) characterCursor = Math.Max(characterCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        if (characterCursor == myCharacters.Count)
+        {
+            ResetCreationState();
+            sceneMode = SceneMode.CharacterCreate;
+        }
+        else
+        {
+            var chosen = myCharacters[characterCursor];
+            chosenCharacterId = chosen.Id;
+            sceneMode = SceneMode.Loading;
+            ConnectAndEnterWorld(chosen.Id);
+            _ = CheckStarterNeedAsync(chosen.Id);
+        }
+    }
+}
+
+void UpdateCharacterCreate()
+{
+    switch (createStage)
+    {
+        case CreateStage.Name:
+            foreach (Key key in Enum.GetValues<Key>())
+            {
+                var typed = KeyToChar(key);
+                if (typed is not null && keyboard.WasJustPressed(key) && createName.Length < 16)
+                {
+                    createName += typed.Value;
+                }
+            }
+
+            if (keyboard.WasJustPressed(Key.Backspace) && createName.Length > 0)
+            {
+                createName = createName[..^1];
+            }
+            else if (keyboard.WasJustPressed(Key.Enter) && createName.Trim().Length >= 3)
+            {
+                createStage = CreateStage.Appearance;
+            }
+            else if (keyboard.WasJustPressed(Key.Escape) && myCharacters.Count > 0)
+            {
+                sceneMode = SceneMode.CharacterSelect;
+            }
+
+            break;
+
+        case CreateStage.Appearance:
+            const int fieldCount = 5;
+            if (keyboard.WasJustPressed(Key.Down)) createAppearanceField = (createAppearanceField + 1) % fieldCount;
+            else if (keyboard.WasJustPressed(Key.Up)) createAppearanceField = (createAppearanceField - 1 + fieldCount) % fieldCount;
+            else if (keyboard.WasJustPressed(Key.Right) || keyboard.WasJustPressed(Key.Left))
+            {
+                var delta = keyboard.WasJustPressed(Key.Right) ? 1 : -1;
+                switch (createAppearanceField)
+                {
+                    case 0: createSkinIndex = Wrap(createSkinIndex + delta, CharacterAppearancePalette.SkinColors.Length); break;
+                    case 1: createHairStyleIndex = Wrap(createHairStyleIndex + delta, CharacterAppearancePalette.HairStyleNames.Length); break;
+                    case 2: createHairColorIndex = Wrap(createHairColorIndex + delta, CharacterAppearancePalette.HairColors.Length); break;
+                    case 3: createClothesColorIndex = Wrap(createClothesColorIndex + delta, CharacterAppearancePalette.ClothesColors.Length); break;
+                    case 4: createAccessoryIndex = Wrap(createAccessoryIndex + delta, CharacterAppearancePalette.AccessoryNames.Length); break;
+                }
+            }
+            else if (keyboard.WasJustPressed(Key.Enter)) createStage = CreateStage.ClassKingdom;
+            else if (keyboard.WasJustPressed(Key.Escape)) createStage = CreateStage.Name;
+
+            break;
+
+        case CreateStage.ClassKingdom:
+            if (keyboard.WasJustPressed(Key.Right)) createClassIndex = Wrap(createClassIndex + 1, classValues.Length);
+            else if (keyboard.WasJustPressed(Key.Left)) createClassIndex = Wrap(createClassIndex - 1, classValues.Length);
+            else if (keyboard.WasJustPressed(Key.Down)) createKingdomIndex = Wrap(createKingdomIndex + 1, kingdomValues.Length);
+            else if (keyboard.WasJustPressed(Key.Up)) createKingdomIndex = Wrap(createKingdomIndex - 1, kingdomValues.Length);
+            else if (keyboard.WasJustPressed(Key.Enter))
+            {
+                createErrorMessage = null;
+                createStage = CreateStage.Confirm;
+            }
+            else if (keyboard.WasJustPressed(Key.Escape)) createStage = CreateStage.Appearance;
+
+            break;
+
+        case CreateStage.Confirm:
+            if (keyboard.WasJustPressed(Key.Enter))
+            {
+                createTask = characterApi!.CreateCharacterAsync(new CreateCharacterRequest
+                {
+                    SessionToken = options.SessionToken!,
+                    Name = createName.Trim(),
+                    Class = classValues[createClassIndex],
+                    Kingdom = kingdomValues[createKingdomIndex],
+                    SkinColorIndex = createSkinIndex,
+                    HairStyleIndex = createHairStyleIndex,
+                    HairColorIndex = createHairColorIndex,
+                    ClothesColorIndex = createClothesColorIndex,
+                    AccessoryIndex = createAccessoryIndex,
+                });
+                createStage = CreateStage.Sending;
+            }
+            else if (keyboard.WasJustPressed(Key.Escape)) createStage = CreateStage.ClassKingdom;
+
+            break;
+
+        case CreateStage.Sending:
+            if (createTask is { IsCompleted: true } task)
+            {
+                if (task.IsFaulted)
+                {
+                    createErrorMessage = "Connexion au serveur impossible.";
+                    createStage = CreateStage.Confirm;
+                }
+                else
+                {
+                    var result = task.Result;
+                    if (result.Success)
+                    {
+                        chosenCharacterId = result.Character!.Id;
+                        sceneMode = SceneMode.Loading;
+                        ConnectAndEnterWorld(chosenCharacterId.Value);
+                        _ = CheckStarterNeedAsync(chosenCharacterId.Value);
+                    }
+                    else
+                    {
+                        createErrorMessage = result.Error;
+                        createStage = CreateStage.Confirm;
+                    }
+                }
+
+                createTask = null;
+            }
+
+            break;
+    }
+}
+
+static int Wrap(int value, int count) => ((value % count) + count) % count;
+
+static char? KeyToChar(Key key) => key switch
+{
+    Key.A => 'A', Key.B => 'B', Key.C => 'C', Key.D => 'D', Key.E => 'E', Key.F => 'F',
+    Key.G => 'G', Key.H => 'H', Key.I => 'I', Key.J => 'J', Key.K => 'K', Key.L => 'L',
+    Key.M => 'M', Key.N => 'N', Key.O => 'O', Key.P => 'P', Key.Q => 'Q', Key.R => 'R',
+    Key.S => 'S', Key.T => 'T', Key.U => 'U', Key.V => 'V', Key.W => 'W', Key.X => 'X',
+    Key.Y => 'Y', Key.Z => 'Z', Key.Space => ' ',
+    _ => null,
+};
+
+void UpdateStarterSelection(float deltaTime)
+{
+    starterAnimClock += deltaTime;
+
+    switch (starterStage)
+    {
+        case StarterStage.Introduction:
+            if (keyboard.WasJustPressed(Key.Enter) || keyboard.WasJustPressed(Key.E))
+            {
+                starterStage = StarterStage.Choosing;
+            }
+
+            break;
+
+        case StarterStage.Choosing:
+            if (keyboard.WasJustPressed(Key.Right)) starterCursor = Math.Min(starterCursor + 1, starterChoices.Count - 1);
+            else if (keyboard.WasJustPressed(Key.Left)) starterCursor = Math.Max(starterCursor - 1, 0);
+            else if (keyboard.WasJustPressed(Key.Down)) starterCursor = Math.Min(starterCursor + StarterColumns, starterChoices.Count - 1);
+            else if (keyboard.WasJustPressed(Key.Up)) starterCursor = Math.Max(starterCursor - StarterColumns, 0);
+            else if (keyboard.WasJustPressed(Key.Enter))
+            {
+                starterConfirmIndex = starterCursor;
+                starterAnimClock = 0f;
+                starterErrorMessage = null;
+                starterStage = StarterStage.Confirming;
+            }
+
+            break;
+
+        case StarterStage.Confirming:
+            if (keyboard.WasJustPressed(Key.Enter))
+            {
+                var species = starterChoices[starterConfirmIndex!.Value];
+                starterRequestTask = starterApi!.ChooseStarterAsync(options.SessionToken!, chosenCharacterId!.Value, species.Id);
+                starterStage = StarterStage.Sending;
+            }
+            else if (keyboard.WasJustPressed(Key.Escape))
+            {
+                starterConfirmIndex = null;
+                starterStage = StarterStage.Choosing;
+            }
+
+            break;
+
+        case StarterStage.Sending:
+            if (starterRequestTask is { IsCompleted: true } task)
+            {
+                if (task.IsFaulted)
+                {
+                    starterErrorMessage = "Connexion au serveur impossible.";
+                    starterStage = StarterStage.Confirming;
+                }
+                else
+                {
+                    var result = task.Result;
+                    if (result.Success)
+                    {
+                        lock (stateLock)
+                        {
+                            statusMessage = result.Message;
+                        }
+
+                        sceneMode = SceneMode.Outdoor;
+                    }
+                    else
+                    {
+                        starterErrorMessage = result.Message;
+                        starterStage = StarterStage.Confirming;
+                    }
+                }
+
+                starterRequestTask = null;
+            }
+
+            break;
+    }
+}
+
+void DrawPanel(Vector2 topLeft, Vector2 size, Vector4 color) => spriteBatch.Draw(whiteTexture, topLeft, size, color);
 
 void DrawIsoDiamond(Vector2 gridPos, float scale, Vector4 color)
 {
@@ -382,16 +936,18 @@ void DrawBuilding(Building building)
     spriteBatch.DrawQuad(whiteTexture, roofBottom, roofRight, groundRight, groundBottom, building.WallColorRight);
     spriteBatch.DrawQuad(whiteTexture, roofTop, roofRight, roofBottom, roofLeft, building.RoofColor);
 
-    // Enseigne : un poteau planté devant l'entrée (côté "sud", vers la caméra) et une plaque.
+    // Enseigne : un poteau planté devant l'entrée (côté "sud", vers la caméra) et une plaque nommée.
     var postWidth = 3f;
     var postHeight = IsoMath.TileHeight * 0.55f;
     var postBase = groundCenter + new Vector2(0, IsoMath.TileHeight * 0.6f);
     var postTop = postBase - new Vector2(0, postHeight);
     spriteBatch.Draw(whiteTexture, new Vector2(postBase.X - postWidth / 2f, postTop.Y), new Vector2(postWidth, postHeight), WorldMap.SignpostColor);
 
-    var plaqueSize = new Vector2(IsoMath.TileWidth * 0.26f, IsoMath.TileHeight * 0.32f);
-    var plaquePosition = postTop - new Vector2(plaqueSize.X / 2f, plaqueSize.Y * 0.7f);
+    var plaqueSize = new Vector2(IsoMath.TileWidth * 0.46f, IsoMath.TileHeight * 0.42f);
+    var plaquePosition = postTop - new Vector2(plaqueSize.X / 2f, plaqueSize.Y * 0.75f);
     spriteBatch.Draw(whiteTexture, plaquePosition, plaqueSize, WorldMap.SignboardColor);
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, building.Name.ToUpperInvariant(),
+        plaquePosition + new Vector2(plaqueSize.X / 2f, plaqueSize.Y / 2f - 3f), 1.1f, new Vector4(0.25f, 0.17f, 0.09f, 1f));
 }
 
 void DrawPortal(Vector2 gridPos, float animClock)
@@ -403,33 +959,45 @@ void DrawPortal(Vector2 gridPos, float animClock)
     DrawIsoDiamond(gridPos, 0.46f, Vector4.Lerp(WorldMap.PortalMidColorBright, WorldMap.PortalCoreColor, pulse));
 }
 
-void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wallLeftColor, Vector4 wallRightColor, Vector4 headColor, float bobPixels)
+void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wallLeftColor, Vector4 wallRightColor, Vector4 headColor, float bobPixels, string? label = null)
 {
-    const float footprint = 0.34f;
+    const float footprint = 0.40f;
 
-    var groundCenter = IsoMath.GridToIso(gridPos.X, gridPos.Y) - new Vector2(0, bobPixels);
+    var groundCenter = IsoMath.GridToIso(gridPos.X, gridPos.Y);
+
+    // Ombre au sol : toujours ancrée à la case (ignore le "bob") pour bien fixer le personnage au sol.
+    DrawIsoDiamond(gridPos, footprint * 0.85f, new Vector4(0f, 0f, 0f, 0.28f));
+
+    var bobbedGroundCenter = groundCenter - new Vector2(0, bobPixels);
     var halfWidth = IsoMath.TileWidth * footprint / 2f;
     var halfHeight = IsoMath.TileHeight * footprint / 2f;
 
-    var bodyTopCenter = groundCenter - new Vector2(0, bodyHeight * IsoMath.TileHeight);
+    var bodyTopCenter = bobbedGroundCenter - new Vector2(0, bodyHeight * IsoMath.TileHeight);
 
     var bodyTop = bodyTopCenter + new Vector2(0, -halfHeight);
     var bodyRight = bodyTopCenter + new Vector2(halfWidth, 0);
     var bodyBottom = bodyTopCenter + new Vector2(0, halfHeight);
     var bodyLeft = bodyTopCenter + new Vector2(-halfWidth, 0);
 
-    var groundLeft = groundCenter + new Vector2(-halfWidth, 0);
-    var groundBottom = groundCenter + new Vector2(0, halfHeight);
-    var groundRight = groundCenter + new Vector2(halfWidth, 0);
+    var groundLeft = bobbedGroundCenter + new Vector2(-halfWidth, 0);
+    var groundBottom = bobbedGroundCenter + new Vector2(0, halfHeight);
+    var groundRight = bobbedGroundCenter + new Vector2(halfWidth, 0);
 
     spriteBatch.DrawQuad(whiteTexture, bodyLeft, bodyBottom, groundBottom, groundLeft, wallLeftColor);
     spriteBatch.DrawQuad(whiteTexture, bodyBottom, bodyRight, groundRight, groundBottom, wallRightColor);
     spriteBatch.DrawQuad(whiteTexture, bodyTop, bodyRight, bodyBottom, bodyLeft, roofColor);
 
-    // Tête : petit losange posé sur le corps, pour une silhouette reconnaissable sans sprite.
-    var headCenter = bodyTopCenter - new Vector2(0, halfHeight * 0.85f);
-    var headHalfWidth = halfWidth * 0.55f;
-    var headHalfHeight = halfHeight * 0.55f;
+    // Bras : deux petits pavés de part et d'autre du corps, pour casser la silhouette "boîte".
+    var armWidth = halfWidth * 0.34f;
+    var armHeight = bodyHeight * IsoMath.TileHeight * 0.60f;
+    var armTopY = bodyTopCenter.Y + halfHeight * 0.35f;
+    spriteBatch.Draw(whiteTexture, new Vector2(bodyLeft.X - armWidth * 0.8f, armTopY), new Vector2(armWidth, armHeight), wallLeftColor);
+    spriteBatch.Draw(whiteTexture, new Vector2(bodyRight.X - armWidth * 0.2f, armTopY), new Vector2(armWidth, armHeight), wallRightColor);
+
+    // Tête : un losange nettement plus grand que le corps pour bien se lire comme une tête.
+    var headHalfWidth = halfWidth * 0.78f;
+    var headHalfHeight = halfHeight * 0.78f;
+    var headCenter = bodyTopCenter - new Vector2(0, headHalfHeight * 0.95f);
 
     var headTop = headCenter + new Vector2(0, -headHalfHeight);
     var headRight = headCenter + new Vector2(headHalfWidth, 0);
@@ -437,6 +1005,19 @@ void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wa
     var headLeft = headCenter + new Vector2(-headHalfWidth, 0);
 
     spriteBatch.DrawQuad(whiteTexture, headTop, headRight, headBottom, headLeft, headColor);
+
+    // Deux petits points sombres : juste assez pour suggérer un visage sans sprite dédié.
+    var eyeSize = new Vector2(headHalfWidth * 0.22f, headHalfWidth * 0.22f);
+    var eyeY = headCenter.Y - eyeSize.Y * 0.3f;
+    var eyeColor = new Vector4(0.15f, 0.12f, 0.10f, 1f);
+    spriteBatch.Draw(whiteTexture, new Vector2(headCenter.X - eyeSize.X * 1.6f, eyeY), eyeSize, eyeColor);
+    spriteBatch.Draw(whiteTexture, new Vector2(headCenter.X + eyeSize.X * 0.6f, eyeY), eyeSize, eyeColor);
+
+    if (label is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, label.ToUpperInvariant(),
+            new Vector2(headCenter.X, headTop.Y - 14f), 1.6f, new Vector4(1f, 1f, 1f, 0.92f));
+    }
 }
 
 void DrawPlayerFigure(Vector2 gridPos, float bobPixels)
@@ -444,7 +1025,7 @@ void DrawPlayerFigure(Vector2 gridPos, float bobPixels)
     DrawFigure(
         gridPos, 0.55f,
         new Vector4(0.92f, 0.78f, 0.31f, 1f), new Vector4(0.60f, 0.48f, 0.15f, 1f), new Vector4(0.78f, 0.64f, 0.22f, 1f),
-        new Vector4(0.92f, 0.80f, 0.68f, 1f), bobPixels);
+        new Vector4(0.92f, 0.80f, 0.68f, 1f), bobPixels, "Vous");
 }
 
 void DrawNpcFigure(Npc npc, float animClock)
@@ -453,5 +1034,415 @@ void DrawNpcFigure(Npc npc, float animClock)
     DrawFigure(
         new Vector2(npc.GridX, npc.GridY), 0.5f,
         npc.BodyColor, npc.BodyColor * 0.65f, npc.BodyColor * 0.85f,
-        npc.HeadColor, bob);
+        npc.HeadColor, bob, npc.Name);
 }
+
+void DrawOutdoorHud()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    if (activeDialogueNpc is not null)
+    {
+        DrawDialogueBox(w, h);
+    }
+    else if (nearbyInteraction is { } interaction)
+    {
+        var prompt = interaction.Kind switch
+        {
+            InteractionKind.Npc => $"APPUYEZ SUR E POUR PARLER A {interaction.Label.ToUpperInvariant()}",
+            InteractionKind.Dungeon => "APPUYEZ SUR E POUR ENTRER DANS LE DONJON",
+            _ => $"APPUYEZ SUR E POUR ENTRER : {interaction.Label.ToUpperInvariant()}",
+        };
+
+        DrawPanel(new Vector2(w / 2f - 260f, h - 56f), new Vector2(520f, 30f), new Vector4(0.05f, 0.05f, 0.07f, 0.75f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h - 48f), 2.4f, new Vector4(1f, 0.92f, 0.6f, 1f));
+    }
+}
+
+void DrawDialogueBox(int w, int h)
+{
+    const float boxHeight = 130f;
+    var boxTop = h - boxHeight - 24f;
+
+    DrawPanel(new Vector2(40, boxTop), new Vector2(w - 80, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.92f));
+    DrawPanel(new Vector2(40, boxTop), new Vector2(w - 80, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
+
+    TextRenderer.Draw(spriteBatch, whiteTexture, activeDialogueNpc!.Name.ToUpperInvariant(),
+        new Vector2(60, boxTop + 14f), 3.2f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+
+    var lines = NpcDialogues.Lines.GetValueOrDefault(activeDialogueNpc.Name, ["..."]);
+    var line = lines[Math.Clamp(dialogueLineIndex, 0, lines.Length - 1)];
+    TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(60, boxTop + 48f), 2.6f, Vector4.One);
+
+    var footer = dialogueLineIndex < lines.Length - 1 ? "APPUYEZ SUR E POUR CONTINUER" : "APPUYEZ SUR E POUR FERMER";
+    TextRenderer.Draw(spriteBatch, whiteTexture, footer, new Vector2(60, boxTop + boxHeight - 22f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+void DrawInteriorScene()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.05f, 0.05f, 0.07f, 1f));
+    DrawPanel(Vector2.Zero, new Vector2(w, h * 0.55f), Vector4.Lerp(new Vector4(0.05f, 0.05f, 0.07f, 1f), interiorAccent, 0.22f));
+    DrawPanel(new Vector2(0, h * 0.55f), new Vector2(w, h * 0.45f), Vector4.Lerp(new Vector4(0.05f, 0.05f, 0.07f, 1f), interiorAccent, 0.38f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, interiorTitle.ToUpperInvariant(), new Vector2(w / 2f, h * 0.16f), 5f, Vector4.One);
+
+    var lineY = h * 0.34f;
+    foreach (var line in interiorBodyLines)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, line, new Vector2(w / 2f, lineY), 2.6f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+        lineY += TextRenderer.LineHeight(2.6f) + 6f;
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
+}
+
+/// <summary>
+/// Aperçu du personnage pour la création/sélection (voir GDD — "scène 3D animée"). Le moteur est
+/// isométrique 2D (pas de vraie caméra 3D) : l'effet de caméra dynamique est approximé par un
+/// balancement horizontal et un ombrage qui bascule d'un côté à l'autre façon "tourne-disque",
+/// combiné à un léger bob vertical — voir Docs/README.md pour cette limite assumée.
+/// </summary>
+void DrawCharacterPreview(Vector2 center, float scale, int skinIndex, int hairStyleIndex, int hairColorIndex, int clothesColorIndex, int accessoryIndex, float clock)
+{
+    var turn = MathF.Sin(clock * 0.7f);
+    var bob = MathF.Sin(clock * 2f) * 3f * scale;
+    var sway = turn * 8f * scale;
+
+    var skin = CharacterAppearancePalette.SkinColors[skinIndex].Color;
+    var hairColor = CharacterAppearancePalette.HairColors[hairColorIndex].Color;
+    var clothesColor = CharacterAppearancePalette.ClothesColors[clothesColorIndex].Color;
+
+    var leftShade = 1f - MathF.Max(0f, turn) * 0.25f;
+    var rightShade = 1f - MathF.Max(0f, -turn) * 0.25f;
+
+    var footCenter = center + new Vector2(sway, bob);
+    var bodyHeight = 90f * scale;
+    var halfWidth = 34f * scale;
+
+    var bodyTopCenter = footCenter - new Vector2(0, bodyHeight);
+    var bodyTop = bodyTopCenter + new Vector2(0, -halfWidth * 0.5f);
+    var bodyRight = bodyTopCenter + new Vector2(halfWidth, 0);
+    var bodyBottom = bodyTopCenter + new Vector2(0, halfWidth * 0.5f);
+    var bodyLeft = bodyTopCenter + new Vector2(-halfWidth, 0);
+
+    var groundLeft = footCenter + new Vector2(-halfWidth, 0);
+    var groundBottom = footCenter + new Vector2(0, halfWidth * 0.5f);
+    var groundRight = footCenter + new Vector2(halfWidth, 0);
+
+    spriteBatch.DrawQuad(whiteTexture, bodyLeft, bodyBottom, groundBottom, groundLeft, clothesColor * leftShade);
+    spriteBatch.DrawQuad(whiteTexture, bodyBottom, bodyRight, groundRight, groundBottom, clothesColor * rightShade);
+    spriteBatch.DrawQuad(whiteTexture, bodyTop, bodyRight, bodyBottom, bodyLeft, clothesColor);
+
+    var headHalfWidth = halfWidth * 0.62f;
+    var headCenter = bodyTopCenter - new Vector2(0, headHalfWidth * 1.3f);
+    var headTop = headCenter + new Vector2(0, -headHalfWidth);
+    var headRight = headCenter + new Vector2(headHalfWidth, 0);
+    var headBottom = headCenter + new Vector2(0, headHalfWidth);
+    var headLeft = headCenter + new Vector2(-headHalfWidth, 0);
+    spriteBatch.DrawQuad(whiteTexture, headTop, headRight, headBottom, headLeft, skin);
+
+    var eyeSize = new Vector2(headHalfWidth * 0.22f, headHalfWidth * 0.22f);
+    var eyeY = headCenter.Y - eyeSize.Y * 0.2f;
+    var eyeColor = new Vector4(0.15f, 0.12f, 0.10f, 1f);
+    spriteBatch.Draw(whiteTexture, new Vector2(headCenter.X - eyeSize.X * 1.6f, eyeY), eyeSize, eyeColor);
+    spriteBatch.Draw(whiteTexture, new Vector2(headCenter.X + eyeSize.X * 0.6f, eyeY), eyeSize, eyeColor);
+
+    switch (hairStyleIndex)
+    {
+        case 0: // Court
+            spriteBatch.Draw(whiteTexture, headTop - new Vector2(headHalfWidth, 6f * scale), new Vector2(headHalfWidth * 2f, 10f * scale), hairColor);
+            break;
+        case 1: // Long
+            spriteBatch.Draw(whiteTexture, headTop - new Vector2(headHalfWidth, 6f * scale), new Vector2(headHalfWidth * 2f, 10f * scale), hairColor);
+            spriteBatch.Draw(whiteTexture, headLeft - new Vector2(5f * scale, 0), new Vector2(6f * scale, halfWidth * 1.6f), hairColor);
+            spriteBatch.Draw(whiteTexture, headRight, new Vector2(6f * scale, halfWidth * 1.6f), hairColor);
+            break;
+        case 2: // Crête
+            var spikeTop = headTop - new Vector2(3f * scale, 16f * scale);
+            spriteBatch.DrawQuad(whiteTexture, spikeTop, headTop + new Vector2(9f * scale, 0), headTop + new Vector2(9f * scale, 4f * scale), spikeTop + new Vector2(0, 4f * scale), hairColor);
+            break;
+    }
+
+    switch (accessoryIndex)
+    {
+        case 1: // Chapeau
+            spriteBatch.Draw(whiteTexture, headTop - new Vector2(headHalfWidth * 1.3f, 14f * scale), new Vector2(headHalfWidth * 2.6f, 8f * scale), new Vector4(0.25f, 0.2f, 0.15f, 1f));
+            spriteBatch.Draw(whiteTexture, headTop - new Vector2(headHalfWidth * 0.7f, 22f * scale), new Vector2(headHalfWidth * 1.4f, 10f * scale), new Vector4(0.3f, 0.24f, 0.18f, 1f));
+            break;
+        case 2: // Bandeau
+            spriteBatch.Draw(whiteTexture, headLeft + new Vector2(0, -3f * scale), new Vector2(headHalfWidth * 2f, 6f * scale), new Vector4(0.7f, 0.2f, 0.2f, 1f));
+            break;
+    }
+}
+
+void DrawLoading()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.04f, 0.05f, 0.09f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CONNEXION EN COURS...", new Vector2(w / 2f, h / 2f), 3.2f, Vector4.One);
+}
+
+void DrawCharacterSelect()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.04f, 0.05f, 0.09f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHOISIS TON PERSONNAGE", new Vector2(w / 2f, 60f), 3.6f, Vector4.One);
+
+    const float rowHeight = 70f;
+    var totalRows = myCharacters.Count + 1;
+    var originY = h / 2f - (totalRows * rowHeight) / 2f;
+
+    for (var i = 0; i < myCharacters.Count; i++)
+    {
+        var character = myCharacters[i];
+        var y = originY + i * rowHeight;
+        var selected = i == characterCursor;
+
+        if (selected)
+        {
+            DrawPanel(new Vector2(w / 2f - 220f, y), new Vector2(440f, rowHeight - 8f), new Vector4(1f, 1f, 1f, 0.10f));
+        }
+
+        DrawCharacterPreview(new Vector2(w / 2f - 160f, y + rowHeight / 2f + 24f), 0.34f,
+            character.SkinColorIndex, character.HairStyleIndex, character.HairColorIndex, character.ClothesColorIndex, character.AccessoryIndex, animationClock);
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{character.Name.ToUpperInvariant()} - NIV. {character.Level}",
+            new Vector2(w / 2f - 50f, y + rowHeight / 2f - 8f), 2.2f, Vector4.One);
+    }
+
+    var newY = originY + myCharacters.Count * rowHeight;
+    if (characterCursor == myCharacters.Count)
+    {
+        DrawPanel(new Vector2(w / 2f - 220f, newY), new Vector2(440f, rowHeight - 8f), new Vector4(1f, 1f, 1f, 0.10f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "+ NOUVEAU PERSONNAGE", new Vector2(w / 2f, newY + rowHeight / 2f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES POUR CHOISIR - ENTREE POUR VALIDER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+}
+
+void DrawCharacterCreate()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.04f, 0.05f, 0.09f, 1f));
+    DrawCharacterPreview(new Vector2(w / 2f, h * 0.42f), 0.75f, createSkinIndex, createHairStyleIndex, createHairColorIndex, createClothesColorIndex, createAccessoryIndex, createPreviewClock);
+
+    switch (createStage)
+    {
+        case CreateStage.Name:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "QUEL EST TON NOM ?", new Vector2(w / 2f, h * 0.62f), 3.2f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, createName.Length > 0 ? createName.ToUpperInvariant() : "_",
+                new Vector2(w / 2f, h * 0.70f), 3.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TAPEZ VOTRE NOM (3 LETTRES MIN.) - ENTREE POUR CONTINUER",
+                new Vector2(w / 2f, h * 0.90f), 2f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            break;
+
+        case CreateStage.Appearance:
+            Span<string> fieldNames = ["TEINTE DE PEAU", "STYLE DE CHEVEUX", "COULEUR DE CHEVEUX", "COULEUR DE VETEMENTS", "ACCESSOIRE"];
+            Span<string> fieldValues =
+            [
+                CharacterAppearancePalette.SkinColors[createSkinIndex].Name,
+                CharacterAppearancePalette.HairStyleNames[createHairStyleIndex],
+                CharacterAppearancePalette.HairColors[createHairColorIndex].Name,
+                CharacterAppearancePalette.ClothesColors[createClothesColorIndex].Name,
+                CharacterAppearancePalette.AccessoryNames[createAccessoryIndex],
+            ];
+
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PERSONNALISE TON APPARENCE", new Vector2(w / 2f, h * 0.60f), 3f, Vector4.One);
+            for (var i = 0; i < fieldNames.Length; i++)
+            {
+                var y = h * 0.68f + i * 28f;
+                var active = i == createAppearanceField;
+                var color = active ? new Vector4(0.9f, 0.75f, 0.35f, 1f) : new Vector4(0.8f, 0.8f, 0.85f, 1f);
+                var prefix = active ? "< " : "  ";
+                var suffix = active ? " >" : "  ";
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{prefix}{fieldNames[i]} : {fieldValues[i]}{suffix}", new Vector2(w / 2f, y), 2f, color);
+            }
+
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHAMP - GAUCHE/DROITE : VALEUR - ENTREE : CONTINUER",
+                new Vector2(w / 2f, h * 0.95f), 1.8f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            break;
+
+        case CreateStage.ClassKingdom:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSE ET ROYAUME", new Vector2(w / 2f, h * 0.62f), 3f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"CLASSE : {classValues[createClassIndex]}".ToUpperInvariant(),
+                new Vector2(w / 2f, h * 0.70f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ROYAUME : {kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
+                new Vector2(w / 2f, h * 0.77f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : CLASSE - HAUT/BAS : ROYAUME - ENTREE : CONTINUER",
+                new Vector2(w / 2f, h * 0.92f), 1.8f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            break;
+
+        case CreateStage.Confirm:
+        case CreateStage.Sending:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, createName.ToUpperInvariant(), new Vector2(w / 2f, h * 0.60f), 3.4f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{classValues[createClassIndex]} - {kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
+                new Vector2(w / 2f, h * 0.67f), 2.4f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+            if (createStage == CreateStage.Sending)
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.88f), 2.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            }
+            else
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : CONFIRMER - ECHAP : RETOUR", new Vector2(w / 2f, h * 0.88f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            }
+
+            if (createErrorMessage is not null)
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, createErrorMessage, new Vector2(w / 2f, h * 0.94f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+            }
+
+            break;
+    }
+}
+
+void DrawStarterPortrait(Vector2 center, float radius, Vector4 color)
+{
+    var top = center + new Vector2(0, -radius);
+    var right = center + new Vector2(radius * 0.85f, 0);
+    var bottom = center + new Vector2(0, radius);
+    var left = center + new Vector2(-radius * 0.85f, 0);
+    spriteBatch.DrawQuad(whiteTexture, top, right, bottom, left, color);
+
+    var innerRadius = radius * 0.42f;
+    var innerCenter = center - new Vector2(0, radius * 0.12f);
+    var innerTop = innerCenter + new Vector2(0, -innerRadius);
+    var innerRight = innerCenter + new Vector2(innerRadius * 0.85f, 0);
+    var innerBottom = innerCenter + new Vector2(0, innerRadius);
+    var innerLeft = innerCenter + new Vector2(-innerRadius * 0.85f, 0);
+    spriteBatch.DrawQuad(whiteTexture, innerTop, innerRight, innerBottom, innerLeft, Vector4.Lerp(color, Vector4.One, 0.55f));
+}
+
+void DrawStarterGrid(int w, int h)
+{
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHOISIS TON COMPAGNON", new Vector2(w / 2f, 56f), 3.6f, Vector4.One);
+
+    const float cellWidth = 190f;
+    const float cellHeight = 168f;
+    var rows = (int)MathF.Ceiling(starterChoices.Count / (float)StarterColumns);
+    var gridWidth = Math.Min(starterChoices.Count, StarterColumns) * cellWidth;
+    var gridHeight = rows * cellHeight;
+    var originX = w / 2f - gridWidth / 2f;
+    var originY = h / 2f - gridHeight / 2f + 20f;
+
+    for (var i = 0; i < starterChoices.Count; i++)
+    {
+        var species = starterChoices[i];
+        var col = i % StarterColumns;
+        var row = i / StarterColumns;
+        var cellCenter = new Vector2(originX + col * cellWidth + cellWidth / 2f, originY + row * cellHeight + cellHeight / 2f);
+        var selected = i == starterCursor;
+        var bob = selected ? MathF.Sin(animationClock * 6f) * 4f : 0f;
+
+        if (selected)
+        {
+            DrawPanel(cellCenter - new Vector2(cellWidth * 0.42f, cellHeight * 0.46f), new Vector2(cellWidth * 0.84f, cellHeight * 0.86f), new Vector4(1f, 1f, 1f, 0.10f));
+        }
+
+        DrawStarterPortrait(cellCenter + new Vector2(0, -14f + bob), 44f, ElementColor(species.Element));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, species.Name.ToUpperInvariant(), cellCenter + new Vector2(0, 56f), 2f, Vector4.One);
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES POUR CHOISIR - ENTREE POUR VALIDER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+}
+
+void DrawStarterConfirm(int w, int h)
+{
+    var species = starterChoices[starterConfirmIndex!.Value];
+    var elementColor = ElementColor(species.Element);
+    var scale = 1f + MathF.Sin(starterAnimClock * 5f) * 0.08f;
+
+    DrawStarterPortrait(new Vector2(w / 2f, h * 0.36f), 90f * scale, elementColor);
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, species.Name.ToUpperInvariant(), new Vector2(w / 2f, h * 0.58f), 4.4f, Vector4.One);
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, species.Element.ToString().ToUpperInvariant(), new Vector2(w / 2f, h * 0.65f), 2.2f, elementColor);
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, WrapText(species.Lore, 42), new Vector2(w / 2f, h * 0.73f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+    if (starterStage == StarterStage.Sending)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.88f), 2.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : CONFIRMER - ECHAP : RETOUR", new Vector2(w / 2f, h * 0.88f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    }
+
+    if (starterErrorMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, starterErrorMessage, new Vector2(w / 2f, h * 0.94f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+    }
+}
+
+void DrawStarterSelection()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.04f, 0.05f, 0.09f, 1f));
+
+    switch (starterStage)
+    {
+        case StarterStage.Introduction:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "UN VIEUX GARDIEN VOUS ACCUEILLE", new Vector2(w / 2f, h * 0.35f), 4.2f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture,
+                "\"AVANT DE PARTIR A L'AVENTURE,\nCHOISIS TON PREMIER COMPAGNON...\"",
+                new Vector2(w / 2f, h * 0.48f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ENTREE", new Vector2(w / 2f, h * 0.80f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            break;
+
+        case StarterStage.Choosing:
+            DrawStarterGrid(w, h);
+            break;
+
+        case StarterStage.Confirming:
+        case StarterStage.Sending:
+            DrawStarterConfirm(w, h);
+            break;
+    }
+}
+
+enum SceneMode
+{
+    CharacterSelect,
+    CharacterCreate,
+    Loading,
+    Outdoor,
+    Interior,
+    StarterSelection,
+}
+
+enum CreateStage
+{
+    Name,
+    Appearance,
+    ClassKingdom,
+    Confirm,
+    Sending,
+}
+
+enum InteractionKind
+{
+    Building,
+    Dungeon,
+    Npc,
+}
+
+enum StarterStage
+{
+    Introduction,
+    Choosing,
+    Confirming,
+    Sending,
+}
+
+sealed record NearbyInteraction(InteractionKind Kind, string Label, Building? Building, Npc? Npc);

@@ -9,4 +9,12 @@ public sealed class CreateCharacterRequest
     public required string Name { get; init; }
     public required CharacterClass Class { get; init; }
     public required KingdomType Kingdom { get; init; }
+
+    // Apparence choisie dans la scène de création en jeu (voir GDD) — indices dans de petites
+    // palettes fixes définies côté Client (Client/World/CharacterAppearancePalette.cs).
+    public int SkinColorIndex { get; init; }
+    public int HairStyleIndex { get; init; }
+    public int HairColorIndex { get; init; }
+    public int ClothesColorIndex { get; init; }
+    public int AccessoryIndex { get; init; }
 }

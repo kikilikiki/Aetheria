@@ -8,13 +8,27 @@ namespace Aetheria.AdminPanel.ViewModels;
 
 /// <summary>
 /// Gestion des joueurs et statistiques globales (voir <c>Docs/GameDesign.md</c> — section
-/// AdminPanel). Pas d'authentification admin dédiée pour cette version (voir Docs/README.md).
+/// AdminPanel). Un compte administrateur (voir <c>AdminAccountSeeder</c> côté serveur) doit se
+/// connecter avant de pouvoir agir — les actions destructives (suppression, permissions) exigent
+/// ce jeton de session ; ban/débannir restent ouverts (limite historique assumée, voir Docs/README.md).
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly AdminApiClient _api = new();
 
     public ObservableCollection<AdminUserSummary> Users { get; } = [];
+
+    [ObservableProperty]
+    private string _adminUsernameOrEmail = string.Empty;
+
+    [ObservableProperty]
+    private string _adminPassword = string.Empty;
+
+    [ObservableProperty]
+    private bool _isLoggedIn;
+
+    [ObservableProperty]
+    private string? _sessionToken;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -26,6 +40,12 @@ public sealed partial class MainViewModel : ObservableObject
     private string _banReason = string.Empty;
 
     [ObservableProperty]
+    private string _newUsername = string.Empty;
+
+    [ObservableProperty]
+    private string _newEmail = string.Empty;
+
+    [ObservableProperty]
     private AdminGlobalStats? _stats;
 
     [ObservableProperty]
@@ -33,6 +53,40 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isBusy;
+
+    [RelayCommand]
+    private async Task AdminLogin()
+    {
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.LoginAsync(AdminUsernameOrEmail, AdminPassword);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            SessionToken = result.Value!.SessionToken;
+            IsLoggedIn = true;
+            AdminPassword = string.Empty;
+            await Load();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void AdminLogout()
+    {
+        IsLoggedIn = false;
+        SessionToken = null;
+        Users.Clear();
+        Stats = null;
+    }
 
     [RelayCommand]
     private async Task Load()
@@ -142,11 +196,142 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    private bool CanDelete() => SelectedUser is { IsAdmin: false, IsDeleted: false } && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanDelete))]
+    private async Task DeleteUser()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.DeleteUserAsync(SelectedUser.Id, SessionToken);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            await Search();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanRestore() => SelectedUser is { IsDeleted: true } && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanRestore))]
+    private async Task RestoreUser()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.RestoreUserAsync(SelectedUser.Id, SessionToken);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            await Search();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanModify() => SelectedUser is not null && SessionToken is not null
+        && (NewUsername.Trim().Length > 0 || NewEmail.Trim().Length > 0);
+
+    [RelayCommand(CanExecute = nameof(CanModify))]
+    private async Task ModifyUser()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.ModifyUserAsync(
+                SelectedUser.Id, SessionToken,
+                NewUsername.Trim().Length > 0 ? NewUsername.Trim() : null,
+                NewEmail.Trim().Length > 0 ? NewEmail.Trim() : null);
+
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            NewUsername = string.Empty;
+            NewEmail = string.Empty;
+            await Search();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanTogglePermission() => SelectedUser is not null && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanTogglePermission))]
+    private async Task ToggleAdminPermission()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.SetAdminAsync(SelectedUser.Id, SessionToken, !SelectedUser.IsAdmin);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            await Search();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     partial void OnSelectedUserChanged(AdminUserSummary? value)
     {
         BanCommand.NotifyCanExecuteChanged();
         UnbanCommand.NotifyCanExecuteChanged();
+        DeleteUserCommand.NotifyCanExecuteChanged();
+        RestoreUserCommand.NotifyCanExecuteChanged();
+        ModifyUserCommand.NotifyCanExecuteChanged();
+        ToggleAdminPermissionCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnBanReasonChanged(string value) => BanCommand.NotifyCanExecuteChanged();
+
+    partial void OnNewUsernameChanged(string value) => ModifyUserCommand.NotifyCanExecuteChanged();
+
+    partial void OnNewEmailChanged(string value) => ModifyUserCommand.NotifyCanExecuteChanged();
 }

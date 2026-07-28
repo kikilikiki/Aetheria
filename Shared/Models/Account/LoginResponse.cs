@@ -8,10 +8,18 @@ public sealed class LoginResponse
     public required IReadOnlyList<CharacterSummary> Characters { get; init; }
 }
 
-/// <summary>Résumé d'un personnage affiché dans l'écran de sélection du Launcher.</summary>
+/// <summary>
+/// Résumé d'un personnage affiché dans l'écran de sélection (en jeu, voir GDD — la création/
+/// sélection ne se fait plus dans le Launcher).
+/// </summary>
 public sealed class CharacterSummary
 {
     public required Guid Id { get; init; }
     public required string Name { get; init; }
     public required int Level { get; init; }
+    public int SkinColorIndex { get; init; }
+    public int HairStyleIndex { get; init; }
+    public int HairColorIndex { get; init; }
+    public int ClothesColorIndex { get; init; }
+    public int AccessoryIndex { get; init; }
 }

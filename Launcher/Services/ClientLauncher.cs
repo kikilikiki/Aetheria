@@ -10,7 +10,7 @@ namespace Aetheria.Launcher.Services;
 /// </summary>
 public static class ClientLauncher
 {
-    public static bool TryLaunch(string sessionToken, Guid characterId, out string? error)
+    public static bool TryLaunch(string sessionToken, out string? error)
     {
         var clientPath = ResolveClientExecutablePath();
         if (clientPath is null)
@@ -19,10 +19,12 @@ public static class ClientLauncher
             return false;
         }
 
+        // Le personnage n'est plus choisi ici : le Client affiche sa propre scène de
+        // sélection/création en jeu (voir Client/Program.cs — SceneMode.CharacterSelect).
         Process.Start(new ProcessStartInfo
         {
             FileName = clientPath,
-            Arguments = $"--token=\"{sessionToken}\" --characterId={characterId}",
+            Arguments = $"--token=\"{sessionToken}\"",
             UseShellExecute = false,
         });
 

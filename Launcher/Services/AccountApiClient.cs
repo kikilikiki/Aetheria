@@ -1,9 +1,6 @@
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Aetheria.Shared;
-using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 
 namespace Aetheria.Launcher.Services;
@@ -21,11 +18,6 @@ public readonly record struct ApiResult<T>(T? Value, string? Error)
 /// <summary>Client HTTP vers l'API de compte exposée par Aetheria.Server (voir Server/Program.cs).</summary>
 public sealed class AccountApiClient : IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        Converters = { new JsonStringEnumConverter() },
-    };
-
     private readonly HttpClient _http;
 
     public AccountApiClient(string? baseUrl = null)
@@ -78,34 +70,6 @@ public sealed class AccountApiClient : IDisposable
         catch (HttpRequestException ex)
         {
             return ApiResult<LoginResponse>.Failure($"Impossible de contacter le serveur : {ex.Message}");
-        }
-    }
-
-    public async Task<ApiResult<CharacterSummary>> CreateCharacterAsync(
-        string sessionToken, string name, CharacterClass characterClass, KingdomType kingdom)
-    {
-        try
-        {
-            var response = await _http.PostAsJsonAsync("/api/characters", new CreateCharacterRequest
-            {
-                SessionToken = sessionToken,
-                Name = name,
-                Class = characterClass,
-                Kingdom = kingdom,
-            }, JsonOptions);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadFromJsonAsync<ApiError>();
-                return ApiResult<CharacterSummary>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
-            }
-
-            var body = await response.Content.ReadFromJsonAsync<CharacterSummary>();
-            return ApiResult<CharacterSummary>.Success(body!);
-        }
-        catch (HttpRequestException ex)
-        {
-            return ApiResult<CharacterSummary>.Failure($"Impossible de contacter le serveur : {ex.Message}");
         }
     }
 

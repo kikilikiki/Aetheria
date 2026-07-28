@@ -32,6 +32,11 @@ public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tok
             Name = request.Name,
             Class = request.Class,
             Kingdom = request.Kingdom,
+            SkinColorIndex = request.SkinColorIndex,
+            HairStyleIndex = request.HairStyleIndex,
+            HairColorIndex = request.HairColorIndex,
+            ClothesColorIndex = request.ClothesColorIndex,
+            AccessoryIndex = request.AccessoryIndex,
         };
 
         db.Characters.Add(character);
@@ -58,6 +63,29 @@ public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tok
 
         await new AchievementService(db).UnlockAsync(userId, "bienvenue", ct);
 
-        return new CharacterSummary { Id = character.Id, Name = character.Name, Level = character.Level };
+        return ToSummary(character);
     }
+
+    public async Task<IReadOnlyList<CharacterSummary>> GetMineAsync(string sessionToken, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(sessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var characters = await db.Characters.Where(c => c.UserId == userId).ToListAsync(ct);
+        return characters.Select(ToSummary).ToList();
+    }
+
+    private static CharacterSummary ToSummary(CharacterEntity character) => new()
+    {
+        Id = character.Id,
+        Name = character.Name,
+        Level = character.Level,
+        SkinColorIndex = character.SkinColorIndex,
+        HairStyleIndex = character.HairStyleIndex,
+        HairColorIndex = character.HairColorIndex,
+        ClothesColorIndex = character.ClothesColorIndex,
+        AccessoryIndex = character.AccessoryIndex,
+    };
 }

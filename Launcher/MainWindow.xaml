@@ -6,81 +6,280 @@
         xmlns:local="clr-namespace:Aetheria.Launcher"
         mc:Ignorable="d"
         Title="{Binding Title}"
-        Height="700" Width="420"
+        Height="680" Width="1040"
+        MinHeight="620" MinWidth="960"
         WindowStartupLocation="CenterScreen"
-        Background="#101116"
-        ResizeMode="CanMinimize">
+        Background="#0B0D13"
+        FontFamily="Segoe UI">
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+
+        <SolidColorBrush x:Key="PanelBrush" Color="#151822" />
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#262B3A" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#E8A93C" />
+        <SolidColorBrush x:Key="AccentDarkBrush" Color="#B87F1E" />
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#8A8FA3" />
+
+        <!-- Champs de saisie sombres cohérents avec le reste du thème (les contrôles WPF par
+             défaut sont clairs et jureraient avec un launcher façon Ankama/Dofus). -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,7" />
+            <Setter Property="CaretBrush" Value="#E8E8F0" />
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,7" />
+            <Setter Property="CaretBrush" Value="#E8E8F0" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <!-- Bouton standard (secondaire) : coins arrondis, sobre. -->
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#1F2330" />
+            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="16,9" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Margin="{TemplateBinding Padding}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Gros bouton d'action principal ("JOUER" façon Ankama) : dégradé doré, très arrondi. -->
+        <Style x:Key="PrimaryActionButton" TargetType="Button">
+            <Setter Property="Foreground" Value="#241704" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border CornerRadius="28" Padding="{TemplateBinding Padding}">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <GradientStop Color="#F5C15C" Offset="0" />
+                                    <GradientStop Color="#DB9A2E" Offset="1" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.5" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Icône décorative de la barre latérale (cosmétique, pas de navigation multi-page dans
+             cette première version — voir Docs/README.md). -->
+        <Style x:Key="SidebarIcon" TargetType="Border">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+        </Style>
     </Window.Resources>
 
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="72" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Aetheria" FontSize="32" FontWeight="Bold"
-                   Foreground="#E8E8F0" HorizontalAlignment="Center" Margin="0,0,0,24" />
+        <!-- Barre latérale façon Ankama : logo + icônes décoratives. -->
+        <Border Grid.Column="0" Background="#05060A">
+            <StackPanel VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,20,0,0">
+                <Border Width="40" Height="40" CornerRadius="8" Margin="0,0,0,28">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#F5C15C" Offset="0" />
+                            <GradientStop Color="#B87F1E" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="A" FontWeight="Bold" FontSize="20" Foreground="#241704"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
 
-        <!-- Écran de connexion / inscription -->
-        <StackPanel Grid.Row="1" x:Name="LoginPanel"
-                    Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBoolToVis}}">
-            <TextBlock Text="Pseudo ou email" Foreground="#A0A0B0" Margin="0,0,0,4" />
-            <TextBox Text="{Binding UsernameOrEmail, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,12" />
-
-            <TextBlock Text="Email (inscription uniquement)" Foreground="#A0A0B0" Margin="0,0,0,4" />
-            <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,12" />
-
-            <TextBlock Text="Mot de passe" Foreground="#A0A0B0" Margin="0,0,0,4" />
-            <PasswordBox x:Name="PasswordBox" Padding="6" Margin="0,0,0,16" PasswordChanged="OnPasswordChanged" />
-
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <Button Content="Se connecter" Command="{Binding LoginCommand}" Padding="16,8" Margin="0,0,8,0" />
-                <Button Content="Créer un compte" Command="{Binding RegisterCommand}" Padding="16,8" />
+                <Border Style="{StaticResource SidebarIcon}" ToolTip="Accueil">
+                    <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
+                </Border>
+                <Border Style="{StaticResource SidebarIcon}" ToolTip="Communauté">
+                    <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
+                </Border>
+                <Border Style="{StaticResource SidebarIcon}" ToolTip="Boutique">
+                    <TextBlock Text="&#xE719;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
+                </Border>
+                <Border Style="{StaticResource SidebarIcon}" ToolTip="Paramètres">
+                    <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
+                </Border>
             </StackPanel>
-        </StackPanel>
+        </Border>
 
-        <!-- Écran de sélection de personnage -->
-        <StackPanel Grid.Row="1" x:Name="CharacterPanel"
-                    Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="Choisissez votre personnage" Foreground="#A0A0B0" Margin="0,0,0,8" />
-            <ListBox ItemsSource="{Binding Characters}" SelectedItem="{Binding SelectedCharacter}" Height="160">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Name}" FontSize="14" />
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+        <!-- Zone principale. -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="60" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="112" />
+            </Grid.RowDefinitions>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
-                <Button Content="Jouer" Command="{Binding PlayCommand}" Padding="24,10" Margin="0,0,8,0" FontWeight="Bold" />
-                <Button Content="Déconnexion" Command="{Binding LogoutCommand}" Padding="16,10" />
-            </StackPanel>
+            <!-- Barre du haut : titre + statut serveur. -->
+            <Grid Grid.Row="0" Margin="24,0">
+                <TextBlock Text="AETHERIA" FontSize="20" FontWeight="Bold" Foreground="#E8E8F0"
+                           VerticalAlignment="Center" HorizontalAlignment="Left" />
 
-            <Separator Margin="0,20,0,12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Ellipse Width="9" Height="9" Margin="0,0,8,0" VerticalAlignment="Center">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="#D95A5A" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsServerOnline}" Value="True">
+                                        <Setter Property="Fill" Value="#5AD97E" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Text="{Binding ServerStatusText}" Foreground="{StaticResource TextMutedBrush}"
+                               VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </Grid>
 
-            <TextBlock Text="Créer un nouveau personnage" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+            <!-- Corps : formulaire (connexion/personnages) à gauche, actualités à droite. -->
+            <Grid Grid.Row="1" Margin="24,8,24,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="380" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-            <TextBlock Text="Nom" Foreground="#A0A0B0" Margin="0,0,0,4" />
-            <TextBox Text="{Binding NewCharacterName, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10" />
+                <Border Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="20">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <Grid>
+                            <!-- Écran de connexion / inscription -->
+                            <StackPanel x:Name="LoginPanel"
+                                        Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBoolToVis}}">
+                                <TextBlock Text="Connexion" FontSize="17" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,16" />
 
-            <TextBlock Text="Classe" Foreground="#A0A0B0" Margin="0,0,0,4" />
-            <ComboBox ItemsSource="{Binding AvailableClasses}" SelectedItem="{Binding SelectedClass}" Padding="6" Margin="0,0,0,10" />
+                                <TextBlock Text="Pseudo ou email" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                                <TextBox Text="{Binding UsernameOrEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
 
-            <TextBlock Text="Royaume" Foreground="#A0A0B0" Margin="0,0,0,4" />
-            <ComboBox ItemsSource="{Binding AvailableKingdoms}" SelectedItem="{Binding SelectedKingdom}" Padding="6" Margin="0,0,0,12" />
+                                <TextBlock Text="Email (inscription uniquement)" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                                <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
 
-            <Button Content="Créer un personnage" Command="{Binding CreateCharacterCommand}" Padding="16,8" HorizontalAlignment="Center" />
-        </StackPanel>
+                                <TextBlock Text="Mot de passe" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                                <PasswordBox x:Name="PasswordBox" Margin="0,0,0,18" PasswordChanged="OnPasswordChanged" />
 
-        <StackPanel Grid.Row="2" Margin="0,16,0,0">
-            <TextBlock Text="{Binding StatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap" HorizontalAlignment="Center" />
-            <TextBlock Text="Chargement..." Foreground="#A0A0B0" HorizontalAlignment="Center"
-                       Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
-        </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <Button Content="Se connecter" Command="{Binding LoginCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0" />
+                                    <Button Content="Créer un compte" Command="{Binding RegisterCommand}" Style="{StaticResource SecondaryButton}" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- Compte connecté : le personnage se choisit/se crée EN JEU (voir GDD),
+                                 pas ici — le Launcher n'a plus qu'à proposer de lancer le jeu. -->
+                            <StackPanel x:Name="CharacterPanel" VerticalAlignment="Center"
+                                        Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="Compte connecté" FontSize="17" FontWeight="Bold" Foreground="#E8E8F0"
+                                           HorizontalAlignment="Center" Margin="0,0,0,10" />
+                                <TextBlock Text="La sélection et la création de personnage se font en jeu, juste après le lancement."
+                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,20" />
+
+                                <Button Content="Déconnexion" Command="{Binding LogoutCommand}" Style="{StaticResource SecondaryButton}"
+                                        HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </Border>
+
+                <!-- Actualités : contenu statique de démonstration (voir Docs/README.md). -->
+                <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="ACTUALITÉS" FontSize="13" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,14" />
+
+                        <Border Background="#1B1F2C" CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Le monde d'Aetheria s'agrandit" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
+                                <TextBlock Text="Nouvelle carte, bâtiments visitables, PNJ et donjon de test à explorer dès aujourd'hui."
+                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#1B1F2C" CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Choisissez votre premier compagnon" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
+                                <TextBlock Text="Une dizaine de créatures communes vous attendent pour débuter votre collection."
+                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#1B1F2C" CornerRadius="8" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="Guerres de royaumes" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
+                                <TextBlock Text="Rejoignez un royaume et participez aux batailles pour le contrôle des territoires."
+                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Barre du bas : message de statut + gros bouton JOUER. -->
+            <Border Grid.Row="2" Background="#05060A">
+                <Grid Margin="24,0">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left" Orientation="Horizontal">
+                        <TextBlock Text="{Binding StatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap"
+                                   VerticalAlignment="Center" MaxWidth="480" />
+                        <TextBlock Text="Chargement..." Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                   Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+
+                    <Button Content="JOUER" Command="{Binding PlayCommand}" Style="{StaticResource PrimaryActionButton}"
+                            HorizontalAlignment="Right" VerticalAlignment="Center" Width="180" Height="56"
+                            Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}" />
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
