@@ -130,6 +130,40 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Carte actualité cliquable (voir GDD — détail au clic). -->
+        <Style x:Key="NewsCardButton" TargetType="Button">
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="14">
+                            <ContentPresenter HorizontalAlignment="Stretch" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#232838" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <DataTemplate x:Key="NewsCardTemplate">
+            <Button Style="{StaticResource NewsCardButton}"
+                    Command="{Binding DataContext.OpenNewsDetailCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                    CommandParameter="{Binding}">
+                <StackPanel HorizontalAlignment="Stretch">
+                    <TextBlock Text="{Binding Title}" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding ShortDescription}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
+                    <TextBlock Text="{Binding PublishedLabel}" Foreground="{StaticResource AccentBrush}" FontSize="10" Margin="0,8,0,0" />
+                </StackPanel>
+            </Button>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>
@@ -249,36 +283,15 @@
                     </ScrollViewer>
                 </Border>
 
-                <!-- Actualités : contenu statique de démonstration (voir Docs/README.md). -->
+                <!-- Actualités : cliquables pour le détail, avec accès à l'historique complet (voir GDD). -->
                 <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
                         BorderThickness="1" CornerRadius="10" Padding="20">
-                    <StackPanel>
-                        <TextBlock Text="ACTUALITÉS" FontSize="13" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,14" />
-
-                        <Border Background="#1B1F2C" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="Le monde d'Aetheria s'agrandit" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
-                                <TextBlock Text="Nouvelle carte, bâtiments visitables, PNJ et donjon de test à explorer dès aujourd'hui."
-                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="#1B1F2C" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="Choisissez votre premier compagnon" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
-                                <TextBlock Text="Une dizaine de créatures communes vous attendent pour débuter votre collection."
-                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="#1B1F2C" CornerRadius="8" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="Guerres de royaumes" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
-                                <TextBlock Text="Rejoignez un royaume et participez aux batailles pour le contrôle des territoires."
-                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="ACTUALITÉS" FontSize="13" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,14" />
+                        <Button DockPanel.Dock="Bottom" Content="Voir toutes les actualités" Command="{Binding ToggleAllNewsCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        <ItemsControl ItemsSource="{Binding RecentNews}" ItemTemplate="{StaticResource NewsCardTemplate}" />
+                    </DockPanel>
                 </Border>
             </Grid>
 
@@ -313,6 +326,42 @@
                         <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,22" />
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Border>
+
+            <!-- Toutes les actualités. -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsAllNewsOpen, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Width="560" Height="480"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="TOUTES LES ACTUALITÉS" FontSize="16" FontWeight="Bold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,14" />
+                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleAllNewsCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,14,0,0" />
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding AllNews}" ItemTemplate="{StaticResource NewsCardTemplate}" />
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Border>
+
+            <!-- Détail d'une actualité (au-dessus de "Toutes les actualités" si ouvert depuis là). -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsNewsDetailOpen, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Width="560" MaxHeight="480"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28">
+                    <StackPanel>
+                        <TextBlock Text="{Binding SelectedNews.Title}" FontSize="20" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Text="{Binding SelectedNews.PublishedLabel}" Foreground="{StaticResource AccentBrush}" FontSize="12" Margin="0,0,0,16" />
+                        <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+                            <TextBlock Text="{Binding SelectedNews.FullContent}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" />
+                        </ScrollViewer>
+                        <Button Content="Fermer" Command="{Binding CloseNewsDetailCommand}" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Center" Margin="0,20,0,0" />
                     </StackPanel>
                 </Border>
             </Border>
