@@ -108,11 +108,28 @@ normalement et journalise simplement que l'annonce est ignorée.
    Discord fixe (configurable via `DISCORD_ANNOUNCE_ROLE_ID`, sinon un rôle par défaut est codé
    dans `DiscordAnnouncer.cs`).
 
-3. C'est tout : une fois `.env` configuré, chaque démarrage du serveur poste automatiquement un
-   embed listant les commits ajoutés depuis la dernière annonce (voir
-   `Server/Discord/GitChangelogAnnouncer.cs`) — aucune étape manuelle. Pour un message ponctuel
-   hors redémarrage, `Tools/discord-announce.ps1` (avec vos identifiants admin) ou
-   `POST /api/admin/discord/announce` restent disponibles.
+3. C'est tout : une fois `.env` configuré, chaque démarrage du serveur note les nouveaux commits
+   (voir `Server/Discord/GitChangelogAnnouncer.cs`), et un récapitulatif groupé est posté
+   automatiquement une fois par jour à 23h (heure locale), avec ping du rôle configuré — voir
+   `Server/Discord/DailyDigestScheduler.cs`. Aucun message n'est envoyé si rien n'a changé ce
+   jour-là. Pour un message ponctuel immédiat, `Tools/discord-announce.ps1` (avec vos identifiants
+   admin) ou `POST /api/admin/discord/announce` restent disponibles.
+
+### Jouer contre un serveur distant (hébergé ailleurs que sur cette machine)
+
+Par défaut, le Launcher et le Client se connectent à `localhost` (le serveur doit tourner sur la
+même machine). Pour se connecter à un serveur hébergé ailleurs (voir GDD/demande utilisateur —
+"installer le jeu depuis un autre PC/réseau") :
+
+1. Dans le Launcher, ouvrez **Paramètres** et renseignez l'**adresse du serveur** (IP publique ou
+   nom de domaine de la machine qui héberge `Aetheria.Server`) — persisté et transmis
+   automatiquement au Client au lancement (`--host`, voir `ClientLauncher.cs`).
+2. **Redirection de ports (NAT/port forwarding) côté hôte** — indispensable pour un serveur
+   hébergé derrière une box/routeur domestique, sinon la connexion échoue même avec la bonne
+   adresse : rediriger les ports `7777` (TCP, jeu) et `7778` (TCP, API de compte HTTP) de la box
+   vers la machine qui exécute `Aetheria.Server` (voir la documentation de votre routeur). Le
+   serveur écoute déjà sur toutes les interfaces (`0.0.0.0`), aucune configuration côté code n'est
+   nécessaire au-delà de cette redirection.
 
 ## Licence
 

@@ -17,7 +17,7 @@ namespace Aetheria.Launcher.ViewModels;
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
-    private readonly AccountApiClient _accountApi = new();
+    private AccountApiClient _accountApi;
 
     [ObservableProperty]
     private string _title = $"{GameInfo.Name} Launcher — v{GameInfo.Version}";
@@ -55,6 +55,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private KeyboardLayoutPreference _keyboardLayoutPreference;
 
+    /// <summary>Adresse du serveur (voir GDD/demande utilisateur — jeu installé ailleurs, serveur hébergé chez l'utilisateur). "localhost" par défaut.</summary>
+    [ObservableProperty]
+    private string _serverHost = "localhost";
+
     public IReadOnlyList<KeyboardLayoutPreference> AvailableKeyboardLayouts { get; } = Enum.GetValues<KeyboardLayoutPreference>();
 
     public string DetectedLayoutText => KeyboardLayoutResolver.IsAzertyDetected()
@@ -77,8 +81,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     public MainViewModel()
     {
+        var settings = GameSettings.Load();
+        _keyboardLayoutPreference = settings.KeyboardLayout;
+        _serverHost = settings.ServerHost;
+        _accountApi = new AccountApiClient($"http://{_serverHost}:{GameInfo.DefaultAccountApiPort}");
+
         _ = CheckServerStatusAsync();
-        _keyboardLayoutPreference = GameSettings.Load().KeyboardLayout;
         LoadNews();
     }
 
@@ -169,6 +177,23 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Persiste l'adresse du serveur et reconstruit le client HTTP en conséquence (voir GDD —
+    /// jouer depuis un autre PC/réseau contre un serveur distant hébergé ailleurs). Sans ceci,
+    /// changer l'adresse dans les Paramètres n'aurait aucun effet tant que le Launcher n'est pas
+    /// relancé.
+    /// </summary>
+    partial void OnServerHostChanged(string value)
+    {
+        var settings = GameSettings.Load();
+        settings.ServerHost = value;
+        settings.Save();
+
+        _accountApi.Dispose();
+        _accountApi = new AccountApiClient($"http://{value}:{GameInfo.DefaultAccountApiPort}");
+        _ = CheckServerStatusAsync();
+    }
+
+    /// <summary>
     /// Ping léger de /api/health pour le petit indicateur "Serveur en ligne/hors ligne" façon
     /// launcher Ankama — pas de retry ni de polling périodique dans cette première version,
     /// juste un état constaté au lancement (voir Docs/README.md).
@@ -178,7 +203,7 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
-            var response = await http.GetAsync($"http://localhost:{GameInfo.DefaultAccountApiPort}/api/health");
+            var response = await http.GetAsync($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}/api/health");
             IsServerOnline = response.IsSuccessStatusCode;
             ServerStatusText = IsServerOnline ? "Serveur en ligne" : "Serveur hors ligne";
         }
@@ -283,7 +308,7 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (!ClientLauncher.TryLaunch(SessionToken, out var error))
+        if (!ClientLauncher.TryLaunch(SessionToken, ServerHost, out var error))
         {
             StatusMessage = error;
         }
