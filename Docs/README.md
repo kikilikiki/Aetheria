@@ -115,6 +115,24 @@ de gameplay.
      connexion → création de personnage → lancement du Client avec `--token`/`--characterId`
      → connexion TCP → `EnterWorldAccepted` reçu et affiché (`Entrée dans le monde acceptée
      en (0, 0)`). La boucle complète Launcher→Server→Database→Client fonctionne réellement.
+   - ✅ Rendu isométrique (`Client/World/IsoMath`, `Building`, `WorldMap`) : monde de
+     démonstration 50x50 cases (au lieu de 8x8), projection "2:1" façon Dofus/Diablo (tuiles
+     en losange via un nouveau `SpriteBatch.DrawQuad` acceptant 4 coins arbitraires, pas
+     seulement des rectangles axés). Terrain varié par hachage déterministe par case
+     (herbe claire/moyenne/foncée, étang, chemins reliant les bâtiments), 5 bâtiments
+     (Capitale, Village, Hôtel des ventes, Forge, Guilde) dessinés en pseudo-3D (toit +
+     2 murs ombrés, triés par profondeur avec le joueur pour une occlusion correcte), et
+     une entrée de donjon de test ("Donjon des Araignées", relié au vrai donjon seedé côté
+     serveur) déclenchant un message de proximité. **Vérifié visuellement** via capture
+     d'écran du process réel (Win32 `PrintWindow`) : tuiles en losange, chemins, et les
+     3 bâtiments visibles rendus correctement avec ombrage toit/mur. Le déplacement clavier
+     n'a pas pu être vérifié par simulation d'entrée dans cet environnement (la fenêtre
+     résiste à `SetForegroundWindow`/`SendKeys`) — la formule caméra-suit-joueur est
+     inconditionnelle donc correcte par construction, mais non re-testée empiriquement en
+     mouvement. **Limites assumées** : bâtiments à l'échelle d'une seule case (pas de
+     vraie emprise au sol), pas de liseré de tuile, pas de sprites/textures réels (couleurs
+     unies uniquement), la transition visuelle vers l'intérieur d'un donjon n'existe pas
+     encore (seul le message de proximité + l'API serveur déjà fonctionnelle).
 7. ✅ Systèmes de jeu (voir `Server/Persistence` et `Server/World`) :
    - ✅ Création de personnage (`CharacterService`, `POST /api/characters`) — débloque le
      test ci-dessus.

@@ -26,3 +26,4 @@ Thumbs.db
 
 # Configuration locale des outils (Claude Code, etc.)
 .claude/
+.obsidian/

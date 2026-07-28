@@ -103,6 +103,23 @@ public sealed unsafe class SpriteBatch : IDisposable
     /// <summary>Dessine un rectangle texturé. <paramref name="color"/> module la texture (blanc = couleur d'origine).</summary>
     public void Draw(Texture2D texture, Vector2 position, Vector2 size, Vector4 color)
     {
+        DrawQuad(
+            texture,
+            position,
+            position + new Vector2(size.X, 0f),
+            position + size,
+            position + new Vector2(0f, size.Y),
+            color);
+    }
+
+    /// <summary>
+    /// Dessine un quadrilatère arbitraire (les 4 coins n'ont pas besoin de former un rectangle
+    /// axé sur les axes) — utilisé pour les tuiles en losange de la vue isométrique et les
+    /// murs/toits des bâtiments. Coins dans l'ordre haut-gauche, haut-droit, bas-droit,
+    /// bas-gauche (mappés respectivement aux UV (0,0), (1,0), (1,1), (0,1)).
+    /// </summary>
+    public void DrawQuad(Texture2D texture, Vector2 topLeft, Vector2 topRight, Vector2 bottomRight, Vector2 bottomLeft, Vector4 color)
+    {
         if (_currentTexture is not null && _currentTexture != texture)
         {
             Flush();
@@ -117,10 +134,10 @@ public sealed unsafe class SpriteBatch : IDisposable
 
         Span<(float x, float y, float u, float v)> corners =
         [
-            (position.X, position.Y, 0f, 0f),
-            (position.X + size.X, position.Y, 1f, 0f),
-            (position.X + size.X, position.Y + size.Y, 1f, 1f),
-            (position.X, position.Y + size.Y, 0f, 1f),
+            (topLeft.X, topLeft.Y, 0f, 0f),
+            (topRight.X, topRight.Y, 1f, 0f),
+            (bottomRight.X, bottomRight.Y, 1f, 1f),
+            (bottomLeft.X, bottomLeft.Y, 0f, 1f),
         ];
 
         var vertexOffset = _quadCount * VerticesPerQuad * FloatsPerVertex;
