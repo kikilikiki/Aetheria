@@ -8,6 +8,9 @@ public sealed class PartyEntity
 {
     public Guid Id { get; set; }
 
+    /// <summary>Code à 5 chiffres, à communiquer entre joueurs pour rejoindre le groupe (voir GDD/demande utilisateur — "les identifiants de groupe doivent être de 5 chiffres"), plus court/lisible qu'un GUID.</summary>
+    public required string JoinCode { get; set; }
+
     public Guid LeaderCharacterId { get; set; }
     public CharacterEntity? LeaderCharacter { get; set; }
 

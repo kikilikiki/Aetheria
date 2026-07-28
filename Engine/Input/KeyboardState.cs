@@ -70,4 +70,13 @@ public sealed class KeyboardState
         _typedChars.Clear();
         return chars;
     }
+
+    /// <summary>Copie du texte dans le presse-papiers système (voir GDD/demande utilisateur — bouton pour copier le code de groupe), via GLFW/Silk.NET plutôt qu'une dépendance WinForms/WPF.</summary>
+    public void SetClipboardText(string text)
+    {
+        if (_keyboard is not null)
+        {
+            _keyboard.ClipboardText = text;
+        }
+    }
 }

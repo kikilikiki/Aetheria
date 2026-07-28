@@ -701,6 +701,29 @@ de gameplay.
     chaque connexion. Les autres clients (`Client/Networking/*`, `MapEditor`, `MonsterEditor`)
     avaient déjà ce convertisseur ; seuls le Launcher et l'AdminPanel en manquaient. Corrigé en
     alignant leurs `JsonSerializerOptions` sur le même modèle que les autres clients.
+23. ✅ Groupe : code à 5 chiffres, bouton copier, et combat/butin réellement partagés (voir
+    GDD/demande utilisateur) :
+    - **Code de groupe à 5 chiffres** (`PartyEntity.JoinCode`, unique, tiré aléatoirement à la
+      création) remplace le GUID interne comme identifiant à communiquer entre joueurs — bien
+      plus court à lire/retaper. `POST /api/parties/join` prend désormais ce code au lieu d'un
+      `partyId` dans l'URL. Un bouton "COPIER" dans le panneau Groupe copie le code dans le
+      presse-papiers système (`KeyboardState.SetClipboardText`, via la propriété `ClipboardText`
+      de Silk.NET.Input plutôt qu'une dépendance WinForms/WPF).
+    - **Combat de groupe réellement partagé** (voir retour utilisateur — "en groupe les 2 sont
+      bien dans un combat mais 2 combats différents au lieu de se voir") : un membre de groupe
+      qui engage un combat PvE (rencontre sauvage ou salle de donjon) alors qu'un combat de ce
+      groupe est déjà en cours (`CombatSession.PartyId`) y ajoute directement ses créatures
+      plutôt que de démarrer un second combat isolé — dans les cases encore libres de son côté
+      de la grille. Comme le partage du butin (`LootService`) et de l'XP (`PartyService`)
+      reposait déjà sur l'appartenance au groupe plutôt que sur la session de combat, corriger le
+      partage du combat corrige du même coup l'affichage séparé du vote d'objets rapporté par
+      l'utilisateur — c'était une conséquence du bug, pas un second bug distinct.
+      `BuildPlayerCombatantsAsync` et `BuildArenaTeamCombatantsAsync` (Arène) ont été unifiées en
+      une seule `BuildTeamCombatantsAsync` pour partager cette logique de placement.
+      **Simplification assumée** : pas de verrou explicite contre une double création si deux
+      membres engagent exactement au même instant (fenêtre de course très étroite) ; le nombre
+      d'ennemis reste fixé au moment de la création du combat, pas réajusté si un membre rejoint
+      ensuite.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

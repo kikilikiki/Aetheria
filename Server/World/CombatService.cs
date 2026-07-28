@@ -30,10 +30,39 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
             ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
 
+        var partyService = new PartyService(db, tokenStore);
+        var party = await partyService.GetForCharacterAsync(character.Id, ct);
+
+        // Rejoint un combat de groupe déjà en cours plutôt que d'en démarrer un second isolé
+        // (voir GDD/demande utilisateur — "en groupe, les 2 sont bien dans un combat mais 2
+        // combats différents au lieu de se voir"). Simplification assumée : pas de verrou contre
+        // une double création si deux membres engagent exactement au même instant (fenêtre de
+        // course très étroite, acceptable à cette échelle — voir Docs/README.md).
+        if (party is not null && combatStore.TryGetActiveByPartyId(party.Id, out var existingSession))
+        {
+            var occupiedCells = existingSession.Combatants.Where(c => c.Team == 0).Select(c => (c.X, c.Y)).ToHashSet();
+            var joinQueue = new Queue<(int X, int Y)>(BuildTeamCellQueue(leftSide: true).Where(cell => !occupiedCells.Contains(cell)));
+
+            var joiningCombatants = await BuildTeamCombatantsAsync(character, request.MonsterIds, team: 0, joinQueue, maxMonsters: 4, ct);
+            if (joiningCombatants.Count == 0)
+            {
+                throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
+            }
+
+            existingSession.Combatants.AddRange(joiningCombatants);
+            existingSession.TeamOwnerUserId.TryAdd(0, userId);
+            existingSession.TeamCharacterId.TryAdd(0, character.Id);
+            return ToState(existingSession);
+        }
+
         var wildSpecies = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == request.WildSpeciesId, ct)
             ?? throw new AccountOperationException("Espèce de créature inconnue.");
 
-        var combatants = await BuildPlayerCombatantsAsync(character, request.MonsterIds, team: 0, leftSide: true, ct);
+        var combatants = await BuildTeamCombatantsAsync(character, request.MonsterIds, team: 0, BuildTeamCellQueue(leftSide: true), maxMonsters: 4, ct);
+        if (combatants.Count == 0)
+        {
+            throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
+        }
 
         // Autant d'ennemis que de créatures emmenées (voir GDD/demande utilisateur — "le nombre
         // d'ennemis est synchronisé avec le nombre de monstres que l'on a"), même espèce tirée,
@@ -54,7 +83,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             });
         }
 
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat, PartyId = party?.Id };
         session.TeamOwnerUserId[0] = userId;
         session.TeamCharacterId[0] = character.Id;
 
@@ -141,8 +170,19 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             throw new AccountOperationException("Impossible de vous défier vous-même.");
         }
 
-        var combatants = await BuildPlayerCombatantsAsync(challenger, request.MonsterIds, team: 0, leftSide: true, ct);
-        combatants.AddRange(await BuildPlayerCombatantsAsync(opponent, request.OpponentMonsterIds, team: 1, leftSide: false, ct));
+        var combatants = await BuildTeamCombatantsAsync(challenger, request.MonsterIds, team: 0, BuildTeamCellQueue(leftSide: true), maxMonsters: 4, ct);
+        if (combatants.Count == 0)
+        {
+            throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
+        }
+
+        var opponentCombatants = await BuildTeamCombatantsAsync(opponent, request.OpponentMonsterIds, team: 1, BuildTeamCellQueue(leftSide: false), maxMonsters: 4, ct);
+        if (opponentCombatants.Count == 0)
+        {
+            throw new AccountOperationException("L'adversaire doit avoir au moins une créature disponible.");
+        }
+
+        combatants.AddRange(opponentCombatants);
 
         var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, Combatants = combatants };
         session.TeamOwnerUserId[0] = userId;
@@ -387,51 +427,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     }
 
     /// <summary>
-    /// Combattants d'un joueur (voir GDD/demande utilisateur — "je ne veux pas que notre
-    /// personnage soit présent en combat") : uniquement ses créatures, le personnage humain ne
-    /// combat jamais directement (dresseur plutôt que combattant), y compris en PvP/Arène — il
-    /// reste identifié via <see cref="CombatSession.TeamCharacterId"/> pour l'attribution des
-    /// récompenses, sans figurer sur la grille.
-    /// </summary>
-    private async Task<List<Combatant>> BuildPlayerCombatantsAsync(
-        CharacterEntity character, IReadOnlyList<Guid> monsterIds, int team, bool leftSide, CancellationToken ct)
-    {
-        var monsterX = leftSide ? 0 : CombatSession.GridWidth - 1;
-        var combatants = new List<Combatant>();
-
-        var playerMonsters = monsterIds.Count == 0
-            ? []
-            : await db.Monsters
-                .Where(m => monsterIds.Contains(m.Id) && m.OwnerCharacterId == character.Id)
-                .ToListAsync(ct);
-
-        if (playerMonsters.Count == 0)
-        {
-            throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
-        }
-
-        (int X, int Y)[] monsterSlots = [(monsterX, 1), (monsterX, 2), (monsterX, 4), (monsterX, 5)];
-        for (var i = 0; i < playerMonsters.Count && i < monsterSlots.Length; i++)
-        {
-            var monster = playerMonsters[i];
-            var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == monster.SpeciesId, ct);
-            var displayName = monster.Nickname.Length > 0 ? monster.Nickname : species?.Name ?? "Créature";
-
-            combatants.Add(new Combatant
-            {
-                Id = monster.Id, Name = displayName, Team = team, X = monsterSlots[i].X, Y = monsterSlots[i].Y,
-                MaxHealth = Math.Max(1, species?.BaseHealth ?? 20), CurrentHealth = Math.Max(1, species?.BaseHealth ?? 20),
-                Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
-                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
-                OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
-                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
-            });
-        }
-
-        return combatants;
-    }
-
-    /// <summary>
     /// Démarre un match d'arène classée (voir GDD, <c>ArenaQueueService</c>) : les tickets déjà
     /// appairés (première moitié = équipe 0, seconde moitié = équipe 1) deviennent des
     /// combattants placés via <see cref="BuildTeamCellQueue"/> (une file de cases libres par
@@ -470,7 +465,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
 
             var maxMonsters = ArenaFormatRules.UnitsForPlayerIndex(format, indexInTeam);
-            combatants.AddRange(await BuildArenaTeamCombatantsAsync(character, ticket.MonsterIds, team, cellQueue, maxMonsters, ct));
+            combatants.AddRange(await BuildTeamCombatantsAsync(character, ticket.MonsterIds, team, cellQueue, maxMonsters, ct));
         }
 
         CombatEngine.Initialize(session);
@@ -494,7 +489,15 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         return cells;
     }
 
-    private async Task<List<Combatant>> BuildArenaTeamCombatantsAsync(
+    /// <summary>
+    /// Combattants d'un joueur pour une équipe (voir GDD/demande utilisateur — "je ne veux pas
+    /// que notre personnage soit présent en combat") : uniquement ses créatures, placées via
+    /// <paramref name="cellQueue"/> (voir <see cref="BuildTeamCellQueue"/>) — partagé entre
+    /// Solo/PvP (file fraîche par combat) et Arène (file remplie joueur par joueur) ainsi que
+    /// pour ajouter un membre de groupe à un combat déjà en cours (file des cases encore libres,
+    /// voir GDD/demande utilisateur — "en groupe, les 2 doivent voir le même combat").
+    /// </summary>
+    private async Task<List<Combatant>> BuildTeamCombatantsAsync(
         CharacterEntity character, IReadOnlyList<Guid> monsterIds, int team, Queue<(int X, int Y)> cellQueue, int maxMonsters, CancellationToken ct)
     {
         var combatants = new List<Combatant>();
