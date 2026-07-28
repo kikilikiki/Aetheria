@@ -63,6 +63,20 @@ public sealed class CombatApiClient : IDisposable
         return await ReadResultAsync(response, ct);
     }
 
+    /// <summary>Engage le combat contre le monstre d'une salle de donjon précise (voir GDD — exploration en couloir linéaire).</summary>
+    public async Task<CombatResult> StartDungeonCombatAsync(
+        string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}/rooms/{roomIndex}/engage", new StartDungeonCombatRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            MonsterIds = monsterIds,
+        }, JsonOptions, ct);
+
+        return await ReadResultAsync(response, ct);
+    }
+
     public async Task<CombatResult> SubmitActionAsync(
         string sessionToken, Guid combatId, CombatActionType actionType, int targetX, int targetY, int? captureItemId = null, CancellationToken ct = default)
     {

@@ -64,9 +64,23 @@ var interiorAccent = new Vector4(0.5f, 0.5f, 0.5f, 1f);
 var interiorIsDungeon = false;
 
 // Meubles/PNJ d'un intérieur de bâtiment (voir GDD — intérieurs enrichis, BuildingInteriors).
-// Vide pour l'intérieur du donjon (qui reste un écran de flavor text, voir #60).
+// Vide pour l'intérieur du donjon.
 List<InteriorFurniture> interiorFurniture = [];
 List<InteriorNpc> interiorNpcs = [];
+
+// Exploration du donjon en couloir linéaire (voir GDD — "mobs/loot au fil du chemin") : la
+// séquence de salles d'un étage (voir DungeonFloorGenerator côté serveur) traversée une par une,
+// combat pour les salles Monstre/MiniBoss/Boss/BossLegendaire, coffre d'or pour les salles Coffre,
+// texte d'ambiance pour les autres types (non simulés, voir Docs/README.md). Disponible
+// uniquement en mode connecté (worldMap.DungeonId résolu) — le mode démo hors-ligne garde
+// l'ancien stub (un seul combat aléatoire, voir StartWildCombatAsync).
+var dungeonFloorNumber = 1;
+DungeonFloor? dungeonFloor = null;
+var dungeonRoomIndex = 0;
+Task<DungeonFloor?>? dungeonFloorTask = null;
+Task<int?>? dungeonChestTask = null;
+var dungeonChestOpened = false;
+string? dungeonRoomMessage = null;
 
 // Combat tactique (voir Server/World/CombatService.cs) : déclenché depuis l'intérieur du
 // donjon (Entrée pour affronter un monstre sauvage) — voir GDD section Combats. Grille 7x7,
@@ -316,6 +330,12 @@ host.Update += deltaTime =>
             return;
         }
 
+        if (interiorIsDungeon && worldMap.DungeonId >= 0 && gameDataApi is not null)
+        {
+            UpdateDungeonCorridor();
+            return;
+        }
+
         if (keyboard.WasJustPressed(Key.Escape))
         {
             sceneMode = SceneMode.Outdoor;
@@ -516,6 +536,15 @@ host.Update += deltaTime =>
                 interiorIsDungeon = true;
                 interiorFurniture = [];
                 interiorNpcs = [];
+                dungeonFloorNumber = 1;
+                dungeonRoomIndex = 0;
+                dungeonFloor = null;
+                dungeonChestOpened = false;
+                dungeonRoomMessage = null;
+                if (worldMap.DungeonId >= 0 && gameDataApi is not null)
+                {
+                    dungeonFloorTask = gameDataApi.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
+                }
                 break;
         }
     }
@@ -1485,6 +1514,121 @@ async Task<CombatResult> StartWildCombatAsync()
 }
 
 /// <summary>
+/// Exploration en couloir linéaire d'un étage de donjon (voir GDD — "mobs/loot au fil du
+/// chemin") : avance salle par salle, un combat par salle Monstre/MiniBoss/Boss/BossLegendaire
+/// (voir <see cref="StartDungeonRoomCombatAsync"/>), un coffre d'or par salle Coffre (voir
+/// <c>DungeonRoomService.OpenChestAsync</c> côté serveur), du texte d'ambiance pour les autres
+/// types de salle (Énigme/Piège/Marchand/Événement/Autel/Salle secrète — non simulés, voir
+/// Docs/README.md). Une fois la dernière salle passée, Entrée descend à l'étage suivant.
+/// </summary>
+void UpdateDungeonCorridor()
+{
+    if (combatStartTask is not null)
+    {
+        return; // Démarrage de combat en cours — géré par le bloc scène-agnostique plus haut.
+    }
+
+    if (dungeonFloorTask is { IsCompleted: true } floorTask)
+    {
+        dungeonFloor = floorTask.IsFaulted ? null : floorTask.Result;
+        dungeonFloorTask = null;
+        dungeonRoomMessage = dungeonFloor is null ? "Impossible de charger cet étage." : null;
+        return;
+    }
+
+    if (dungeonChestTask is { IsCompleted: true } chestTask)
+    {
+        var gold = chestTask.IsFaulted ? null : chestTask.Result;
+        dungeonChestTask = null;
+        dungeonChestOpened = true;
+        dungeonRoomMessage = gold is { } g ? $"Vous trouvez {g} pieces d'or !" : "Le coffre est vide.";
+        return;
+    }
+
+    if (dungeonFloorTask is not null || dungeonChestTask is not null || dungeonFloor is null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        sceneMode = SceneMode.Outdoor;
+        return;
+    }
+
+    if (dungeonRoomIndex >= dungeonFloor.Rooms.Count)
+    {
+        if (keyboard.WasJustPressed(Key.Enter))
+        {
+            dungeonFloorNumber++;
+            dungeonRoomIndex = 0;
+            dungeonFloor = null;
+            dungeonChestOpened = false;
+            dungeonRoomMessage = null;
+            dungeonFloorTask = gameDataApi!.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
+        }
+
+        return;
+    }
+
+    if (!keyboard.WasJustPressed(Key.Enter))
+    {
+        return;
+    }
+
+    var room = dungeonFloor.Rooms[dungeonRoomIndex];
+    switch (room.EncounterType)
+    {
+        case DungeonEncounterType.Monstre:
+        case DungeonEncounterType.MiniBoss:
+        case DungeonEncounterType.Boss:
+        case DungeonEncounterType.BossLegendaire:
+            combatMessage = null;
+            combatReturnScene = SceneMode.Interior;
+            combatStartTask = StartDungeonRoomCombatAsync(dungeonFloorNumber, dungeonRoomIndex);
+            break;
+
+        case DungeonEncounterType.Coffre when !dungeonChestOpened:
+            dungeonChestTask = gameDataApi!.OpenChestAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
+            break;
+
+        default:
+            AdvanceDungeonRoom();
+            break;
+    }
+}
+
+void AdvanceDungeonRoom()
+{
+    dungeonRoomIndex++;
+    dungeonChestOpened = false;
+    dungeonRoomMessage = null;
+}
+
+async Task<CombatResult> StartDungeonRoomCombatAsync(int floorNumber, int roomIndex)
+{
+    if (combatApi is null || starterApi is null || gameDataApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return new CombatResult(null, "Connexion requise.");
+    }
+
+    try
+    {
+        var inventory = await gameDataApi.GetInventoryAsync(chosenCharacterId.Value);
+        captureSphereItemId = inventory.FirstOrDefault(i => i.ItemType == ItemType.ObjetDeCapture)?.ItemId;
+
+        var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
+        var monsterIds = monsters.Select(m => m.Id).Take(4).ToList();
+
+        return await combatApi.StartDungeonCombatAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, worldMap.DungeonId, floorNumber, roomIndex);
+    }
+    catch (HttpRequestException)
+    {
+        return new CombatResult(null, "Connexion au serveur impossible.");
+    }
+}
+
+/// <summary>
 /// Rencontre sauvage hors donjon (voir GDD — difficulté scalée sur le niveau du chef de groupe,
 /// voir <c>PartyService.ResolveScalingReferenceAsync</c> côté serveur). Contrairement à
 /// <see cref="StartWildCombatAsync"/> (stub du donjon, espèce commune tirée côté Client), c'est
@@ -1645,6 +1789,14 @@ void UpdateLoot()
     {
         if (keyboard.WasJustPressed(Key.Enter) || keyboard.WasJustPressed(Key.Escape))
         {
+            // Victoire dans le couloir du donjon (voir GDD) : avance à la salle suivante plutôt
+            // que de rejouer la même — uniquement sur victoire (team 0), une défaite laisse le
+            // joueur retenter la même salle.
+            if (combatReturnScene == SceneMode.Interior && interiorIsDungeon && combatState?.WinningTeam == 0)
+            {
+                AdvanceDungeonRoom();
+            }
+
             sceneMode = combatReturnScene;
             combatState = null;
             combatSelectedAction = null;
@@ -2168,6 +2320,12 @@ void DrawInteriorScene()
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, interiorTitle.ToUpperInvariant(), new Vector2(w / 2f, h * 0.16f), 5f, Vector4.One);
 
+    if (interiorIsDungeon && worldMap.DungeonId >= 0 && gameDataApi is not null)
+    {
+        DrawDungeonCorridor(w, h);
+        return;
+    }
+
     var lineY = h * 0.34f;
     foreach (var line in interiorBodyLines)
     {
@@ -2214,6 +2372,130 @@ void DrawInteriorScene()
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
     }
 }
+
+/// <summary>Rendu du couloir de donjon (voir <see cref="UpdateDungeonCorridor"/>) : une rangée de cases représentant les salles de l'étage, la case courante mise en évidence.</summary>
+void DrawDungeonCorridor(int w, int h)
+{
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ETAGE {dungeonFloorNumber}", new Vector2(w / 2f, h * 0.26f), 2.4f, new Vector4(0.85f, 0.7f, 0.95f, 1f));
+
+    if (dungeonFloorTask is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, h * 0.5f), 2.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        return;
+    }
+
+    if (dungeonFloor is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, dungeonRoomMessage ?? "ETAGE INDISPONIBLE", new Vector2(w / 2f, h * 0.5f), 2.2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
+        return;
+    }
+
+    const float cellSize = 64f;
+    var totalWidth = dungeonFloor.Rooms.Count * (cellSize + 12f) - 12f;
+    var originX = w / 2f - totalWidth / 2f;
+    var y = h * 0.42f;
+
+    for (var i = 0; i < dungeonFloor.Rooms.Count; i++)
+    {
+        var room = dungeonFloor.Rooms[i];
+        var center = new Vector2(originX + i * (cellSize + 12f) + cellSize / 2f, y);
+        var color = DungeonRoomColor(room.EncounterType);
+
+        if (i == dungeonRoomIndex)
+        {
+            DrawPanel(center - new Vector2(cellSize / 2f + 4f, cellSize / 2f + 4f), new Vector2(cellSize + 8f, cellSize + 8f), new Vector4(1f, 0.9f, 0.5f, 0.9f));
+        }
+        else if (i < dungeonRoomIndex)
+        {
+            color *= 0.5f;
+            color.W = 1f;
+        }
+
+        DrawPanel(center - new Vector2(cellSize / 2f, cellSize / 2f), new Vector2(cellSize, cellSize), color);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, DungeonRoomLabel(room.EncounterType), center + new Vector2(0, cellSize / 2f + 16f), 1.3f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    }
+
+    if (dungeonRoomIndex >= dungeonFloor.Rooms.Count)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ETAGE TERMINE !", new Vector2(w / 2f, h * 0.68f), 3f, new Vector4(0.5f, 0.9f, 0.5f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR DESCENDRE A L'ETAGE SUIVANT", new Vector2(w / 2f, h * 0.80f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    }
+    else
+    {
+        var room = dungeonFloor.Rooms[dungeonRoomIndex];
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, DungeonRoomFlavor(room.EncounterType, dungeonChestOpened), new Vector2(w / 2f, h * 0.62f), 2.1f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+
+        var prompt = combatStartTask is not null ? "..." : DungeonRoomPrompt(room.EncounterType, dungeonChestOpened);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h * 0.80f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    }
+
+    if (dungeonRoomMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, dungeonRoomMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+    }
+
+    if (combatMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR SORTIR DU DONJON", new Vector2(w / 2f, h * 0.92f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+static Vector4 DungeonRoomColor(DungeonEncounterType type) => type switch
+{
+    DungeonEncounterType.Monstre => new Vector4(0.6f, 0.25f, 0.25f, 1f),
+    DungeonEncounterType.MiniBoss => new Vector4(0.75f, 0.35f, 0.15f, 1f),
+    DungeonEncounterType.Boss => new Vector4(0.8f, 0.2f, 0.2f, 1f),
+    DungeonEncounterType.BossLegendaire => new Vector4(0.85f, 0.65f, 0.15f, 1f),
+    DungeonEncounterType.Coffre => new Vector4(0.75f, 0.62f, 0.20f, 1f),
+    DungeonEncounterType.Marchand => new Vector4(0.25f, 0.55f, 0.45f, 1f),
+    DungeonEncounterType.Piege => new Vector4(0.45f, 0.25f, 0.50f, 1f),
+    DungeonEncounterType.Enigme => new Vector4(0.30f, 0.45f, 0.65f, 1f),
+    DungeonEncounterType.Autel => new Vector4(0.55f, 0.45f, 0.70f, 1f),
+    DungeonEncounterType.SalleSecrete => new Vector4(0.35f, 0.35f, 0.38f, 1f),
+    _ => new Vector4(0.4f, 0.4f, 0.45f, 1f),
+};
+
+static string DungeonRoomLabel(DungeonEncounterType type) => type switch
+{
+    DungeonEncounterType.Monstre => "MONSTRE",
+    DungeonEncounterType.MiniBoss => "MINI-BOSS",
+    DungeonEncounterType.Boss => "BOSS",
+    DungeonEncounterType.BossLegendaire => "BOSS LEG.",
+    DungeonEncounterType.Coffre => "COFFRE",
+    DungeonEncounterType.Marchand => "MARCHAND",
+    DungeonEncounterType.Piege => "PIEGE",
+    DungeonEncounterType.Enigme => "ENIGME",
+    DungeonEncounterType.Autel => "AUTEL",
+    DungeonEncounterType.SalleSecrete => "SECRET",
+    _ => "EVENEMENT",
+};
+
+static string DungeonRoomFlavor(DungeonEncounterType type, bool chestOpened) => type switch
+{
+    DungeonEncounterType.Monstre => "Un monstre sauvage rode dans cette salle.",
+    DungeonEncounterType.MiniBoss => "Un mini-boss redoutable garde le passage.",
+    DungeonEncounterType.Boss => "Un boss puissant bloque la sortie de l'etage.",
+    DungeonEncounterType.BossLegendaire => "Une presence legendaire emane de cette salle.",
+    DungeonEncounterType.Coffre when chestOpened => "Le coffre est deja ouvert.",
+    DungeonEncounterType.Coffre => "Un coffre poussiereux attend d'etre ouvert.",
+    DungeonEncounterType.Marchand => "Un marchand ambulant propose ses services.",
+    DungeonEncounterType.Piege => "Le sol de cette salle semble instable...",
+    DungeonEncounterType.Enigme => "Une inscription enigmatique orne le mur.",
+    DungeonEncounterType.Autel => "Un autel oublie repose au centre de la piece.",
+    DungeonEncounterType.SalleSecrete => "Vous decouvrez une salle secrete.",
+    _ => "Quelque chose s'est produit ici autrefois.",
+};
+
+static string DungeonRoomPrompt(DungeonEncounterType type, bool chestOpened) => type switch
+{
+    DungeonEncounterType.Monstre or DungeonEncounterType.MiniBoss or DungeonEncounterType.Boss or DungeonEncounterType.BossLegendaire
+        => "APPUYEZ SUR ENTREE POUR AFFRONTER",
+    DungeonEncounterType.Coffre when !chestOpened => "APPUYEZ SUR ENTREE POUR OUVRIR LE COFFRE",
+    _ => "APPUYEZ SUR ENTREE POUR CONTINUER",
+};
 
 void DrawCombat()
 {

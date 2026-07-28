@@ -240,10 +240,38 @@ de gameplay.
     contextes plutôt que dupliqué). **Limites assumées** : les meubles sont des rectangles en
     repère écran relatif (pas de vraie scène isométrique/3D pour l'intérieur, cohérent avec le
     style écran-plat déjà utilisé par cette scène), un seul PNJ affiché même si plusieurs étaient
-    définis pour un bâtiment (pas de curseur de sélection), et l'intérieur du donjon reste un
-    écran de texte de présentation sans meubles/PNJ (voir la rencontre sauvage hors donjon
-    ci-dessus et la génération de donjon plus haut pour ce qui est réellement fonctionnel côté
-    donjon — l'exploration en couloir reste à faire).
+    définis pour un bâtiment (pas de curseur de sélection). L'intérieur du donjon n'utilise pas
+    ce même système de meubles/PNJ : il a son propre écran, voir point 12 ci-dessous.
+12. ✅ Exploration du donjon en couloir linéaire (voir GDD — "mobs/loot au fil du chemin") :
+    - Le Client consomme désormais réellement la séquence de salles générée côté serveur
+      (`GET /api/dungeons/{id}/floors/{n}`, jusque-là seule l'API existait sans intégration
+      Client, voir point 7 plus haut) — `Client/Program.cs` (`UpdateDungeonCorridor`,
+      `DrawDungeonCorridor`) affiche une rangée de cases (une par salle), avance case par case à
+      l'Entrée, la case courante mise en évidence.
+    - Salles Monstre/MiniBoss/Boss/BossLegendaire : combat réel via l'endpoint d'engagement déjà
+      existant (`POST .../rooms/{i}/engage`, `CombatApiClient.StartDungeonCombatAsync`) — victoire
+      → avance à la salle suivante (`AdvanceDungeonRoom`, appelé depuis le même écran de
+      continuation que le butin de victoire) ; défaite → reste sur la même salle pour retenter.
+    - Salles Coffre : nouvel endpoint `POST .../rooms/{i}/loot-chest`
+      (`Server/World/DungeonRoomService.OpenChestAsync`) — or gagné (20 à 80, tiré d'une graine
+      dérivée de celle du combat mais décalée pour ne pas reproduire le même tirage) ajouté
+      directement à `CharacterEntity.Gold`. C'est le "loot au fil du chemin" du GDD.
+    - Salles Énigme/Piège/Marchand/Événement/Autel/Salle secrète : texte d'ambiance uniquement
+      (`DungeonRoomFlavor`) — **non simulées plutôt que du contenu inventé**, cohérent avec la
+      façon dont ce projet documente ses limites ailleurs.
+    - Dernière salle de l'étage franchie → écran "ÉTAGE TERMINÉ", Entrée charge l'étage suivant
+      (`dungeonFloorNumber++`, nouvel appel à `GET /api/dungeons/{id}/floors/{n}`) — les jalons
+      mini-boss/boss/boss légendaire (tous les 10/50/100 étages, un étage à salle unique côté
+      générateur) fonctionnent donc aussi via ce couloir.
+    - **Disponible uniquement en mode connecté** (`worldMap.DungeonId` résolu par
+      `RefreshDungeonPositionAsync`, voir point 9/plus haut) — le mode démo hors-ligne garde
+      l'ancien stub à un seul combat aléatoire (`StartWildCombatAsync`) plutôt que de planter.
+    - **Limites assumées** : pas de disposition spatiale réelle des salles (une rangée de cases
+      abstraite, pas un vrai plan de couloirs/pièces — cohérent avec la limite déjà documentée
+      pour `DungeonFloorGenerator`), pas de vraie récompense pour les salles Marchand/Autel/etc.
+      Vérifié par revue de code et compilation (build complet de la solution) ; pas de test de
+      bout en bout avec un vrai combat (nécessiterait de lancer le client en conditions réelles,
+      hors de portée des vérifications passives utilisées dans cette session).
 
 > **Incident évité en testant :** une première tentative de vérification visuelle du site web
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche
