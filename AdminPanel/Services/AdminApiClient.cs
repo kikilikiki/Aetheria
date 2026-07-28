@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
@@ -21,6 +22,16 @@ public readonly record struct ApiResult<T>(T? Value, string? Error)
 /// <summary>Client HTTP vers les endpoints d'administration exposés par Aetheria.Server.</summary>
 public sealed class AdminApiClient : IDisposable
 {
+    // Le serveur sérialise les enums en toutes lettres ("Feu", "Guerrier", ...) via
+    // ConfigureHttpJsonOptions (voir Server/Program.cs) — sans ce même JsonStringEnumConverter
+    // ici, la désérialisation échoue dès qu'un enum est présent (ex. AdminUserSummary.Rank,
+    // LoginResponse.Characters[].Kingdom) avec "The JSON value could not be converted".
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     private readonly HttpClient _http = new()
     {
         BaseAddress = new Uri($"http://localhost:{GameInfo.DefaultAccountApiPort}"),
@@ -35,7 +46,7 @@ public sealed class AdminApiClient : IDisposable
                 ? "/api/admin/users"
                 : $"/api/admin/users?search={Uri.EscapeDataString(search)}";
 
-            var users = await _http.GetFromJsonAsync<List<AdminUserSummary>>(url);
+            var users = await _http.GetFromJsonAsync<List<AdminUserSummary>>(url, JsonOptions);
             return ApiResult<IReadOnlyList<AdminUserSummary>>.Success(users ?? []);
         }
         catch (HttpRequestException ex)
@@ -48,7 +59,7 @@ public sealed class AdminApiClient : IDisposable
     {
         try
         {
-            var stats = await _http.GetFromJsonAsync<AdminGlobalStats>("/api/admin/stats");
+            var stats = await _http.GetFromJsonAsync<AdminGlobalStats>("/api/admin/stats", JsonOptions);
             return ApiResult<AdminGlobalStats>.Success(stats!);
         }
         catch (HttpRequestException ex)
@@ -72,11 +83,11 @@ public sealed class AdminApiClient : IDisposable
 
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadFromJsonAsync<ApiError>();
+                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
                 return ApiResult<LoginResponse>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
             }
 
-            var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
+            var body = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions);
             return ApiResult<LoginResponse>.Success(body!);
         }
         catch (HttpRequestException ex)
@@ -116,7 +127,7 @@ public sealed class AdminApiClient : IDisposable
                 return ApiResult<bool>.Success(true);
             }
 
-            var error = await response.Content.ReadFromJsonAsync<ApiError>();
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
             return ApiResult<bool>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
         }
         catch (HttpRequestException ex)

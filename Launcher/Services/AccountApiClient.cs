@@ -1,5 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Aetheria.Shared;
 using Aetheria.Shared.Models.Account;
 
@@ -18,6 +20,17 @@ public readonly record struct ApiResult<T>(T? Value, string? Error)
 /// <summary>Client HTTP vers l'API de compte exposée par Aetheria.Server (voir Server/Program.cs).</summary>
 public sealed class AccountApiClient : IDisposable
 {
+    // Le serveur sérialise les enums en toutes lettres ("Feu", "Guerrier", ...) via
+    // ConfigureHttpJsonOptions (voir Server/Program.cs) — sans ce même JsonStringEnumConverter
+    // ici, ReadFromJsonAsync<LoginResponse> échoue dès qu'un personnage existant est renvoyé
+    // (ex. LoginResponse.Characters[].Kingdom) avec "The JSON value could not be converted to
+    // Aetheria.Shared.Enums.KingdomType" — bug reproduit en connexion sur un compte non vide.
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     private readonly HttpClient _http;
 
     public AccountApiClient(string? baseUrl = null)
@@ -38,11 +51,11 @@ public sealed class AccountApiClient : IDisposable
 
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadFromJsonAsync<ApiError>();
+                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
                 return ApiResult<Guid>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
             }
 
-            var body = await response.Content.ReadFromJsonAsync<RegisterOkBody>();
+            var body = await response.Content.ReadFromJsonAsync<RegisterOkBody>(JsonOptions);
             return ApiResult<Guid>.Success(body!.UserId);
         }
         catch (HttpRequestException ex)
@@ -60,11 +73,11 @@ public sealed class AccountApiClient : IDisposable
 
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadFromJsonAsync<ApiError>();
+                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
                 return ApiResult<LoginResponse>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
             }
 
-            var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
+            var body = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions);
             return ApiResult<LoginResponse>.Success(body!);
         }
         catch (HttpRequestException ex)
