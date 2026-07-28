@@ -50,6 +50,19 @@ public sealed class CombatApiClient : IDisposable
         return await ReadResultAsync(response, ct);
     }
 
+    /// <summary>Rencontre sauvage hors donjon (voir GDD) — le serveur choisit lui-même l'espèce, scalée sur le niveau (voir <c>CombatService.StartWildEncounterAsync</c>).</summary>
+    public async Task<CombatResult> StartWildEncounterAsync(string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/combat/start-wild", new StartWildEncounterRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            MonsterIds = monsterIds,
+        }, JsonOptions, ct);
+
+        return await ReadResultAsync(response, ct);
+    }
+
     public async Task<CombatResult> SubmitActionAsync(
         string sessionToken, Guid combatId, CombatActionType actionType, int targetX, int targetY, int? captureItemId = null, CancellationToken ct = default)
     {
