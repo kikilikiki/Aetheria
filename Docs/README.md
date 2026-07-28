@@ -215,6 +215,21 @@ de gameplay.
       requise au niveau N = N × 100) : n'existait pas du tout avant cette phase (les personnages
       ne montaient jamais de niveau par le combat). **Simplification assumée** : montant fixe
       par victoire PvE plutôt que calculé sur le niveau/la rareté exacte de la créature vaincue.
+    - ✅ Mobs sauvages hors donjon (`CombatService.StartWildEncounterAsync`,
+      `POST /api/combat/start-wild`) : rencontre aléatoire déclenchée en marchant en zone sauvage
+      à l'extérieur (`WorldMap.IsWildEncounterZone` — herbe libre, ni chemin ni étang), pas
+      seulement en entrant dans le donjon comme avant. La rareté de l'espèce tirée dépend de
+      paliers de niveau fixes (`RarityForLevel`) appliqués au **niveau du chef de groupe** si le
+      personnage est en groupe, sinon son propre niveau (voir GDD et
+      `PartyService.ResolveScalingReferenceAsync`) — contrairement au donjon, où c'est encore le
+      Client qui choisit une espèce commune au hasard (`StartWildCombatAsync`, resté tel quel).
+      Le combat revient à la bonne scène une fois terminé (`combatReturnScene` : Extérieur pour
+      une rencontre sauvage, Intérieur pour le donjon) plutôt que de toujours renvoyer à
+      l'intérieur du donjon comme avant cette phase.
+      **Simplifications assumées** : probabilité de rencontre constante (8 % par case franchie)
+      plutôt que dépendante du biome/terrain ; paliers de niveau fixes plutôt qu'une formule
+      continue ; pas d'exclusion de zone autour des bâtiments (silhouettes sans vraie emprise au
+      sol, voir plus haut).
 
 > **Incident évité en testant :** une première tentative de vérification visuelle du site web
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche

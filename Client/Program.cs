@@ -39,6 +39,9 @@ const int StarterColumns = 5;
 /// <summary>Doit rester cohérent avec <c>Server/World/PartyService.MaxMembers</c>.</summary>
 const int PartyMaxMembers = 4;
 
+/// <summary>Probabilité de rencontre sauvage par case franchie en zone sauvage (voir GDD, StartWildEncounterOutdoorAsync). Simplification assumée : constante plutôt que dépendante du biome/terrain.</summary>
+const double WildEncounterChance = 0.08;
+
 var stateLock = new object();
 var gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
 var statusMessage = string.Empty;
@@ -65,6 +68,9 @@ var interiorIsDungeon = false;
 // actions Move/Attack/Pass/Capture, IA gérée côté serveur entre deux tours joueur.
 CombatApiClient? combatApi = null;
 CombatSessionState? combatState = null;
+
+/// <summary>Scène à laquelle revenir une fois le combat (et son butin éventuel) terminé — Interior pour le donjon, Outdoor pour une rencontre sauvage en extérieur (voir GDD).</summary>
+var combatReturnScene = SceneMode.Interior;
 var combatCursorX = 0;
 var combatCursorY = 0;
 CombatActionType? combatSelectedAction = null;
@@ -263,35 +269,40 @@ host.Update += deltaTime =>
         return;
     }
 
+    // Vérifié avant la répartition par scène (au lieu de dans le seul bloc Interior) : un combat
+    // peut désormais aussi démarrer depuis l'extérieur (rencontre sauvage aléatoire hors donjon,
+    // voir GDD et StartWildEncounterOutdoorAsync), pas seulement depuis l'intérieur du donjon.
+    if (combatStartTask is { IsCompleted: true } startedTask)
+    {
+        if (startedTask.IsFaulted)
+        {
+            combatMessage = "Connexion au serveur impossible.";
+        }
+        else if (startedTask.Result.IsSuccess)
+        {
+            combatState = startedTask.Result.State;
+            combatSelectedAction = null;
+            combatMessage = null;
+            sceneMode = SceneMode.Combat;
+        }
+        else
+        {
+            combatMessage = startedTask.Result.Error;
+        }
+
+        combatStartTask = null;
+    }
+
     if (sceneMode == SceneMode.Interior)
     {
-        if (combatStartTask is { IsCompleted: true } startedTask)
-        {
-            if (startedTask.IsFaulted)
-            {
-                combatMessage = "Connexion au serveur impossible.";
-            }
-            else if (startedTask.Result.IsSuccess)
-            {
-                combatState = startedTask.Result.State;
-                combatSelectedAction = null;
-                combatMessage = null;
-                sceneMode = SceneMode.Combat;
-            }
-            else
-            {
-                combatMessage = startedTask.Result.Error;
-            }
-
-            combatStartTask = null;
-        }
-        else if (keyboard.WasJustPressed(Key.Escape))
+        if (keyboard.WasJustPressed(Key.Escape))
         {
             sceneMode = SceneMode.Outdoor;
         }
         else if (interiorIsDungeon && keyboard.WasJustPressed(Key.Enter) && combatStartTask is null)
         {
             combatMessage = null;
+            combatReturnScene = SceneMode.Interior;
             combatStartTask = StartWildCombatAsync();
         }
 
@@ -764,6 +775,17 @@ void ConnectAndEnterWorld(Guid characterId)
         else
         {
             isAwaitingServerStep = false;
+        }
+
+        // Rencontre sauvage aléatoire hors donjon (voir GDD) : uniquement en extérieur, hors
+        // dialogue/panneau/combat déjà en cours. Tiré à chaque case franchie en zone sauvage.
+        if (sceneMode == SceneMode.Outdoor && combatStartTask is null && activeDialogueNpc is null
+            && activePanel == PanelKind.None && worldMap.IsWildEncounterZone(packet.PositionX, packet.PositionY)
+            && Random.Shared.NextDouble() < WildEncounterChance)
+        {
+            combatMessage = null;
+            combatReturnScene = SceneMode.Outdoor;
+            combatStartTask = StartWildEncounterOutdoorAsync();
         }
     };
     connection.PlayerJoined += packet =>
@@ -1289,6 +1311,35 @@ async Task<CombatResult> StartWildCombatAsync()
     }
 }
 
+/// <summary>
+/// Rencontre sauvage hors donjon (voir GDD — difficulté scalée sur le niveau du chef de groupe,
+/// voir <c>PartyService.ResolveScalingReferenceAsync</c> côté serveur). Contrairement à
+/// <see cref="StartWildCombatAsync"/> (stub du donjon, espèce commune tirée côté Client), c'est
+/// le serveur qui choisit l'espèce via <c>POST /api/combat/start-wild</c>.
+/// </summary>
+async Task<CombatResult> StartWildEncounterOutdoorAsync()
+{
+    if (combatApi is null || starterApi is null || gameDataApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return new CombatResult(null, "Connexion requise.");
+    }
+
+    try
+    {
+        var inventory = await gameDataApi.GetInventoryAsync(chosenCharacterId.Value);
+        captureSphereItemId = inventory.FirstOrDefault(i => i.ItemType == ItemType.ObjetDeCapture)?.ItemId;
+
+        var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
+        var monsterIds = monsters.Select(m => m.Id).Take(4).ToList();
+
+        return await combatApi.StartWildEncounterAsync(options.SessionToken, chosenCharacterId.Value, monsterIds);
+    }
+    catch (HttpRequestException)
+    {
+        return new CombatResult(null, "Connexion au serveur impossible.");
+    }
+}
+
 void SendCombatAction(CombatActionType actionType, int x, int y, int? captureItemId = null)
 {
     if (combatApi is null || combatState is null || options.SessionToken is null)
@@ -1421,7 +1472,7 @@ void UpdateLoot()
     {
         if (keyboard.WasJustPressed(Key.Enter) || keyboard.WasJustPressed(Key.Escape))
         {
-            sceneMode = SceneMode.Interior;
+            sceneMode = combatReturnScene;
             combatState = null;
             combatSelectedAction = null;
             activeLoot = null;

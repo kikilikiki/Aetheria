@@ -47,6 +47,9 @@ public sealed class WorldMap
     public static readonly Vector4 SignboardColor = new(0.82f, 0.72f, 0.55f, 1f);
     public static readonly Vector4 SignpostColor = new(0.35f, 0.25f, 0.16f, 1f);
 
+    private readonly HashSet<(int X, int Y)> _pathTiles;
+    private readonly (int X, int Y) _pond;
+
     public WorldMap(int size)
     {
         Size = size;
@@ -67,7 +70,9 @@ public sealed class WorldMap
             MarkPath(pathTiles, capital, target);
         }
 
-        var pond = (X: 6, Y: size - 8);
+        _pathTiles = pathTiles;
+        _pond = (X: 6, Y: size - 8);
+        var pond = _pond;
 
         for (var y = 0; y < size; y++)
         {
@@ -96,6 +101,16 @@ public sealed class WorldMap
     }
 
     public bool IsWithinBounds(int x, int y) => x >= 0 && x < Size && y >= 0 && y < Size;
+
+    /// <summary>
+    /// Zone où des mobs sauvages peuvent surgir hors donjon (voir GDD) : herbe libre, ni chemin
+    /// ni étang. **Limite assumée** : pas de vraie emprise au sol pour les bâtiments (silhouettes
+    /// stylisées, voir <c>Docs/README.md</c>), donc pas exclus ici non plus.
+    /// </summary>
+    public bool IsWildEncounterZone(int x, int y) =>
+        IsWithinBounds(x, y)
+        && !_pathTiles.Contains((x, y))
+        && MathF.Sqrt(MathF.Pow(x - _pond.X, 2) + MathF.Pow(y - _pond.Y, 2)) >= 4.5f;
 
     /// <summary>
     /// Applique la position serveur du donjon (voir <c>DungeonWorldService</c> côté serveur — la

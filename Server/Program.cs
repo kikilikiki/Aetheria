@@ -594,6 +594,22 @@ app.MapPost("/api/combat/start", async (StartCombatRequest request) =>
     }
 });
 
+// Rencontre sauvage hors donjon (voir GDD — mobs sauvages scalés sur le niveau du chef de groupe).
+app.MapPost("/api/combat/start-wild", async (StartWildEncounterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+
+    try
+    {
+        return Results.Ok(await combatService.StartWildEncounterAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 app.MapPost("/api/combat/{combatId:guid}/action", async (Guid combatId, CombatActionRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();

@@ -54,6 +54,63 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         return ToState(session);
     }
 
+    /// <summary>
+    /// Rencontre sauvage hors donjon (voir GDD — "les mobs sauvages hors donjon sont scalés sur
+    /// le niveau du joueur ou du chef de groupe"). Contrairement à <see cref="StartAsync"/>,
+    /// l'espèce n'est pas choisie par le client : le serveur la tire lui-même, avec une rareté
+    /// dépendant du niveau de la référence de scaling (le chef de groupe si le personnage est en
+    /// groupe, sinon lui-même — voir <see cref="PartyService.ResolveScalingReferenceAsync"/>).
+    /// </summary>
+    public async Task<CombatSessionState> StartWildEncounterAsync(StartWildEncounterRequest request, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
+
+        var partyService = new PartyService(db, tokenStore);
+        var scalingReference = await partyService.ResolveScalingReferenceAsync(character.Id, ct);
+
+        var rarity = RarityForLevel(scalingReference.Level);
+        var candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == rarity).ToListAsync(ct);
+        if (candidates.Count == 0)
+        {
+            candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun).ToListAsync(ct);
+        }
+
+        if (candidates.Count == 0)
+        {
+            throw new AccountOperationException("Aucune créature sauvage disponible.");
+        }
+
+        var species = candidates[Random.Shared.Next(candidates.Count)];
+
+        return await StartAsync(new StartCombatRequest
+        {
+            SessionToken = request.SessionToken,
+            CharacterId = request.CharacterId,
+            MonsterIds = request.MonsterIds,
+            WildSpeciesId = species.Id,
+        }, ct);
+    }
+
+    /// <summary>
+    /// Simplification assumée : paliers de niveau fixes plutôt qu'une formule continue — voir
+    /// <c>Docs/README.md</c>. Le chef de groupe sert de référence, pas la moyenne du groupe.
+    /// </summary>
+    private static Rarity RarityForLevel(int level) => level switch
+    {
+        <= 5 => Rarity.Commun,
+        <= 15 => Rarity.PeuCommun,
+        <= 25 => Rarity.Rare,
+        <= 35 => Rarity.Epique,
+        <= 50 => Rarity.Legendaire,
+        _ => Rarity.Mythique,
+    };
+
     /// <summary>Défi PvP direct entre deux personnages (voir GDD — section PvP). Pas de matchmaking pour cette version.</summary>
     public async Task<CombatSessionState> StartPvpAsync(StartPvpCombatRequest request, CancellationToken ct = default)
     {
