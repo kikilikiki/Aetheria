@@ -36,6 +36,9 @@ Console.WriteLine($"Monde généré : {worldMap.Size}x{worldMap.Size} cases, {wo
 
 const int StarterColumns = 5;
 
+/// <summary>Doit rester cohérent avec <c>Server/World/PartyService.MaxMembers</c>.</summary>
+const int PartyMaxMembers = 4;
+
 var stateLock = new object();
 var gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
 var statusMessage = string.Empty;
@@ -110,6 +113,12 @@ GameConnection? connection = null;
 CharacterApiClient? characterApi = null;
 GameDataApiClient? gameDataApi = null;
 
+// Autres joueurs connectés (voir GDD — visibilité globale même hors groupe) : positions reçues du
+// serveur via PlayerJoined/PlayerPositionUpdate/PlayerLeft (diffusion TCP, voir PlayerSession côté
+// serveur), protégées par stateLock comme gridPosition puisque mises à jour depuis le thread de
+// réception réseau et lues depuis le thread de rendu.
+var remotePlayers = new Dictionary<Guid, RemotePlayer>();
+
 // Panneaux en jeu (voir GDD — boutons Inventaire/Guilde/Boutique) : superposés au monde
 // extérieur comme le dialogue PNJ, ouverts via I/G/B, fermés via Échap.
 var activePanel = PanelKind.None;
@@ -120,6 +129,14 @@ List<ShopItem> shopCatalog = [];
 var shopCursor = 0;
 string? shopMessage = null;
 Task<ShopPurchaseResponse>? shopBuyTask = null;
+
+// Groupe (voir GDD — bouton Groupe, XP partagée, visibilité globale même hors groupe).
+PartySummary? myParty = null;
+var partyLoaded = false;
+var partyJoinPromptOpen = false;
+var partyJoinInput = string.Empty;
+string? partyMessage = null;
+Task<PartySummary?>? partyActionTask = null;
 
 // Sélection/création de personnage (voir GDD) : ne se fait plus dans le Launcher, mais en jeu,
 // avant la connexion TCP proprement dite. `--characterId` reste accepté pour compatibilité
@@ -326,6 +343,15 @@ host.Update += deltaTime =>
         shopMessage = null;
         _ = LoadShopCatalogAsync();
     }
+    else if (keyboard.WasJustPressed(Key.P))
+    {
+        activePanel = PanelKind.Party;
+        partyLoaded = false;
+        partyJoinPromptOpen = false;
+        partyJoinInput = string.Empty;
+        partyMessage = null;
+        _ = LoadPartyAsync();
+    }
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -500,6 +526,17 @@ host.Render += _ =>
         foreach (var npc in worldMap.Npcs)
         {
             depthJobs.Add((npc.GridX + npc.GridY + 0.3f, () => DrawNpcFigure(npc, animationClock)));
+        }
+
+        List<KeyValuePair<Guid, RemotePlayer>> currentRemotePlayers;
+        lock (stateLock)
+        {
+            currentRemotePlayers = remotePlayers.ToList();
+        }
+
+        foreach (var (_, remote) in currentRemotePlayers)
+        {
+            depthJobs.Add((remote.Position.X + remote.Position.Y + 0.4f, () => DrawRemotePlayerFigure(remote, animationClock)));
         }
 
         foreach (var job in depthJobs.OrderBy(j => j.Depth))
@@ -692,6 +729,20 @@ void ConnectAndEnterWorld(Guid characterId)
     };
     connection.PositionUpdated += packet =>
     {
+        if (packet.CharacterId != characterId)
+        {
+            // Position d'un autre joueur (diffusion serveur, voir GDD — visibilité globale).
+            lock (stateLock)
+            {
+                if (remotePlayers.TryGetValue(packet.CharacterId, out var remote))
+                {
+                    remotePlayers[packet.CharacterId] = remote with { Position = new Vector2(packet.PositionX, packet.PositionY) };
+                }
+            }
+
+            return;
+        }
+
         lock (stateLock)
         {
             gridPosition = new Vector2(packet.PositionX, packet.PositionY);
@@ -708,12 +759,32 @@ void ConnectAndEnterWorld(Guid characterId)
             isAwaitingServerStep = false;
         }
     };
+    connection.PlayerJoined += packet =>
+    {
+        if (packet.CharacterId == characterId)
+        {
+            return;
+        }
+
+        lock (stateLock)
+        {
+            remotePlayers[packet.CharacterId] = new RemotePlayer(packet.Name, new Vector2(packet.PositionX, packet.PositionY));
+        }
+    };
+    connection.PlayerLeft += packet =>
+    {
+        lock (stateLock)
+        {
+            remotePlayers.Remove(packet.CharacterId);
+        }
+    };
     connection.Disconnected += () =>
     {
         Console.WriteLine("[Réseau] Déconnecté du serveur.");
         lock (stateLock)
         {
             statusMessage = "Déconnecté du serveur.";
+            remotePlayers.Clear();
         }
     };
 
@@ -1014,8 +1085,140 @@ async Task LoadShopCatalogAsync()
     }
 }
 
+async Task LoadPartyAsync()
+{
+    if (gameDataApi is null || chosenCharacterId is null)
+    {
+        partyLoaded = true;
+        return;
+    }
+
+    try
+    {
+        myParty = await gameDataApi.GetMyPartyAsync(chosenCharacterId.Value);
+    }
+    catch (HttpRequestException)
+    {
+        myParty = null;
+    }
+
+    partyLoaded = true;
+}
+
+async Task<PartySummary?> LeavePartyAndClearAsync()
+{
+    await gameDataApi!.LeavePartyAsync(options.SessionToken!, chosenCharacterId!.Value);
+    return null;
+}
+
+/// <summary>
+/// Panneau Groupe (touche P) : créer un groupe (Entrée), en rejoindre un par identifiant (J,
+/// saisie via <see cref="KeyboardState.DrainTypedChars"/> comme la création de personnage), ou
+/// le quitter (L). Pas d'invitation en un clic ni de liste de groupes ouverts pour cette première
+/// version — l'identifiant doit être communiqué hors jeu (voir Docs/README.md).
+/// </summary>
+void UpdatePartyPanel()
+{
+    if (partyActionTask is { IsCompleted: true } actionTask)
+    {
+        if (actionTask.IsFaulted)
+        {
+            partyMessage = "Connexion au serveur impossible.";
+        }
+        else
+        {
+            myParty = actionTask.Result;
+            partyMessage = null;
+            partyJoinPromptOpen = false;
+            partyJoinInput = string.Empty;
+        }
+
+        partyActionTask = null;
+        return;
+    }
+
+    if (partyActionTask is not null)
+    {
+        return;
+    }
+
+    if (partyJoinPromptOpen)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (partyJoinInput.Length < 36 && (char.IsLetterOrDigit(typed) || typed == '-'))
+            {
+                partyJoinInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && partyJoinInput.Length > 0)
+        {
+            partyJoinInput = partyJoinInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            partyJoinPromptOpen = false;
+            partyJoinInput = string.Empty;
+            partyMessage = null;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter))
+        {
+            if (Guid.TryParse(partyJoinInput, out var partyId))
+            {
+                partyMessage = null;
+                partyActionTask = gameDataApi!.JoinPartyAsync(options.SessionToken!, chosenCharacterId!.Value, partyId)!;
+            }
+            else
+            {
+                partyMessage = "Identifiant de groupe invalide.";
+            }
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        partyMessage = null;
+        return;
+    }
+
+    if (!partyLoaded)
+    {
+        return;
+    }
+
+    if (myParty is null)
+    {
+        if (keyboard.WasJustPressed(Key.Enter))
+        {
+            partyMessage = null;
+            partyActionTask = gameDataApi!.CreatePartyAsync(options.SessionToken!, chosenCharacterId!.Value)!;
+        }
+        else if (keyboard.WasJustPressed(Key.J))
+        {
+            partyJoinPromptOpen = true;
+            partyJoinInput = string.Empty;
+            partyMessage = null;
+        }
+    }
+    else if (keyboard.WasJustPressed(Key.L))
+    {
+        partyMessage = null;
+        partyActionTask = LeavePartyAndClearAsync();
+    }
+}
+
 void UpdatePanel()
 {
+    if (activePanel == PanelKind.Party)
+    {
+        UpdatePartyPanel();
+        return;
+    }
+
     if (keyboard.WasJustPressed(Key.Escape))
     {
         activePanel = PanelKind.None;
@@ -1383,6 +1586,15 @@ void DrawPlayerFigure(Vector2 gridPos, float bobPixels)
         new Vector4(0.92f, 0.80f, 0.68f, 1f), bobPixels, "Vous");
 }
 
+void DrawRemotePlayerFigure(RemotePlayer remote, float animClock)
+{
+    var bob = MathF.Sin(animClock * 2.0f) * 1.0f;
+    DrawFigure(
+        remote.Position, 0.55f,
+        new Vector4(0.35f, 0.62f, 0.88f, 1f), new Vector4(0.20f, 0.38f, 0.58f, 1f), new Vector4(0.28f, 0.50f, 0.72f, 1f),
+        new Vector4(0.88f, 0.78f, 0.68f, 1f), bob, remote.Name);
+}
+
 void DrawNpcFigure(Npc npc, float animClock)
 {
     var bob = MathF.Sin((animClock + npc.AnimationOffset) * 2.2f) * 1.0f;
@@ -1408,6 +1620,7 @@ void DrawOutdoorHud()
             case PanelKind.Inventory: DrawInventoryPanel(w, h); break;
             case PanelKind.Guild: DrawGuildPanel(w, h); break;
             case PanelKind.Shop: DrawShopPanel(w, h); break;
+            case PanelKind.Party: DrawPartyPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -1491,6 +1704,60 @@ void DrawGuildPanel(int w, int h)
             TextRenderer.Draw(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(topLeft.X + 30f, y), 2f, Vector4.One);
             y += 24f;
         }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+void DrawPartyPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 340f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.35f, 0.62f, 0.88f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GROUPE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.75f, 0.95f, 1f));
+
+    if (partyJoinPromptOpen)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IDENTIFIANT DU GROUPE A REJOINDRE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, partyJoinInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (!partyLoaded)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (myParty is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "VOUS N'ETES DANS AUCUN GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : CREER UN GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 6f), 2f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "J : REJOINDRE PAR IDENTIFIANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 34f), 2f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
+    }
+    else
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myParty.Members.Count}/{PartyMaxMembers} JOUEURS", new Vector2(w / 2f, topLeft.Y + 60f), 2.2f, new Vector4(0.7f, 0.85f, 1f, 1f));
+
+        var y = topLeft.Y + 96f;
+        foreach (var member in myParty.Members)
+        {
+            var isLeader = member.CharacterId == myParty.LeaderCharacterId;
+            var label = $"{(isLeader ? "* " : "  ")}{member.Name.ToUpperInvariant()} (NIV. {member.Level})";
+            TextRenderer.Draw(spriteBatch, whiteTexture, label, new Vector2(topLeft.X + 30f, y), 2f, isLeader ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
+            y += 26f;
+        }
+
+        y += 14f;
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"ID : {myParty.Id}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "L : QUITTER LE GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.9f, new Vector4(0.9f, 0.55f, 0.5f, 1f));
+    }
+
+    if (!partyJoinPromptOpen && partyMessage is { Length: > 0 })
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, partyMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.8f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -2038,7 +2305,11 @@ enum PanelKind
     Inventory,
     Guild,
     Shop,
+    Party,
 }
+
+/// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe).</summary>
+record RemotePlayer(string Name, Vector2 Position);
 
 enum StarterStage
 {
