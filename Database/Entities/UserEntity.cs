@@ -23,6 +23,12 @@ public sealed class UserEntity
     /// <summary>Grade communautaire affiché dans le tchat/la liste des joueurs en ligne (voir GDD — assignable par un administrateur).</summary>
     public UserRank Rank { get; set; } = UserRank.Joueur;
 
+    /// <summary>Muet (voir GDD/demande utilisateur — "mute pour ne pas qu'il parle dans le tchat") : les messages de tchat envoyés sont silencieusement refusés côté serveur.</summary>
+    public bool IsMuted { get; set; }
+
+    /// <summary>Dernière IP connue (renseignée à la connexion, voir GDD/demande utilisateur — "ban ip") — sert de cible à un bannissement IP.</summary>
+    public string? LastKnownIp { get; set; }
+
     /// <summary>
     /// Suppression douce : le compte est masqué (connexion refusée) mais conservé en base pour
     /// permettre une restauration réelle par un administrateur (voir <c>Docs/GameDesign.md</c> —

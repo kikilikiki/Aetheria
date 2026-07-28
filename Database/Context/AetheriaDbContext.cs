@@ -33,6 +33,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<SeasonEntity> Seasons => Set<SeasonEntity>();
     public DbSet<PartyEntity> Parties => Set<PartyEntity>();
     public DbSet<PartyMemberEntity> PartyMembers => Set<PartyMemberEntity>();
+    public DbSet<BannedIpEntity> BannedIps => Set<BannedIpEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -205,6 +206,11 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
                 .WithMany()
                 .HasForeignKey(m => m.CharacterId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<BannedIpEntity>(ban =>
+        {
+            ban.HasIndex(b => b.IpAddress).IsUnique();
         });
 
         modelBuilder.Entity<PartyEntity>(party =>

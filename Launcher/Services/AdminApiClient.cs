@@ -2,41 +2,39 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
 
-namespace Aetheria.AdminPanel.Services;
+namespace Aetheria.Launcher.Services;
 
-/// <summary>Résultat d'un appel API : soit une valeur, soit un message d'erreur lisible.</summary>
-public readonly record struct ApiResult<T>(T? Value, string? Error)
-{
-    public bool IsSuccess => Error is null;
-
-    public static ApiResult<T> Success(T value) => new(value, null);
-
-    public static ApiResult<T> Failure(string error) => new(default, error);
-}
-
-/// <summary>Client HTTP vers les endpoints d'administration exposés par Aetheria.Server.</summary>
+/// <summary>
+/// Client HTTP vers les endpoints d'administration exposés par Aetheria.Server, utilisé par le
+/// panneau "Communauté" du Launcher (voir GDD/demande utilisateur — "le tout peut aussi se faire
+/// via le launcher [...] seulement pour les admin/fondateur") — réservé aux comptes admin/
+/// fondateur (voir <c>MainViewModel.IsAdminAccount</c>, vérifié aussi côté serveur via
+/// <c>AdminAuthService</c>). Même modèle que <c>AdminPanel/Services/AdminApiClient.cs</c>, gardé
+/// séparé plutôt que partagé entre les deux projets WPF pour ne pas leur faire référencer l'un
+/// l'autre pour un client HTTP aussi simple.
+/// </summary>
 public sealed class AdminApiClient : IDisposable
 {
-    // Le serveur sérialise les enums en toutes lettres ("Feu", "Guerrier", ...) via
-    // ConfigureHttpJsonOptions (voir Server/Program.cs) — sans ce même JsonStringEnumConverter
-    // ici, la désérialisation échoue dès qu'un enum est présent (ex. AdminUserSummary.Rank,
-    // LoginResponse.Characters[].Kingdom) avec "The JSON value could not be converted".
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() },
     };
 
-    private readonly HttpClient _http = new()
+    private readonly HttpClient _http;
+
+    public AdminApiClient(string baseUrl)
     {
-        BaseAddress = new Uri($"http://localhost:{GameInfo.DefaultAccountApiPort}"),
-        Timeout = TimeSpan.FromSeconds(10),
-    };
+        _http = new HttpClient
+        {
+            BaseAddress = new Uri(baseUrl),
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+    }
 
     public async Task<ApiResult<IReadOnlyList<AdminUserSummary>>> GetUsersAsync(string? search)
     {
@@ -55,46 +53,11 @@ public sealed class AdminApiClient : IDisposable
         }
     }
 
-    public async Task<ApiResult<AdminGlobalStats>> GetStatsAsync()
-    {
-        try
-        {
-            var stats = await _http.GetFromJsonAsync<AdminGlobalStats>("/api/admin/stats", JsonOptions);
-            return ApiResult<AdminGlobalStats>.Success(stats!);
-        }
-        catch (HttpRequestException ex)
-        {
-            return ApiResult<AdminGlobalStats>.Failure($"Impossible de contacter le serveur : {ex.Message}");
-        }
-    }
-
     public async Task<ApiResult<bool>> BanAsync(Guid userId, string reason)
         => await PostAsync($"/api/admin/users/{userId}/ban", new BanUserRequest { Reason = reason });
 
     public async Task<ApiResult<bool>> UnbanAsync(Guid userId)
         => await PostAsync<object?>($"/api/admin/users/{userId}/unban", null);
-
-    public async Task<ApiResult<LoginResponse>> LoginAsync(string usernameOrEmail, string password)
-    {
-        try
-        {
-            var response = await _http.PostAsJsonAsync("/api/account/login",
-                new LoginRequest { UsernameOrEmail = usernameOrEmail, Password = password });
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
-                return ApiResult<LoginResponse>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
-            }
-
-            var body = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions);
-            return ApiResult<LoginResponse>.Success(body!);
-        }
-        catch (HttpRequestException ex)
-        {
-            return ApiResult<LoginResponse>.Failure($"Impossible de contacter le serveur : {ex.Message}");
-        }
-    }
 
     public async Task<ApiResult<bool>> DeleteUserAsync(Guid userId, string sessionToken)
         => await PostAsync($"/api/admin/users/{userId}/delete", new AdminSessionRequest { SessionToken = sessionToken });

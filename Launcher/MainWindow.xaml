@@ -15,6 +15,8 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+        <local:UsernameToAvatarColorConverter x:Key="AvatarColorConverter" />
+        <local:UsernameToInitialConverter x:Key="AvatarInitialConverter" />
 
         <SolidColorBrush x:Key="PanelBrush" Color="#151822" />
         <SolidColorBrush x:Key="PanelBorderBrush" Color="#262B3A" />
@@ -52,6 +54,35 @@
             <Setter Property="Foreground" Value="#E8E8F0" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="RowBackground" Value="#1B1F2C" />
+            <Setter Property="AlternatingRowBackground" Value="#20253400" />
+            <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="VerticalGridLinesBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#151822" />
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,1,1" />
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6,4" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#2A3040" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <!-- Bouton standard (secondaire) : coins arrondis, sobre. -->
@@ -190,10 +221,15 @@
                     <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
                 </Border>
-                <Border Style="{StaticResource SidebarIcon}" ToolTip="Communauté">
-                    <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
+                <!-- Réservé aux comptes admin/fondateur (voir GDD/demande utilisateur — panneau
+                     d'administration accessible depuis le Launcher, "seulement pour les admin/
+                     fonda") : masqué pour tout le monde d'autre. -->
+                <Button Style="{StaticResource SidebarIconButton}" ToolTip="Communauté (administration)"
+                        Command="{Binding ToggleAdminPanelCommand}"
+                        Visibility="{Binding IsAdminAccount, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
-                </Border>
+                </Button>
                 <Border Style="{StaticResource SidebarIcon}" ToolTip="Boutique">
                     <TextBlock Text="&#xE719;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
@@ -328,7 +364,7 @@
             <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
                     Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}">
                 <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="420" Height="420"
+                        BorderThickness="1" CornerRadius="10" Width="420" Height="340"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
                     <StackPanel>
                         <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,18" />
@@ -340,16 +376,103 @@
 
                         <TextBlock Text="Adresse du serveur" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
                         <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,6" />
-                        <TextBlock Text="IP publique ou nom de domaine du serveur (laisser &quot;localhost&quot; en développement)."
-                                   Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,18" />
-
-                        <TextBlock Text="Tunnel ngrok (API de compte, optionnel)" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
-                        <TextBox Text="{Binding AccountApiBaseUrl, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,6" />
-                        <TextBlock Text="URL complète (ex. https://xxxx.ngrok-free.dev) — laisser vide pour utiliser l'adresse du serveur ci-dessus sur le port habituel."
+                        <TextBlock Text="IP publique ou nom de domaine du serveur — fonctionne en local comme depuis un autre réseau."
                                    Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,22" />
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
                     </StackPanel>
+                </Border>
+            </Border>
+
+            <!-- Panneau "Communauté" (administration) : voir GDD/demande utilisateur — grade,
+                 mute, ban de compte/IP, réinitialisation de profil, renommage, réservés aux
+                 comptes admin/fondateur (bouton masqué sinon, voir IsAdminAccount). -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsAdminPanelOpen, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Width="900" Height="580"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="260" />
+                        </Grid.ColumnDefinitions>
+
+                        <DockPanel Grid.Column="0">
+                            <TextBlock DockPanel.Dock="Top" Text="Communauté — Administration" FontSize="18" FontWeight="Bold"
+                                       Foreground="#E8E8F0" Margin="0,0,0,12" />
+
+                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                                <TextBox DockPanel.Dock="Left" Width="240" Padding="6"
+                                         Text="{Binding AdminSearchText, UpdateSourceTrigger=PropertyChanged}" />
+                                <Button DockPanel.Dock="Left" Content="Rechercher" Command="{Binding AdminSearchCommand}"
+                                        Padding="12,6" Margin="8,0,0,0" />
+                            </DockPanel>
+
+                            <DataGrid ItemsSource="{Binding AdminUsers}" SelectedItem="{Binding AdminSelectedUser}"
+                                      AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                                <DataGrid.Columns>
+                                    <DataGridTemplateColumn Header="" Width="36">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Ellipse Width="24" Height="24" Fill="{Binding Username, Converter={StaticResource AvatarColorConverter}}">
+                                                    <Ellipse.ToolTip>
+                                                        <TextBlock Text="{Binding Username}" />
+                                                    </Ellipse.ToolTip>
+                                                </Ellipse>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="Pseudo" Binding="{Binding Username}" Width="110" />
+                                    <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="170" />
+                                    <DataGridTextColumn Header="Grade" Binding="{Binding Rank}" Width="90" />
+                                    <DataGridTextColumn Header="Banni" Binding="{Binding IsBanned}" Width="50" />
+                                    <DataGridTextColumn Header="Muet" Binding="{Binding IsMuted}" Width="45" />
+                                    <DataGridTextColumn Header="Derniere IP" Binding="{Binding LastKnownIp}" Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock Text="Bannissement" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBox Text="{Binding AdminBanReason, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,8"
+                                             AcceptsReturn="True" TextWrapping="Wrap" Height="44" />
+                                    <Button Content="Bannir le compte" Command="{Binding AdminBanCommand}" Padding="14,7" Margin="0,0,0,6" />
+                                    <Button Content="Débannir le compte" Command="{Binding AdminUnbanCommand}" Padding="14,7" Margin="0,0,0,6" />
+                                    <Button Content="Bannir la dernière IP" Command="{Binding AdminBanIpCommand}" Padding="14,7" />
+
+                                    <Separator Margin="0,14,0,10" />
+
+                                    <TextBlock Text="Grade" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <ComboBox ItemsSource="{Binding AdminAvailableRanks}" SelectedItem="{Binding AdminSelectedRank}" Padding="6" Margin="0,0,0,6" />
+                                    <Button Content="Définir le grade" Command="{Binding AdminSetRankCommand}" Padding="14,7" />
+
+                                    <Separator Margin="0,14,0,10" />
+
+                                    <TextBlock Text="Modération" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <Button Content="Basculer mute (tchat)" Command="{Binding AdminToggleMuteCommand}" Padding="14,7" Margin="0,0,0,6" />
+                                    <Button Content="Réinitialiser le profil de jeu" Command="{Binding AdminResetProfileCommand}" Padding="14,7" />
+
+                                    <Separator Margin="0,14,0,10" />
+
+                                    <TextBlock Text="Renommer / changer l'email" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBox Text="{Binding AdminNewUsername, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,6" />
+                                    <TextBlock Text="Nouveau pseudo (laisser vide si inchangé)" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
+                                    <TextBox Text="{Binding AdminNewEmail, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,6" />
+                                    <TextBlock Text="Nouvel email (laisser vide si inchangé)" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
+                                    <Button Content="Enregistrer" Command="{Binding AdminModifyCommand}" Padding="14,7" />
+
+                                    <TextBlock Text="{Binding AdminStatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap" Margin="0,14,0,0" />
+                                    <TextBlock Text="Chargement..." Foreground="#A0A0B0" Visibility="{Binding AdminIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Button Content="Fermer" Command="{Binding ToggleAdminPanelCommand}" Style="{StaticResource SecondaryButton}"
+                                    HorizontalAlignment="Center" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Grid>
                 </Border>
             </Border>
 

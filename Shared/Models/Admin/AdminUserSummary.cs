@@ -15,4 +15,10 @@ public sealed class AdminUserSummary
     public required DateTime CreatedAtUtc { get; init; }
     public required int CharacterCount { get; init; }
     public required UserRank Rank { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "mute pour ne pas qu'il parle dans le tchat".</summary>
+    public required bool IsMuted { get; init; }
+
+    /// <summary>Dernière IP connue (voir GDD/demande utilisateur — "ban ip") — <c>null</c> si le compte ne s'est jamais connecté depuis ce changement.</summary>
+    public string? LastKnownIp { get; init; }
 }
