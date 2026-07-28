@@ -197,7 +197,7 @@ de gameplay.
      `POST /api/seasons/next`) : suivi du cycle actif/numérotation uniquement — le contenu
      ajouté à chaque saison (monstres, donjons, cosmétiques, passe saison) reste un travail
      de contenu à faire, pas simulé ici. Vérifié : Saison 1 active dès le premier démarrage.
-8. 🔶 Outils et distribution :
+8. ✅ Outils et distribution :
    - ✅ MonsterEditor — WPF, CRUD complet du bestiaire (`GET/POST/PUT/DELETE
      /api/monsters/species`, exposé via `Shared.Models.MonsterSpeciesData` plutôt que
      l'entité EF Core, pour que l'outil ne référence que `Shared`). Pas d'authentification
@@ -226,7 +226,13 @@ de gameplay.
      bureau de la machine) : copie des 4 fichiers du payload confirmée, raccourci `.lnk`
      inspecté et pointant vers le bon exécutable avec le bon dossier de travail. Pas de
      désinstallateur ni d'entrée dans le registre Windows pour cette première version.
-   - ⬜ Site de téléchargement.
+   - ✅ Site de téléchargement (`Sites/index.html`) — page statique HTML/CSS pur (aucune
+     dépendance, aucune étape de build), hors solution .NET. Présentation du jeu,
+     fonctionnalités, royaumes, bouton de téléchargement pointant vers une URL réelle
+     (`github.com/kikilikiki/Aetheria/releases`) plutôt qu'une URL inventée — **aucune
+     release n'y est encore publiée**, ce qui est indiqué explicitement sur la page.
+     Vérifié : structure HTML valide (balises équilibrées), pas de rendu visuel possible
+     sans navigateur dans cet environnement.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
