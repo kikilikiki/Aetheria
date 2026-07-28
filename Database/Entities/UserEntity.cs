@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Database.Entities;
 
 /// <summary>Compte joueur (table <c>Users</c>). Un compte possède plusieurs <see cref="CharacterEntity"/>.</summary>
@@ -17,6 +19,9 @@ public sealed class UserEntity
 
     /// <summary>Compte administrateur (voir AdminPanel) — peut supprimer/modifier les comptes joueurs.</summary>
     public bool IsAdmin { get; set; }
+
+    /// <summary>Grade communautaire affiché dans le tchat/la liste des joueurs en ligne (voir GDD — assignable par un administrateur).</summary>
+    public UserRank Rank { get; set; } = UserRank.Joueur;
 
     /// <summary>
     /// Suppression douce : le compte est masqué (connexion refusée) mais conservé en base pour

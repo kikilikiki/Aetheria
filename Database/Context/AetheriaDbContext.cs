@@ -40,6 +40,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
         {
             user.HasIndex(u => u.Username).IsUnique();
             user.HasIndex(u => u.Email).IsUnique();
+            user.Property(u => u.Rank).HasConversion<string>();
         });
 
         modelBuilder.Entity<CharacterEntity>(character =>
