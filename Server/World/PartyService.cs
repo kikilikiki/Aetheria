@@ -25,7 +25,7 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
             throw new AccountOperationException("Ce personnage appartient déjà à un groupe.");
         }
 
-        var party = new PartyEntity { Id = Guid.NewGuid(), LeaderCharacterId = character.Id };
+        var party = new PartyEntity { Id = Guid.NewGuid(), LeaderCharacterId = character.Id, JoinCode = await GenerateUniqueJoinCodeAsync(ct) };
         db.Parties.Add(party);
         db.PartyMembers.Add(new PartyMemberEntity { Id = Guid.NewGuid(), PartyId = party.Id, CharacterId = character.Id });
 
@@ -34,7 +34,7 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
         return await BuildSummaryAsync(party.Id, ct);
     }
 
-    public async Task<PartySummary> JoinAsync(Guid partyId, JoinPartyRequest request, CancellationToken ct = default)
+    public async Task<PartySummary> JoinAsync(JoinPartyRequest request, CancellationToken ct = default)
     {
         var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
 
@@ -43,19 +43,34 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
             throw new AccountOperationException("Ce personnage appartient déjà à un groupe.");
         }
 
-        var party = await db.Parties.FirstOrDefaultAsync(p => p.Id == partyId, ct)
-            ?? throw new AccountOperationException("Groupe introuvable.");
+        var party = await db.Parties.FirstOrDefaultAsync(p => p.JoinCode == request.JoinCode, ct)
+            ?? throw new AccountOperationException("Groupe introuvable pour ce code.");
 
-        var memberCount = await db.PartyMembers.CountAsync(m => m.PartyId == partyId, ct);
+        var memberCount = await db.PartyMembers.CountAsync(m => m.PartyId == party.Id, ct);
         if (memberCount >= MaxMembers)
         {
             throw new AccountOperationException($"Le groupe est complet ({MaxMembers} joueurs maximum).");
         }
 
-        db.PartyMembers.Add(new PartyMemberEntity { Id = Guid.NewGuid(), PartyId = partyId, CharacterId = character.Id });
+        db.PartyMembers.Add(new PartyMemberEntity { Id = Guid.NewGuid(), PartyId = party.Id, CharacterId = character.Id });
         await db.SaveChangesAsync(ct);
 
-        return await BuildSummaryAsync(partyId, ct);
+        return await BuildSummaryAsync(party.Id, ct);
+    }
+
+    /// <summary>Code à 5 chiffres (voir GDD/demande utilisateur), tiré au hasard avec une nouvelle tentative en cas de collision — l'espace (100 000 codes) rend une collision rare, mais pas impossible.</summary>
+    private async Task<string> GenerateUniqueJoinCodeAsync(CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var code = Random.Shared.Next(0, 100_000).ToString("D5");
+            if (!await db.Parties.AnyAsync(p => p.JoinCode == code, ct))
+            {
+                return code;
+            }
+        }
+
+        throw new AccountOperationException("Impossible de générer un code de groupe unique, réessayez.");
     }
 
     /// <summary>
@@ -172,6 +187,7 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
         return new PartySummary
         {
             Id = party.Id,
+            JoinCode = party.JoinCode,
             LeaderCharacterId = party.LeaderCharacterId,
             Members = members,
         };

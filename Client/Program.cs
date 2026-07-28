@@ -207,6 +207,7 @@ var partyJoinPromptOpen = false;
 var partyJoinInput = string.Empty;
 string? partyMessage = null;
 Task<PartySummary?>? partyActionTask = null;
+var partyCodeCopied = false;
 
 // Gestion des créatures (voir GDD — UI montres : monter de niveau, objet à donner).
 List<MonsterInstanceData> ownedMonsters = [];
@@ -1470,6 +1471,7 @@ void OpenPanel(PanelKind kind)
             partyJoinPromptOpen = false;
             partyJoinInput = string.Empty;
             partyMessage = null;
+            partyCodeCopied = false;
             _ = LoadPartyAsync();
             break;
         case PanelKind.Arena:
@@ -1527,9 +1529,10 @@ void UpdatePartyPanel()
 
     if (partyJoinPromptOpen)
     {
+        // Code à 5 chiffres (voir GDD/demande utilisateur), pas un GUID complet à copier/coller.
         foreach (var typed in keyboard.DrainTypedChars())
         {
-            if (partyJoinInput.Length < 36 && (char.IsLetterOrDigit(typed) || typed == '-'))
+            if (partyJoinInput.Length < 5 && char.IsDigit(typed))
             {
                 partyJoinInput += typed;
             }
@@ -1547,14 +1550,14 @@ void UpdatePartyPanel()
         }
         else if (keyboard.WasJustPressed(Key.Enter))
         {
-            if (Guid.TryParse(partyJoinInput, out var partyId))
+            if (partyJoinInput.Length == 5)
             {
                 partyMessage = null;
-                partyActionTask = gameDataApi!.JoinPartyAsync(options.SessionToken!, chosenCharacterId!.Value, partyId)!;
+                partyActionTask = gameDataApi!.JoinPartyAsync(options.SessionToken!, chosenCharacterId!.Value, partyJoinInput)!;
             }
             else
             {
-                partyMessage = "Identifiant de groupe invalide.";
+                partyMessage = "Le code de groupe doit faire 5 chiffres.";
             }
         }
 
@@ -3034,7 +3037,7 @@ void DrawPartyPanel(int w, int h)
 
     if (partyJoinPromptOpen)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IDENTIFIANT DU GROUPE A REJOINDRE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CODE DU GROUPE A REJOINDRE (5 CHIFFRES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
         TextRenderer.Draw(spriteBatch, whiteTexture, partyJoinInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -3063,7 +3066,19 @@ void DrawPartyPanel(int w, int h)
         }
 
         y += 14f;
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"ID : {myParty.Id}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"CODE : {myParty.JoinCode}", new Vector2(topLeft.X + 20f, y), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+        // Bouton copier (voir GDD/demande utilisateur — "ajoute un bouton pour les copier") :
+        // copie le code à 5 chiffres dans le presse-papiers système, plus simple à communiquer
+        // à d'autres joueurs qu'à le recopier à la main.
+        var copyLabel = partyCodeCopied ? "COPIE !" : "COPIER";
+        var copyColor = partyCodeCopied ? new Vector4(0.5f, 0.9f, 0.5f, 1f) : new Vector4(0.6f, 0.75f, 0.9f, 1f);
+        if (DrawClickableCentered(copyLabel, new Vector2(topLeft.X + boxWidth - 60f, y + 6f), 1.6f, copyColor))
+        {
+            keyboard.SetClipboardText(myParty.JoinCode);
+            partyCodeCopied = true;
+        }
+
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "L : QUITTER LE GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.9f, new Vector4(0.9f, 0.55f, 0.5f, 1f));
     }
 

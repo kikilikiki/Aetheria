@@ -17,6 +17,14 @@ public sealed class CombatSession
     /// <summary>Vrai pour un combat déclenché dans un donjon (voir GDD/demande utilisateur — "on ne peut pas fuir un combat en donjon, on peut en dehors") : bloque <see cref="Aetheria.Shared.Enums.CombatActionType.Flee"/>.</summary>
     public bool IsDungeonCombat { get; init; }
 
+    /// <summary>
+    /// Groupe à l'origine de ce combat PvE (voir GDD/demande utilisateur — "en groupe, les 2
+    /// doivent voir le même combat, pas deux combats séparés") : un membre du groupe qui engage
+    /// un combat alors qu'un combat de ce groupe est déjà en cours y est ajouté directement
+    /// plutôt que d'en démarrer un second isolé. <c>null</c> hors groupe ou en PvP/Arène.
+    /// </summary>
+    public Guid? PartyId { get; init; }
+
     /// <summary>Compte propriétaire de chaque équipe jouable (les monstres sauvages, contrôlés par l'IA, n'y figurent pas).</summary>
     public Dictionary<int, Guid> TeamOwnerUserId { get; init; } = [];
 

@@ -111,12 +111,13 @@ public sealed class GameDataApiClient : IDisposable
         return await ReadPartyResultAsync(response, ct);
     }
 
-    public async Task<PartySummary> JoinPartyAsync(string sessionToken, Guid characterId, Guid partyId, CancellationToken ct = default)
+    public async Task<PartySummary> JoinPartyAsync(string sessionToken, Guid characterId, string joinCode, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync($"/api/parties/{partyId}/join", new JoinPartyRequest
+        var response = await _http.PostAsJsonAsync("/api/parties/join", new JoinPartyRequest
         {
             SessionToken = sessionToken,
             CharacterId = characterId,
+            JoinCode = joinCode,
         }, JsonOptions, ct);
 
         return await ReadPartyResultAsync(response, ct);

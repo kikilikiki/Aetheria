@@ -209,6 +209,8 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
 
         modelBuilder.Entity<PartyEntity>(party =>
         {
+            party.HasIndex(p => p.JoinCode).IsUnique();
+
             party.HasOne(p => p.LeaderCharacter)
                 .WithMany()
                 .HasForeignKey(p => p.LeaderCharacterId)

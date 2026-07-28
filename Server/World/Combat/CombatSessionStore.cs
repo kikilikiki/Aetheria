@@ -15,4 +15,11 @@ public sealed class CombatSessionStore
     public bool TryGet(Guid id, out CombatSession session) => _sessions.TryGetValue(id, out session!);
 
     public void Remove(Guid id) => _sessions.TryRemove(id, out _);
+
+    /// <summary>Combat de groupe déjà en cours pour ce groupe, s'il y en a un (voir GDD/demande utilisateur — combat partagé entre membres d'un groupe).</summary>
+    public bool TryGetActiveByPartyId(Guid partyId, out CombatSession session)
+    {
+        session = _sessions.Values.FirstOrDefault(s => s.PartyId == partyId && !s.IsFinished)!;
+        return session is not null;
+    }
 }

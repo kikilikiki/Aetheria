@@ -541,14 +541,16 @@ app.MapPost("/api/parties", async (CreatePartyRequest request) =>
     }
 });
 
-app.MapPost("/api/parties/{partyId:guid}/join", async (Guid partyId, JoinPartyRequest request) =>
+// Identifie le groupe par son code à 5 chiffres (voir GDD/demande utilisateur), pas par son GUID
+// interne dans l'URL comme avant.
+app.MapPost("/api/parties/join", async (JoinPartyRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var partyService = new PartyService(db, app.Services.GetRequiredService<SessionTokenStore>());
 
     try
     {
-        return Results.Ok(await partyService.JoinAsync(partyId, request));
+        return Results.Ok(await partyService.JoinAsync(request));
     }
     catch (AccountOperationException ex)
     {
