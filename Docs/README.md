@@ -825,6 +825,22 @@ de gameplay.
       (serveur redémarré depuis — `SessionTokenStore` vit en mémoire — ou compte banni/supprimé
       entre-temps).
 
+29. ✅ Correctif : "connexion au serveur impossible" pour le premier joueur à avoir choisi son
+    butin (voir GDD/demande utilisateur — "la première personne à avoir fait le choix a connexion
+    au serveur impossible") :
+    - Même bug que celui déjà corrigé pour le combat (point 25/`CombatSessionStore`), mais côté
+      butin : `LootService.ResolveAsync` retirait la session du `LootSessionStore` dès que tous
+      les joueurs éligibles avaient réclamé un objet. Le sondage périodique du butin (ajouté au
+      point 28 pour corriger "le joueur qui n'a pas donné le dernier coup ne peut pas choisir")
+      continuait ensuite d'interroger `GET /api/loot/{id}` côté premier réclamant — recevait un
+      404 (butin introuvable), que le client traduisait à tort en "Connexion au serveur
+      impossible."
+    - Corrigé à l'identique du combat : ajout de `LootSession.ResolvedAtUtc`, renseigné par
+      `ResolveAsync` au lieu de retirer la session immédiatement ; `LootSessionStore` conserve
+      désormais la session résolue et la purge seulement après une rétention de 3 minutes
+      (`PruneResolved`, appelée à chaque nouvel ajout — même mécanique que `CombatSessionStore.
+      PruneFinished`).
+
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
 > heuristique visant les programmes qui ouvrent des ports d'écoute réseau), alors que

@@ -19,4 +19,13 @@ public sealed class LootSession
 
     /// <summary>Voir GDD/demande utilisateur — "timer de 10 secondes pour le choix des gains" (<see cref="Aetheria.Shared.GameInfo.LootChoiceTimeoutSeconds"/>), vérifié par <c>CombatTimeoutScheduler</c>.</summary>
     public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Renseigné dès la résolution (voir <see cref="LootSessionStore"/>) : la session n'est plus
+    /// retirée immédiatement du store pour que tout coéquipier qui sonde encore l'état après
+    /// résolution (voir GDD/demande utilisateur — "la première personne à avoir fait le choix a
+    /// 'connexion au serveur impossible'") la voie bien résolue au lieu d'un butin introuvable
+    /// (404), avant d'être purgée après un court délai.
+    /// </summary>
+    public DateTime? ResolvedAtUtc { get; set; }
 }
