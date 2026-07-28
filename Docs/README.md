@@ -492,8 +492,22 @@ de gameplay.
      choisi, crée un raccourci `.lnk` via l'objet COM `WScript.Shell` (late-bound, sans
      dépendance tierce). Vérifié de bout en bout dans un dossier temporaire (jamais le vrai
      bureau de la machine) : copie des 4 fichiers du payload confirmée, raccourci `.lnk`
-     inspecté et pointant vers le bon exécutable avec le bon dossier de travail. Pas de
-     désinstallateur ni d'entrée dans le registre Windows pour cette première version.
+     inspecté et pointant vers le bon exécutable avec le bon dossier de travail.
+     - ✅ **Entrée "Applications"/"Programmes et fonctionnalités" de Windows** (voir GDD/demande
+       utilisateur — "quand on installe le jeu avec l'installer il doit être affiché dans les
+       programs") : `UninstallRegistryService` enregistre une clé sous
+       `HKEY_CURRENT_USER\...\Uninstall\Aetheria` (pas `HKEY_LOCAL_MACHINE` — cohérent avec une
+       installation par défaut dans `%LocalAppData%`, sans droits administrateur). L'installateur
+       se copie lui-même dans le dossier cible sous `Uninstall.exe` (reste disponible même si le
+       fichier d'installation d'origine est supprimé), et l'entrée Windows pointe dessus avec
+       `--uninstall --path=...`. Relancé ainsi (voir `App.xaml.cs` — intercepté avant
+       `StartupUri`), il désinstalle en silence (fichiers, raccourci bureau, clé de registre) sans
+       afficher de fenêtre. **Limite assumée** : un exécutable ne peut pas supprimer son propre
+       fichier pendant qu'il tourne sous Windows — `Uninstall.exe` se supprime donc via une
+       commande `cmd.exe` détachée avec un court délai (`ping` comme minuterie, technique
+       classique), pas un vrai désinstallateur MSI. Vérifié par compilation et relecture de code
+       uniquement (pas de test d'installation/désinstallation réelle sur cette machine partagée,
+       pour ne pas modifier son registre Windows sans nécessité).
    - ✅ Site de téléchargement (`Sites/index.html`, `Sites/conditions-generales.html`) — page
      statique HTML/CSS pur, hors solution .NET. Bouton "Installer le Launcher" en lien
      `download` direct vers `Sites/downloads/AetheriaSetup.zip` (un vrai paquet construit à
