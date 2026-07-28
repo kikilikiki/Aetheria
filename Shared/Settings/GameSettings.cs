@@ -17,6 +17,16 @@ public sealed class GameSettings
 {
     public KeyboardLayoutPreference KeyboardLayout { get; set; } = KeyboardLayoutPreference.Auto;
 
+    /// <summary>
+    /// Adresse (IP publique ou nom de domaine) du serveur Aetheria — voir GDD/demande utilisateur
+    /// : "si on installe le jeu depuis un autre PC/wifi, on doit quand même pouvoir accéder au
+    /// serveur hébergé chez [l'utilisateur]". "localhost" par défaut (développement local) ; à
+    /// changer dans les Paramètres du Launcher pour se connecter à un serveur distant. Utilisé à
+    /// la fois par le Launcher (API de compte) et transmis au Client (`--host`) pour la connexion
+    /// TCP de jeu, afin que les deux ciblent toujours le même serveur.
+    /// </summary>
+    public string ServerHost { get; set; } = "localhost";
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Aetheria", "settings.json");
 

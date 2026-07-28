@@ -315,7 +315,7 @@
             <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
                     Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}">
                 <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="420" Height="260"
+                        BorderThickness="1" CornerRadius="10" Width="420" Height="340"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
                     <StackPanel>
                         <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,18" />
@@ -323,7 +323,12 @@
                         <TextBlock Text="Disposition clavier" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
                         <ComboBox ItemsSource="{Binding AvailableKeyboardLayouts}" SelectedItem="{Binding KeyboardLayoutPreference}" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding DetectedLayoutText}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,6" />
-                        <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,22" />
+                        <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,18" />
+
+                        <TextBlock Text="Adresse du serveur" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                        <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,6" />
+                        <TextBlock Text="IP publique ou nom de domaine du serveur (laisser &quot;localhost&quot; en développement)."
+                                   Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,22" />
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
                     </StackPanel>

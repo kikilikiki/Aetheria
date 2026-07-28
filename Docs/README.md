@@ -543,6 +543,19 @@ de gameplay.
        immédiat. `Tools/discord-announce.ps1` automatise cet appel (connexion admin + annonce) en
        une seule commande.
 
+15. ✅ Serveur distant configurable (voir GDD/demande utilisateur — "si on installe le jeu depuis
+    un autre PC/wifi, on doit quand même pouvoir accéder au serveur hébergé chez
+    [l'utilisateur]") : `GameSettings.ServerHost` (nouveau champ, "localhost" par défaut) est
+    réglable dans les Paramètres du Launcher, persisté dans le fichier de préférences partagé, et
+    transmis au Client au lancement (`ClientLauncher.TryLaunch` ajoute `--host=...`,
+    `LaunchOptions.Parse` le consommait déjà — seul le Launcher ne le transmettait pas). Le ping
+    `/api/health` et l'`AccountApiClient` du Launcher utilisent aussi cette adresse au lieu de
+    `localhost` en dur. **Limite assumée, documentée dans le README public** : la redirection de
+    ports (NAT/port forwarding) côté routeur de la machine hébergeant le serveur reste une étape
+    manuelle hors de portée du code — le serveur écoute déjà sur `0.0.0.0` (toutes les
+    interfaces), donc aucune configuration serveur supplémentaire n'est nécessaire au-delà de
+    cette redirection.
+
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
 > heuristique visant les programmes qui ouvrent des ports d'écoute réseau), alors que
