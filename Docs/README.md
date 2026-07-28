@@ -150,6 +150,38 @@ de gameplay.
      de combat/génération de donjon est réellement fonctionnelle, voir plus haut), pas de
      pathfinding évitant les obstacles (chemin orthogonal direct).
 
+9. ✅ Refonte du Launcher (style Ankama/Dofus) et déplacement de la création de personnage :
+   - ✅ `Launcher/MainWindow.xaml`/`MainViewModel.cs` réécrits : barre latérale, bouton JOUER
+     unique, statut serveur, actualités cliquables (`NewsItem`, `RecentNews`/`AllNews`, page
+     "toutes les actualités" + détail), overlay Paramètres (disposition clavier QWERTY/AZERTY,
+     voir point 10 plus bas). La création/sélection de personnage a été retirée du Launcher :
+     elle se fait désormais **en jeu**, au premier lancement du Client (voir Program.cs —
+     `SceneMode.CharacterSelect`/`CharacterCreate`), pas dans une fenêtre WPF séparée, pour
+     permettre un aperçu animé de l'apparence (voir GDD).
+   - ✅ **Bug critique rapporté ("aucun bouton ne fonctionne dans le Launcher") — clos** : revue
+     statique complète de `MainViewModel.cs` confirme que les 8 commandes utilisées par le XAML
+     (`LoginCommand`, `RegisterCommand`, `LogoutCommand`, `PlayCommand`, `ToggleSettingsCommand`,
+     `ToggleAllNewsCommand`, `OpenNewsDetailCommand`, `CloseNewsDetailCommand`) sont bien
+     générées par `[RelayCommand]`/`[RelayCommand(CanExecute = ...)]` et correctement liées côté
+     XAML — aucune commande orpheline ni `Binding` cassé trouvé. La cause la plus probable des
+     symptômes observés est ailleurs : une technique de simulation d'entrée clavier utilisée
+     pendant les tests (`AttachThreadInput`/`SetForegroundWindow`) volait le focus clavier réel
+     de la machine partagée, ce qui pouvait donner l'impression que l'interface ne répondait
+     plus. Cette technique a été abandonnée (voir plus bas) au profit de vérifications passives
+     (logs, captures ciblées) qui ne touchent pas le focus global. **Non re-testé en conditions
+     réelles suite à cette revue** — à confirmer par un humain si le symptôme réapparaît.
+   - ✅ Inventaire/Guilde/Boutique en jeu (`PanelKind.Inventory/Guild/Shop`, touches I/G/B) :
+     panneaux superposés au monde extérieur, alimentés par `GameDataApiClient`
+     (`GET /api/characters/{id}/inventory`, `GET /api/guilds/mine`, `GET /api/shop/catalog`,
+     `POST /api/shop/buy`).
+   - ✅ Sélection du starter en jeu avec histoire (voir `StarterService`, `SceneMode.StarterSelection`)
+     et corps de personnage/PNJ plus lisibles (voir point 6 — silhouette corps + tête).
+   - ✅ Disposition clavier détectée automatiquement (QWERTY/AZERTY), réglable en jeu (touche F9)
+     et dans le Launcher (`Shared/Settings/GameSettings`, `KeyboardLayoutResolver` — LANGID
+     Windows), persistée dans `%APPDATA%\Aetheria\settings.json`. N'affecte que les libellés
+     affichés : les codes de touche Silk.NET/GLFW étant basés sur la position physique, WASD
+     fonctionne déjà nativement en ZQSD sur un clavier AZERTY sans remappage.
+
 > **Incident évité en testant :** une première tentative de vérification visuelle du site web
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche
 > (une autre application ouverte sur la machine). L'image a été supprimée immédiatement sans
