@@ -65,6 +65,26 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
         return membership is null ? null : await BuildSummaryAsync(membership.GuildId, ct);
     }
 
+    /// <summary>Recherche de guildes par nom (voir GDD — panneau Guilde : rejoindre/rechercher/créer). Toutes les guildes si <paramref name="search"/> est vide.</summary>
+    public async Task<List<GuildSummary>> SearchAsync(string? search, CancellationToken ct = default)
+    {
+        var query = db.Guilds.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(g => g.Name.Contains(search));
+        }
+
+        var guildIds = await query.OrderBy(g => g.Name).Take(50).Select(g => g.Id).ToListAsync(ct);
+
+        var summaries = new List<GuildSummary>();
+        foreach (var id in guildIds)
+        {
+            summaries.Add(await BuildSummaryAsync(id, ct));
+        }
+
+        return summaries;
+    }
+
     private async Task<CharacterEntity> ResolveOwnedCharacterAsync(string sessionToken, Guid characterId, CancellationToken ct)
     {
         if (!tokenStore.TryValidate(sessionToken, out var userId))

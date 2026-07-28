@@ -266,6 +266,27 @@ app.MapGet("/api/characters/{id:guid}/monsters", async (Guid id) =>
     return Results.Ok(monsters.Select(ToMonsterInstanceData));
 });
 
+// UI de gestion des créatures (voir GDD — "monter de niveau, objet à donner").
+app.MapPost("/api/monsters/{monsterId:guid}/give-item", async (Guid monsterId, GiveItemToMonsterRequest request) =>
+{
+    if (monsterId != request.MonsterId)
+    {
+        return Results.BadRequest(new ApiError { Message = "Identifiant de créature incohérent." });
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var careService = new MonsterCareService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await careService.GiveItemAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Inventaire (voir GDD — bouton Inventaire en jeu).
 app.MapGet("/api/characters/{id:guid}/inventory", async (Guid id) =>
 {
@@ -467,6 +488,14 @@ app.MapGet("/api/guilds/mine", async (Guid characterId) =>
     var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
     var guild = await guildService.GetForCharacterAsync(characterId);
     return guild is null ? Results.NoContent() : Results.Ok(guild);
+});
+
+// Recherche de guildes (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
+app.MapGet("/api/guilds", async (string? search) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await guildService.SearchAsync(search));
 });
 
 // Groupes (voir GDD — visibilité globale des joueurs, XP partagée en groupe).

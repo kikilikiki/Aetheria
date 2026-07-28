@@ -293,6 +293,28 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var partyService = new PartyService(db, tokenStore);
         await partyService.GrantSharedExperienceAsync(winnerCharacterId, PveVictoryExperience, ct);
 
+        // Les créatures alliées (tout combattant de l'équipe du joueur qui n'est pas le
+        // personnage lui-même) gagnent aussi de l'XP — n'existait pas du tout avant (voir GDD,
+        // "UI pour les montres : monter de niveau").
+        var allyMonsterIds = session.Combatants
+            .Where(c => c.Team == playerTeam && c.Id != winnerCharacterId)
+            .Select(c => c.Id)
+            .ToList();
+
+        if (allyMonsterIds.Count > 0)
+        {
+            var allyMonsters = await db.Monsters.Where(m => allyMonsterIds.Contains(m.Id)).ToListAsync(ct);
+            foreach (var monster in allyMonsters)
+            {
+                MonsterProgressionService.GrantExperience(monster, (int)PveVictoryExperience);
+            }
+
+            if (allyMonsters.Count > 0)
+            {
+                await db.SaveChangesAsync(ct);
+            }
+        }
+
         var lootService = new LootService(db, lootStore, partyService);
         var loot = await lootService.CreateFromVictoryAsync(winnerCharacterId, ct);
         return loot?.LootId;
@@ -628,7 +650,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         CombatSession.GridWidth,
         CombatSession.GridHeight,
         session.Combatants
-            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive))
+            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange))
             .ToList(),
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,

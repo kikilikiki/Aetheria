@@ -12,4 +12,7 @@ public sealed record CombatantState(
     int PositionY,
     int CurrentHealth,
     int MaxHealth,
-    bool IsAlive);
+    bool IsAlive,
+    /// <summary>Voir GDD — affichage des cases de déplacement/attaque possibles avant de valider une action.</summary>
+    int MovementRange = 0,
+    int AttackRange = 0);
