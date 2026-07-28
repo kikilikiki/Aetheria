@@ -35,6 +35,7 @@ Aetheria/
 │   ├── Exploration/              Déplacement, royaumes, donjons
 │   └── Networking/               Connexion au serveur
 ├── Launcher/                     Aetheria.Launcher — launcher Windows (login, MAJ)
+├── Installer/                    AetheriaInstaller — installateur Windows (copie + raccourci)
 ├── MapEditor/                    Aetheria.MapEditor — éditeur de cartes/donjons
 ├── MonsterEditor/                Aetheria.MonsterEditor — éditeur de créatures
 ├── AdminPanel/                   Aetheria.AdminPanel — outils d'administration
@@ -215,7 +216,17 @@ de gameplay.
      `AccountService.LoginAsync` (Phase C) rejette déjà les comptes bannis avec leur raison.
      Vérifié de bout en bout : recherche, bannissement → connexion refusée avec la raison →
      débannissement → connexion à nouveau acceptée, statistiques globales à jour.
-   - ⬜ Installateur Windows, site de téléchargement.
+   - ✅ Installateur Windows (`AetheriaInstaller.exe`, `Installer/`) — écrit en C#/WPF comme
+     le reste du projet plutôt qu'avec un outil externe (Inno Setup n'est pas installé dans
+     cet environnement, donc pas testable ici ; un installateur maison reste vérifiable de
+     bout en bout). Copie récursivement un dossier `Payload/` (à construire par un script de
+     publication rassemblant Launcher/Client/Server — pas encore automatisé) vers le dossier
+     choisi, crée un raccourci `.lnk` via l'objet COM `WScript.Shell` (late-bound, sans
+     dépendance tierce). Vérifié de bout en bout dans un dossier temporaire (jamais le vrai
+     bureau de la machine) : copie des 4 fichiers du payload confirmée, raccourci `.lnk`
+     inspecté et pointant vers le bon exécutable avec le bon dossier de travail. Pas de
+     désinstallateur ni d'entrée dans le registre Windows pour cette première version.
+   - ⬜ Site de téléchargement.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

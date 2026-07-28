@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- AetheriaInstaller : installe le Launcher (et les modules qui l'accompagnent), crée un
+       raccourci sur le bureau. Un vrai installateur Windows, écrit en C# comme le reste du
+       projet plutôt qu'avec un outil externe (Inno Setup, WiX) — voir Docs/README.md pour la
+       justification de ce choix. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Aetheria.Installer</RootNamespace>
+    <AssemblyName>AetheriaInstaller</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\Aetheria.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+</Project>
