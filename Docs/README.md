@@ -687,6 +687,20 @@ de gameplay.
     - **Paquet d'installation reconstruit** (`Sites/downloads/AetheriaSetup.zip`) avec le Launcher
       et le Client à jour (configuration Release) — voir `Sites/README.md` pour la procédure
       manuelle de reconstruction (pas encore de chaîne de publication automatisée).
+22. ✅ Vrai bug derrière la "connexion impossible" persistante (le diagnostic ngrok du point 21
+    n'était qu'une cause partielle) : `Launcher/Services/AccountApiClient.cs` et
+    `AdminPanel/Services/AdminApiClient.cs` désérialisaient les réponses JSON du serveur
+    (`LoginResponse`, `AdminUserSummary`, ...) **sans** le `JsonStringEnumConverter` que le
+    serveur utilise pour sérialiser ses enums en toutes lettres (voir
+    `ConfigureHttpJsonOptions` dans `Server/Program.cs`). Résultat : `System.Text.Json` échouait
+    avec *"The JSON value could not be converted to Aetheria.Shared.Enums.KingdomType"* dès
+    qu'un compte se reconnectait avec **au moins un personnage existant** (le champ
+    `Characters[].Kingdom` de la réponse de connexion) — un compte flambant neuf sans personnage
+    ne déclenchait jamais ce chemin de code, ce qui expliquait pourquoi "les autres comptes
+    n'avaient pas de problème" alors que le compte réutilisé (dont le compte admin) plantait à
+    chaque connexion. Les autres clients (`Client/Networking/*`, `MapEditor`, `MonsterEditor`)
+    avaient déjà ce convertisseur ; seuls le Launcher et l'AdminPanel en manquaient. Corrigé en
+    alignant leurs `JsonSerializerOptions` sur le même modèle que les autres clients.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
