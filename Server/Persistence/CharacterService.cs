@@ -82,6 +82,7 @@ public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tok
         Id = character.Id,
         Name = character.Name,
         Level = character.Level,
+        Kingdom = character.Kingdom,
         SkinColorIndex = character.SkinColorIndex,
         HairStyleIndex = character.HairStyleIndex,
         HairColorIndex = character.HairColorIndex,

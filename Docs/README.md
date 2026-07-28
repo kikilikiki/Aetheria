@@ -273,6 +273,24 @@ de gameplay.
       bout en bout avec un vrai combat (nécessiterait de lancer le client en conditions réelles,
       hors de portée des vérifications passives utilisées dans cette session).
 
+13. ✅ Villes distinctes par royaume (voir GDD — "plusieurs villes distinctes par royaume/biome") :
+    `Client/World/KingdomBiome.cs` associe à chaque `KingdomType` (Feu, Nature, Glaces, Ombres)
+    un nom de capitale propre (Citadelle de Braise / Sylvaltar / Citadelle de Glace / Bastion des
+    Ombres), un nom de donjon propre, et une palette de terrain distincte (herbe/chemin/étang —
+    braises orangées pour Feu, neige pâle pour Glaces, ton violet sombre pour Ombres). Les
+    bâtiments sont teintés via `AccentTint` plutôt que redessinés entièrement par royaume, pour
+    garder la même disposition/lisibilité tout en restant visuellement distincts.
+    `CharacterSummary` expose désormais `Kingdom` (absent avant cette phase — ni
+    `GET /api/characters/mine` ni `POST /api/account/login` ne le renvoyaient), et
+    `Client/Program.cs` (`RebuildWorldMapForKingdom`) reconstruit `WorldMap` avec le bon royaume
+    dès qu'il est connu (sélection d'un personnage existant ou fin de création), avant la
+    connexion au serveur. **Portée assumée** : un joueur ne voit que la capitale de son propre
+    royaume — il n'y a pas de voyage entre royaumes ni de carte du monde reliant les quatre
+    villes entre elles (ce serait un morceau à part : plusieurs `WorldMap` actives, un écran de
+    voyage/téléportation). Le raccourci `--characterId` (lancement direct sans passer par l'écran
+    de sélection) garde par défaut le royaume Nature faute de pouvoir résoudre le personnage sans
+    appel réseau supplémentaire à ce stade du démarrage.
+
 > **Incident évité en testant :** une première tentative de vérification visuelle du site web
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche
 > (une autre application ouverte sur la machine). L'image a été supprimée immédiatement sans

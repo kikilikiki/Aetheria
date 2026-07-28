@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Shared.Models.Account;
 
 /// <summary>Réponse JSON réussie de <c>POST /api/account/login</c>.</summary>
@@ -17,6 +19,7 @@ public sealed class CharacterSummary
     public required Guid Id { get; init; }
     public required string Name { get; init; }
     public required int Level { get; init; }
+    public required KingdomType Kingdom { get; init; }
     public int SkinColorIndex { get; init; }
     public int HairStyleIndex { get; init; }
     public int HairColorIndex { get; init; }
