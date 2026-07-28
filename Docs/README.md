@@ -170,6 +170,18 @@ de gameplay.
      plus. Cette technique a été abandonnée (voir plus bas) au profit de vérifications passives
      (logs, captures ciblées) qui ne touchent pas le focus global. **Non re-testé en conditions
      réelles suite à cette revue** — à confirmer par un humain si le symptôme réapparaît.
+   - ✅ **Bug réel confirmé en conditions réelles et corrigé** : "Créer un compte" faisait
+     planter tout le processus Launcher quand le champ email était laissé vide.
+     `MainViewModel.IsValidEmail` n'attrapait que `FormatException` autour de
+     `new MailAddress(email)`, or une chaîne vide lève `ArgumentException` (et `null` lève
+     `ArgumentNullException`) — ni l'une ni l'autre n'était interceptée, donc l'exception
+     remontait non gérée. Corrigé par un contrôle `string.IsNullOrWhiteSpace` en amont. Confirmé
+     par un test isolé (`new MailAddress("")` → `ArgumentException`, jamais `FormatException`)
+     puis par la disparition du processus `Aetheria.Launcher` observée après le clic, avant le
+     correctif. `Launcher/App.xaml.cs` a aussi reçu un gestionnaire
+     `DispatcherUnhandledException` (absent jusqu'ici) comme filet de sécurité : toute exception
+     non gérée future sur le thread UI affichera un message d'erreur au lieu de tuer tout le
+     processus silencieusement.
    - ✅ Inventaire/Guilde/Boutique en jeu (`PanelKind.Inventory/Guild/Shop`, touches I/G/B) :
      panneaux superposés au monde extérieur, alimentés par `GameDataApiClient`
      (`GET /api/characters/{id}/inventory`, `GET /api/guilds/mine`, `GET /api/shop/catalog`,
