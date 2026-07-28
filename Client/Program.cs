@@ -11,6 +11,7 @@ using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
+using Aetheria.Shared.Settings;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
 
@@ -18,6 +19,14 @@ Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine($"{GameInfo.Name} Client v{GameInfo.Version}");
 
 var options = LaunchOptions.Parse(args);
+
+// Disposition clavier (voir GDD) : détectée automatiquement, réglable en jeu avec F9 (persistée,
+// partagée avec le Launcher). N'affecte que les libellés affichés (ex. "ZQSD" vs "WASD") — les
+// codes de touche Silk.NET/GLFW étant basés sur la position physique, WASD fonctionne déjà
+// nativement en ZQSD sur un clavier AZERTY, voir KeyboardLayoutResolver.
+var gameSettings = GameSettings.Load();
+var isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
+Console.WriteLine($"Disposition clavier : {gameSettings.KeyboardLayout} ({(isAzerty ? "ZQSD" : "WASD")}) — F9 pour changer.");
 
 var worldMap = new WorldMap(size: 50);
 Console.WriteLine($"Monde généré : {worldMap.Size}x{worldMap.Size} cases, {worldMap.Buildings.Count} bâtiments, " +
@@ -161,6 +170,21 @@ host.Update += deltaTime =>
     keyboard.Update();
     mouse.Update();
     animationClock += deltaTime;
+
+    // F9 : cycle la préférence de disposition clavier (Auto -> QWERTY -> AZERTY -> Auto),
+    // disponible partout et persistée pour que le Launcher la reflète aussi (voir GDD).
+    if (keyboard.WasJustPressed(Key.F9))
+    {
+        gameSettings.KeyboardLayout = gameSettings.KeyboardLayout switch
+        {
+            KeyboardLayoutPreference.Auto => KeyboardLayoutPreference.Qwerty,
+            KeyboardLayoutPreference.Qwerty => KeyboardLayoutPreference.Azerty,
+            _ => KeyboardLayoutPreference.Auto,
+        };
+        gameSettings.Save();
+        isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
+        Console.WriteLine($"[Parametres] Disposition clavier : {gameSettings.KeyboardLayout} ({(isAzerty ? "ZQSD" : "WASD")}).");
+    }
 
     if (sceneMode == SceneMode.CharacterSelect)
     {
@@ -699,12 +723,13 @@ void UpdateCharacterCreate()
     switch (createStage)
     {
         case CreateStage.Name:
-            foreach (Key key in Enum.GetValues<Key>())
+            // Caractères réellement tapés (respecte QWERTY/AZERTY/... via l'OS) plutôt qu'un
+            // mapping par position de touche — voir KeyboardState.DrainTypedChars.
+            foreach (var typed in keyboard.DrainTypedChars())
             {
-                var typed = KeyToChar(key);
-                if (typed is not null && keyboard.WasJustPressed(key) && createName.Length < 16)
+                if (createName.Length < 16 && (char.IsLetter(typed) || char.IsDigit(typed) || typed == ' '))
                 {
-                    createName += typed.Value;
+                    createName += typed;
                 }
             }
 
@@ -812,16 +837,6 @@ void UpdateCharacterCreate()
 }
 
 static int Wrap(int value, int count) => ((value % count) + count) % count;
-
-static char? KeyToChar(Key key) => key switch
-{
-    Key.A => 'A', Key.B => 'B', Key.C => 'C', Key.D => 'D', Key.E => 'E', Key.F => 'F',
-    Key.G => 'G', Key.H => 'H', Key.I => 'I', Key.J => 'J', Key.K => 'K', Key.L => 'L',
-    Key.M => 'M', Key.N => 'N', Key.O => 'O', Key.P => 'P', Key.Q => 'Q', Key.R => 'R',
-    Key.S => 'S', Key.T => 'T', Key.U => 'U', Key.V => 'V', Key.W => 'W', Key.X => 'X',
-    Key.Y => 'Y', Key.Z => 'Z', Key.Space => ' ',
-    _ => null,
-};
 
 void UpdateStarterSelection(float deltaTime)
 {
@@ -1058,6 +1073,12 @@ void DrawOutdoorHud()
         DrawPanel(new Vector2(w / 2f - 260f, h - 56f), new Vector2(520f, 30f), new Vector4(0.05f, 0.05f, 0.07f, 0.75f));
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h - 48f), 2.4f, new Vector4(1f, 0.92f, 0.6f, 1f));
     }
+
+    // Rappel des touches en bas à gauche (adapte le libellé à la disposition détectée/choisie —
+    // voir GDD, les touches elles-mêmes fonctionnent déjà nativement dans les deux cas).
+    var moveKeysLabel = isAzerty ? "ZQSD" : "WASD";
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER",
+        new Vector2(12, h - 26f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 0.85f));
 }
 
 void DrawDialogueBox(int w, int h)

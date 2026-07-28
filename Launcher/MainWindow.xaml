@@ -112,6 +112,24 @@
             <Setter Property="Background" Value="#1B1F2C" />
             <Setter Property="Margin" Value="0,0,0,12" />
         </Style>
+
+        <!-- Même look que SidebarIcon, mais cliquable (utilisé pour Paramètres). -->
+        <Style x:Key="SidebarIconButton" TargetType="Button">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -146,10 +164,9 @@
                     <TextBlock Text="&#xE719;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
                 </Border>
-                <Border Style="{StaticResource SidebarIcon}" ToolTip="Paramètres">
-                    <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
-                </Border>
+                <Button Style="{StaticResource SidebarIconButton}" ToolTip="Paramètres" Command="{Binding ToggleSettingsCommand}">
+                    <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="16" />
+                </Button>
             </StackPanel>
         </Border>
 
@@ -279,6 +296,25 @@
                             HorizontalAlignment="Right" VerticalAlignment="Center" Width="180" Height="56"
                             Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}" />
                 </Grid>
+            </Border>
+
+            <!-- Panneau Paramètres : superposé à tout le reste tant qu'ouvert. -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Width="420" Height="260"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                    <StackPanel>
+                        <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,18" />
+
+                        <TextBlock Text="Disposition clavier" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                        <ComboBox ItemsSource="{Binding AvailableKeyboardLayouts}" SelectedItem="{Binding KeyboardLayoutPreference}" Margin="0,0,0,6" />
+                        <TextBlock Text="{Binding DetectedLayoutText}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,6" />
+                        <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,22" />
+
+                        <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
             </Border>
         </Grid>
     </Grid>
