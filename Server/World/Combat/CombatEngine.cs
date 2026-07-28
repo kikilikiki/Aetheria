@@ -52,7 +52,12 @@ internal static class CombatEngine
             throw new InvalidOperationException("Cible hors de portée d'attaque.");
         }
 
-        var damage = Math.Max(1, actor.Attack - target.Defense);
+        // La Défense n'est mitigée qu'à moitié (pas une soustraction complète) : avec l'Attaque
+        // du joueur (10) et des créatures dont la Défense de base atteint 15 (voir
+        // MonsterCatalogSeeder), une soustraction complète plafonnait presque tous les coups à 1
+        // dégât — un combat contre un monstre de 26-36 PV prenait alors 20-30+ tours. Corrigé
+        // suite à un retour utilisateur ("les monstres ont beaucoup trop de vie").
+        var damage = Math.Max(2, actor.Attack - target.Defense / 2);
         target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
         session.LastMessage = target.IsAlive
             ? $"{actor.Name} inflige {damage} dégâts à {target.Name}."

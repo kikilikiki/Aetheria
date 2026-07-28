@@ -157,6 +157,16 @@ var activePanel = PanelKind.None;
 List<InventoryItemSummary> inventoryItems = [];
 GuildSummary? myGuild = null;
 var guildLoaded = false;
+
+// Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
+var guildMode = GuildPanelMode.None;
+var guildTextInput = string.Empty;
+List<GuildSummary> guildSearchResults = [];
+var guildSearchCursor = 0;
+var guildSearchDone = false;
+Task<List<GuildSummary>>? guildSearchTask = null;
+Task<GuildSummary?>? guildActionTask = null;
+string? guildActionMessage = null;
 List<ShopItem> shopCatalog = [];
 var shopCursor = 0;
 string? shopMessage = null;
@@ -169,6 +179,16 @@ var partyJoinPromptOpen = false;
 var partyJoinInput = string.Empty;
 string? partyMessage = null;
 Task<PartySummary?>? partyActionTask = null;
+
+// Gestion des créatures (voir GDD — UI montres : monter de niveau, objet à donner).
+List<MonsterInstanceData> ownedMonsters = [];
+Dictionary<int, MonsterSpeciesData> speciesById = [];
+var monsterCursor = 0;
+var monstersLoaded = false;
+var monsterGiveItemMode = false;
+var monsterGiveItemCursor = 0;
+Task<MonsterInstanceData?>? monsterGiveItemTask = null;
+string? monsterMessage = null;
 
 // Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
 // (ArenaQueueService), sondée régulièrement tant que le joueur attend un appairage.
@@ -374,38 +394,12 @@ host.Update += deltaTime =>
         return;
     }
 
-    if (keyboard.WasJustPressed(Key.I))
-    {
-        activePanel = PanelKind.Inventory;
-        _ = LoadInventoryAsync();
-    }
-    else if (keyboard.WasJustPressed(Key.G))
-    {
-        activePanel = PanelKind.Guild;
-        guildLoaded = false;
-        _ = LoadGuildAsync();
-    }
-    else if (keyboard.WasJustPressed(Key.B))
-    {
-        activePanel = PanelKind.Shop;
-        shopCursor = 0;
-        shopMessage = null;
-        _ = LoadShopCatalogAsync();
-    }
-    else if (keyboard.WasJustPressed(Key.P))
-    {
-        activePanel = PanelKind.Party;
-        partyLoaded = false;
-        partyJoinPromptOpen = false;
-        partyJoinInput = string.Empty;
-        partyMessage = null;
-        _ = LoadPartyAsync();
-    }
-    else if (keyboard.WasJustPressed(Key.V))
-    {
-        activePanel = PanelKind.Arena;
-        arenaMessage = null;
-    }
+    if (keyboard.WasJustPressed(Key.I)) OpenPanel(PanelKind.Inventory);
+    else if (keyboard.WasJustPressed(Key.G)) OpenPanel(PanelKind.Guild);
+    else if (keyboard.WasJustPressed(Key.B)) OpenPanel(PanelKind.Shop);
+    else if (keyboard.WasJustPressed(Key.P)) OpenPanel(PanelKind.Party);
+    else if (keyboard.WasJustPressed(Key.V)) OpenPanel(PanelKind.Arena);
+    else if (keyboard.WasJustPressed(Key.M)) OpenPanel(PanelKind.Monsters);
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -1233,6 +1227,81 @@ async Task LoadPartyAsync()
     partyLoaded = true;
 }
 
+async Task LoadMonstersAsync()
+{
+    if (starterApi is null || gameDataApi is null || chosenCharacterId is null)
+    {
+        monstersLoaded = true;
+        return;
+    }
+
+    try
+    {
+        ownedMonsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
+
+        if (speciesById.Count == 0)
+        {
+            var allSpecies = await gameDataApi.GetAllSpeciesAsync();
+            speciesById = allSpecies.ToDictionary(s => s.Id);
+        }
+    }
+    catch (HttpRequestException)
+    {
+        ownedMonsters = [];
+    }
+
+    monsterCursor = Math.Clamp(monsterCursor, 0, Math.Max(0, ownedMonsters.Count - 1));
+    monstersLoaded = true;
+}
+
+/// <summary>
+/// Ouvre un panneau en jeu (voir GDD — boutons Inventaire/Guilde/Boutique/Groupe/Arène/Montres) :
+/// partagé entre les raccourcis clavier (I/G/B/P/V/M) et les boutons cliquables du HUD (voir
+/// <see cref="DrawOutdoorHudButtons"/>) pour ne pas dupliquer la logique d'ouverture/chargement.
+/// </summary>
+void OpenPanel(PanelKind kind)
+{
+    activePanel = kind;
+
+    switch (kind)
+    {
+        case PanelKind.Inventory:
+            _ = LoadInventoryAsync();
+            break;
+        case PanelKind.Guild:
+            guildLoaded = false;
+            guildMode = GuildPanelMode.None;
+            guildTextInput = string.Empty;
+            guildSearchResults = [];
+            guildSearchDone = false;
+            guildActionMessage = null;
+            _ = LoadGuildAsync();
+            break;
+        case PanelKind.Shop:
+            shopCursor = 0;
+            shopMessage = null;
+            _ = LoadShopCatalogAsync();
+            break;
+        case PanelKind.Party:
+            partyLoaded = false;
+            partyJoinPromptOpen = false;
+            partyJoinInput = string.Empty;
+            partyMessage = null;
+            _ = LoadPartyAsync();
+            break;
+        case PanelKind.Arena:
+            arenaMessage = null;
+            break;
+        case PanelKind.Monsters:
+            monstersLoaded = false;
+            monsterGiveItemMode = false;
+            monsterMessage = null;
+            _ = LoadMonstersAsync();
+            _ = LoadInventoryAsync();
+            break;
+    }
+}
+
 async Task<PartySummary?> LeavePartyAndClearAsync()
 {
     await gameDataApi!.LeavePartyAsync(options.SessionToken!, chosenCharacterId!.Value);
@@ -1336,6 +1405,239 @@ void UpdatePartyPanel()
     {
         partyMessage = null;
         partyActionTask = LeavePartyAndClearAsync();
+    }
+}
+
+/// <summary>
+/// Panneau Montres (touche M) : liste des créatures possédées, niveau/XP, et un mode "donner un
+/// objet" qui consomme un objet d'inventaire contre de l'XP (voir GDD — UI de gestion des
+/// montres). **Simplification assumée** : tout objet donne le même montant d'XP fixe, voir
+/// <c>MonsterCareService</c> côté serveur.
+/// </summary>
+/// <summary>
+/// Panneau Guilde (touche G) : rejoindre / rechercher / créer une guilde (voir GDD — était
+/// jusqu'ici en lecture seule, se contentant d'afficher la guilde déjà rejointe). Pas de
+/// fonctionnalité "quitter" côté serveur pour cette version (non demandée).
+/// </summary>
+void UpdateGuildPanel()
+{
+    if (guildActionTask is { IsCompleted: true } actionTask)
+    {
+        if (actionTask.IsFaulted)
+        {
+            guildActionMessage = "Connexion au serveur impossible.";
+        }
+        else
+        {
+            myGuild = actionTask.Result;
+            guildActionMessage = null;
+            guildMode = GuildPanelMode.None;
+            guildTextInput = string.Empty;
+        }
+
+        guildActionTask = null;
+        return;
+    }
+
+    if (guildActionTask is not null)
+    {
+        return;
+    }
+
+    if (guildSearchTask is { IsCompleted: true } searchTask)
+    {
+        guildSearchResults = searchTask.IsFaulted ? [] : searchTask.Result;
+        guildSearchCursor = 0;
+        guildSearchDone = true;
+        guildSearchTask = null;
+        return;
+    }
+
+    if (guildSearchTask is not null)
+    {
+        return;
+    }
+
+    if (myGuild is not null)
+    {
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            activePanel = PanelKind.None;
+        }
+
+        return;
+    }
+
+    if (guildMode == GuildPanelMode.Create)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (guildTextInput.Length < 24 && (char.IsLetterOrDigit(typed) || typed == ' ' || typed == '-' || typed == '_'))
+            {
+                guildTextInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && guildTextInput.Length > 0)
+        {
+            guildTextInput = guildTextInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            guildMode = GuildPanelMode.None;
+            guildTextInput = string.Empty;
+            guildActionMessage = null;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && guildTextInput.Trim().Length >= 3)
+        {
+            guildActionMessage = null;
+            guildActionTask = gameDataApi!.CreateGuildAsync(options.SessionToken!, chosenCharacterId!.Value, guildTextInput.Trim())!;
+        }
+
+        return;
+    }
+
+    if (guildMode == GuildPanelMode.Search)
+    {
+        if (!guildSearchDone)
+        {
+            foreach (var typed in keyboard.DrainTypedChars())
+            {
+                if (guildTextInput.Length < 24 && (char.IsLetterOrDigit(typed) || typed == ' ' || typed == '-' || typed == '_'))
+                {
+                    guildTextInput += typed;
+                }
+            }
+
+            if (keyboard.WasJustPressed(Key.Backspace) && guildTextInput.Length > 0)
+            {
+                guildTextInput = guildTextInput[..^1];
+            }
+            else if (keyboard.WasJustPressed(Key.Escape))
+            {
+                guildMode = GuildPanelMode.None;
+                guildTextInput = string.Empty;
+                guildActionMessage = null;
+            }
+            else if (keyboard.WasJustPressed(Key.Enter))
+            {
+                guildSearchTask = gameDataApi!.SearchGuildsAsync(guildTextInput.Trim().Length > 0 ? guildTextInput.Trim() : null);
+            }
+
+            return;
+        }
+
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            guildSearchDone = false;
+            guildSearchResults = [];
+            guildTextInput = string.Empty;
+        }
+        else if (guildSearchResults.Count > 0)
+        {
+            if (keyboard.WasJustPressed(Key.Down)) guildSearchCursor = Math.Min(guildSearchCursor + 1, guildSearchResults.Count - 1);
+            else if (keyboard.WasJustPressed(Key.Up)) guildSearchCursor = Math.Max(guildSearchCursor - 1, 0);
+            else if (keyboard.WasJustPressed(Key.Enter))
+            {
+                guildActionMessage = null;
+                guildActionTask = gameDataApi!.JoinGuildAsync(options.SessionToken!, chosenCharacterId!.Value, guildSearchResults[guildSearchCursor].Id)!;
+            }
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+    }
+    else if (keyboard.WasJustPressed(Key.C))
+    {
+        guildMode = GuildPanelMode.Create;
+        guildTextInput = string.Empty;
+        guildActionMessage = null;
+    }
+    else if (keyboard.WasJustPressed(Key.R))
+    {
+        guildMode = GuildPanelMode.Search;
+        guildTextInput = string.Empty;
+        guildSearchDone = false;
+        guildSearchResults = [];
+        guildActionMessage = null;
+    }
+}
+
+void UpdateMonstersPanel()
+{
+    if (monsterGiveItemTask is { IsCompleted: true } giveTask)
+    {
+        if (!giveTask.IsFaulted && giveTask.Result is { } updated)
+        {
+            var index = ownedMonsters.FindIndex(m => m.Id == updated.Id);
+            if (index >= 0)
+            {
+                ownedMonsters[index] = updated;
+            }
+
+            monsterMessage = $"{(updated.Nickname.Length > 0 ? updated.Nickname : "Créature")} est maintenant niveau {updated.Level}.";
+            _ = LoadInventoryAsync();
+        }
+        else
+        {
+            monsterMessage = "Impossible de donner cet objet.";
+        }
+
+        monsterGiveItemTask = null;
+        monsterGiveItemMode = false;
+        return;
+    }
+
+    if (monsterGiveItemTask is not null)
+    {
+        return;
+    }
+
+    if (monsterGiveItemMode)
+    {
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            monsterGiveItemMode = false;
+        }
+        else if (inventoryItems.Count > 0)
+        {
+            if (keyboard.WasJustPressed(Key.Down)) monsterGiveItemCursor = Math.Min(monsterGiveItemCursor + 1, inventoryItems.Count - 1);
+            else if (keyboard.WasJustPressed(Key.Up)) monsterGiveItemCursor = Math.Max(monsterGiveItemCursor - 1, 0);
+            else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
+            {
+                var item = inventoryItems[monsterGiveItemCursor];
+                var monster = ownedMonsters[monsterCursor];
+                monsterMessage = null;
+                monsterGiveItemTask = gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, monster.Id, item.ItemId);
+            }
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        monsterMessage = null;
+        return;
+    }
+
+    if (!monstersLoaded || ownedMonsters.Count == 0)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) monsterCursor = Math.Min(monsterCursor + 1, ownedMonsters.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) monsterCursor = Math.Max(monsterCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.D) && inventoryItems.Count > 0)
+    {
+        monsterGiveItemMode = true;
+        monsterGiveItemCursor = 0;
+        monsterMessage = null;
     }
 }
 
@@ -1464,6 +1766,18 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Arena)
     {
         UpdateArenaPanel(deltaTime);
+        return;
+    }
+
+    if (activePanel == PanelKind.Monsters)
+    {
+        UpdateMonstersPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Guild)
+    {
+        UpdateGuildPanel();
         return;
     }
 
@@ -1764,6 +2078,23 @@ void UpdateCombat()
         {
             combatSelectedAction = null;
         }
+        else if (mouse.WasButtonJustPressed(MouseButton.Left))
+        {
+            // Clic direct sur une case pour agir (voir retour utilisateur — "on doit pouvoir
+            // cliquer pour faire les actions, pas seulement au clavier"), équivalent à déplacer
+            // le curseur là puis appuyer sur Entrée.
+            var (originX, originY, cellSize) = CombatGridGeometry();
+            var clickedX = (int)MathF.Floor((mouse.Position.X - originX) / cellSize);
+            var clickedY = (int)MathF.Floor((mouse.Position.Y - originY) / cellSize);
+
+            if (clickedX >= 0 && clickedX < combatState.GridWidth && clickedY >= 0 && clickedY < combatState.GridHeight)
+            {
+                combatCursorX = clickedX;
+                combatCursorY = clickedY;
+                var action = combatSelectedAction.Value;
+                SendCombatAction(action, clickedX, clickedY, action == CombatActionType.Capture ? captureSphereItemId : null);
+            }
+        }
     }
 }
 
@@ -1913,6 +2244,35 @@ void UpdateStarterSelection(float deltaTime)
 }
 
 void DrawPanel(Vector2 topLeft, Vector2 size, Vector4 color) => spriteBatch.Draw(whiteTexture, topLeft, size, color);
+
+/// <summary>
+/// Comme <see cref="TextRenderer.DrawCentered"/> mais cliquable : surligne le texte au survol de
+/// la souris et retourne vrai s'il vient d'être cliqué (bouton gauche). Voir retour utilisateur —
+/// "on doit pouvoir cliquer pour faire les actions et pas seulement au clavier". Les raccourcis
+/// clavier existants restent tous fonctionnels ; ceci ajoute une alternative à la souris sans les
+/// remplacer.
+/// </summary>
+bool DrawClickableCentered(string text, Vector2 topCenter, float pixelSize, Vector4 color)
+{
+    var width = TextRenderer.MeasureWidth(text, pixelSize);
+    var height = TextRenderer.LineHeight(pixelSize);
+    const float pad = 8f;
+    var topLeft = topCenter - new Vector2(width / 2f + pad, 0f);
+    var boxSize = new Vector2(width + pad * 2, height + pad);
+
+    var mousePos = mouse.Position;
+    var isHovered = mousePos.X >= topLeft.X && mousePos.X <= topLeft.X + boxSize.X
+        && mousePos.Y >= topLeft.Y - pad && mousePos.Y <= topLeft.Y + boxSize.Y;
+
+    if (isHovered)
+    {
+        DrawPanel(topLeft, boxSize, new Vector4(1f, 1f, 1f, 0.12f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, text, topCenter, pixelSize, isHovered ? Vector4.Lerp(color, Vector4.One, 0.35f) : color);
+
+    return isHovered && mouse.WasButtonJustPressed(MouseButton.Left);
+}
 
 void DrawIsoDiamond(Vector2 gridPos, float scale, Vector4 color)
 {
@@ -2075,6 +2435,7 @@ void DrawOutdoorHud()
             case PanelKind.Shop: DrawShopPanel(w, h); break;
             case PanelKind.Party: DrawPartyPanel(w, h); break;
             case PanelKind.Arena: DrawArenaPanel(w, h); break;
+            case PanelKind.Monsters: DrawMonstersPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -2093,8 +2454,56 @@ void DrawOutdoorHud()
     // Rappel des touches en bas à gauche (adapte le libellé à la disposition détectée/choisie —
     // voir GDD, les touches elles-mêmes fonctionnent déjà nativement dans les deux cas).
     var moveKeysLabel = isAzerty ? "ZQSD" : "WASD";
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER - I : INVENTAIRE - G : GUILDE - B : BOUTIQUE",
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER",
         new Vector2(12, h - 26f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 0.85f));
+
+    if (activeDialogueNpc is null)
+    {
+        DrawOutdoorHudButtons(w, h);
+    }
+}
+
+/// <summary>
+/// Barre de boutons cliquables en haut à droite pour ouvrir les panneaux (voir retour
+/// utilisateur — "il doit y avoir un bouton en plus où on peut cliquer dessus", en complément
+/// des raccourcis clavier I/G/B/P/V/M qui restent tous actifs). Un clic sur le panneau déjà
+/// ouvert le referme (bascule), comme Échap.
+/// </summary>
+void DrawOutdoorHudButtons(int w, int h)
+{
+    (string Label, PanelKind Kind)[] buttons =
+    [
+        ("INVENTAIRE (I)", PanelKind.Inventory),
+        ("MONTRES (M)", PanelKind.Monsters),
+        ("GROUPE (P)", PanelKind.Party),
+        ("GUILDE (G)", PanelKind.Guild),
+        ("BOUTIQUE (B)", PanelKind.Shop),
+        ("ARENE (V)", PanelKind.Arena),
+    ];
+
+    const float pixelSize = 1.7f;
+    var y = 14f;
+
+    foreach (var (label, kind) in buttons)
+    {
+        var width = TextRenderer.MeasureWidth(label, pixelSize);
+        var center = new Vector2(w - 16f - width / 2f, y);
+        var color = activePanel == kind ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
+
+        if (DrawClickableCentered(label, center, pixelSize, color))
+        {
+            if (activePanel == kind)
+            {
+                activePanel = PanelKind.None;
+            }
+            else
+            {
+                OpenPanel(kind);
+            }
+        }
+
+        y += TextRenderer.LineHeight(pixelSize) + 10f;
+    }
 }
 
 void DrawInventoryPanel(int w, int h)
@@ -2128,7 +2537,7 @@ void DrawInventoryPanel(int w, int h)
 void DrawGuildPanel(int w, int h)
 {
     const float boxWidth = 480f;
-    const float boxHeight = 320f;
+    const float boxHeight = 360f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
@@ -2142,8 +2551,7 @@ void DrawGuildPanel(int w, int h)
     }
     else if (myGuild is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "VOUS N'APPARTENEZ A", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 20f), 2.2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2.2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawGuildJoinCreateUi(topLeft, boxWidth, boxHeight);
     }
     else
     {
@@ -2158,6 +2566,149 @@ void DrawGuildPanel(int w, int h)
             TextRenderer.Draw(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(topLeft.X + 30f, y), 2f, Vector4.One);
             y += 24f;
         }
+    }
+
+    if (myGuild is not null || guildMode == GuildPanelMode.None)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+}
+
+/// <summary>Sous-écran du panneau Guilde quand le personnage n'appartient à aucune guilde (voir <see cref="UpdateGuildPanel"/>).</summary>
+void DrawGuildJoinCreateUi(Vector2 topLeft, float boxWidth, float boxHeight)
+{
+    var w = uiCamera.ViewportWidth;
+
+    switch (guildMode)
+    {
+        case GuildPanelMode.None:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "VOUS N'APPARTENEZ A AUCUNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "C : CREER UNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 6f), 2f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "R : RECHERCHER / REJOINDRE UNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 34f), 2f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
+            break;
+
+        case GuildPanelMode.Create:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "NOM DE LA NOUVELLE GUILDE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
+            TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            break;
+
+        case GuildPanelMode.Search when !guildSearchDone:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "NOM A RECHERCHER (VIDE = TOUTES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
+            TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR RECHERCHER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            break;
+
+        case GuildPanelMode.Search:
+            if (guildSearchResults.Count == 0)
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE GUILDE TROUVEE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            }
+            else
+            {
+                var y = topLeft.Y + 62f;
+                for (var i = 0; i < guildSearchResults.Count; i++)
+                {
+                    var guild = guildSearchResults[i];
+                    var isSelected = i == guildSearchCursor;
+                    var prefix = isSelected ? "> " : "  ";
+                    var color = isSelected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
+                    TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{guild.Name.ToUpperInvariant()} (NIV. {guild.Level}, {guild.MemberNames.Count} MEMBRES)", new Vector2(topLeft.X + 24f, y), 1.9f, color);
+                    y += 26f;
+                }
+            }
+
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : REJOINDRE - ECHAP : NOUVELLE RECHERCHE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            break;
+    }
+
+    if (guildActionMessage is { Length: > 0 })
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, guildActionMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+    }
+
+    if (guildMode != GuildPanelMode.None)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR REVENIR", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+}
+
+void DrawMonstersPanel(int w, int h)
+{
+    const float boxWidth = 520f;
+    const float boxHeight = 380f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.4f, 0.75f, 0.5f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONTRES", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
+
+    if (!monstersLoaded)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (ownedMonsters.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE CREATURE POUR L'INSTANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    }
+    else if (monsterGiveItemMode)
+    {
+        var monster = ownedMonsters[monsterCursor];
+        var monsterLabel = monster.Nickname.Length > 0 ? monster.Nickname : (speciesById.TryGetValue(monster.SpeciesId, out var s) ? s.Name : "Créature");
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"DONNER UN OBJET A {monsterLabel.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 62f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        if (inventoryItems.Count == 0)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            var y = topLeft.Y + 100f;
+            for (var i = 0; i < inventoryItems.Count; i++)
+            {
+                var isSelected = i == monsterGiveItemCursor;
+                var prefix = isSelected ? "> " : "  ";
+                var color = isSelected ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : Vector4.One;
+                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{inventoryItems[i].Name.ToUpperInvariant()} x{inventoryItems[i].Quantity}", new Vector2(topLeft.X + 30f, y), 2f, color);
+                y += 26f;
+            }
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        return;
+    }
+    else
+    {
+        var y = topLeft.Y + 60f;
+        for (var i = 0; i < ownedMonsters.Count; i++)
+        {
+            var monster = ownedMonsters[i];
+            var isSelected = i == monsterCursor;
+            var name = monster.Nickname.Length > 0 ? monster.Nickname : (speciesById.TryGetValue(monster.SpeciesId, out var species) ? species.Name : "Créature");
+            var prefix = isSelected ? "> " : "  ";
+            var color = isSelected ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : Vector4.One;
+
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()} - NIV. {monster.Level}", new Vector2(topLeft.X + 24f, y), 2f, color);
+
+            var xpForNextLevel = monster.Level * 100;
+            var xpRatio = Math.Clamp((float)monster.Experience / Math.Max(1, xpForNextLevel), 0f, 1f);
+            var barTop = new Vector2(topLeft.X + 24f, y + 24f);
+            DrawPanel(barTop, new Vector2(220f, 6f), new Vector4(0.2f, 0.2f, 0.22f, 1f));
+            DrawPanel(barTop, new Vector2(220f * xpRatio, 6f), new Vector4(0.4f, 0.85f, 0.5f, 1f));
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{monster.Experience}/{xpForNextLevel} XP", barTop + new Vector2(230f, -4f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+            y += 42f;
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : DONNER UN OBJET A LA CREATURE SELECTIONNEE", new Vector2(w / 2f, topLeft.Y + boxHeight - 44f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    }
+
+    if (monsterMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, monsterMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -2436,15 +2987,21 @@ void DrawDungeonCorridor(int w, int h)
     if (dungeonRoomIndex >= dungeonFloor.Rooms.Count)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ETAGE TERMINE !", new Vector2(w / 2f, h * 0.68f), 3f, new Vector4(0.5f, 0.9f, 0.5f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR DESCENDRE A L'ETAGE SUIVANT", new Vector2(w / 2f, h * 0.80f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawPromptBanner("APPUYEZ SUR [ENTREE] POUR DESCENDRE", new Vector2(w / 2f, h * 0.82f));
     }
     else
     {
         var room = dungeonFloor.Rooms[dungeonRoomIndex];
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, DungeonRoomFlavor(room.EncounterType, dungeonChestOpened), new Vector2(w / 2f, h * 0.62f), 2.1f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
 
-        var prompt = combatStartTask is not null ? "..." : DungeonRoomPrompt(room.EncounterType, dungeonChestOpened);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h * 0.80f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        if (combatStartTask is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.82f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        }
+        else
+        {
+            DrawPromptBanner(DungeonRoomPrompt(room.EncounterType, dungeonChestOpened), new Vector2(w / 2f, h * 0.82f));
+        }
     }
 
     if (dungeonRoomMessage is not null)
@@ -2458,6 +3015,29 @@ void DrawDungeonCorridor(int w, int h)
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR SORTIR DU DONJON", new Vector2(w / 2f, h * 0.92f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Bandeau d'action mis en évidence (fond sombre + bordure pulsante + texte agrandi) — voir
+/// retour utilisateur ("le fait d'appuyer sur Entrée doit être mieux affiché pour que les gens
+/// comprennent"). Utilisé pour les invites d'action importantes (couloir de donjon) plutôt que du
+/// simple texte centré qui se perdait visuellement.
+/// </summary>
+void DrawPromptBanner(string text, Vector2 center)
+{
+    var pulse = 0.6f + 0.4f * MathF.Sin(animationClock * 4f);
+    const float pixelSize = 2.3f;
+    var textWidth = TextRenderer.MeasureWidth(text, pixelSize);
+    var boxSize = new Vector2(textWidth + 48f, 44f);
+    var topLeft = center - boxSize / 2f;
+
+    DrawPanel(topLeft, boxSize, new Vector4(0.12f, 0.10f, 0.04f, 0.92f));
+    DrawPanel(topLeft, new Vector2(boxSize.X, 4f), new Vector4(0.95f, 0.55f + 0.35f * pulse, 0.25f, 1f));
+    DrawPanel(new Vector2(topLeft.X, topLeft.Y + boxSize.Y - 4f), new Vector2(boxSize.X, 4f), new Vector4(0.95f, 0.55f + 0.35f * pulse, 0.25f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, text,
+        center - new Vector2(0, TextRenderer.LineHeight(pixelSize) / 2f - 4f),
+        pixelSize, new Vector4(1f, 0.75f + 0.25f * pulse, 0.35f, 1f));
 }
 
 static Vector4 DungeonRoomColor(DungeonEncounterType type) => type switch
@@ -2514,6 +3094,50 @@ static string DungeonRoomPrompt(DungeonEncounterType type, bool chestOpened) => 
     _ => "APPUYEZ SUR ENTREE POUR CONTINUER",
 };
 
+/// <summary>Géométrie de la grille de combat à l'écran — factorisé pour rester identique entre <see cref="DrawCombat"/> (rendu) et <see cref="UpdateCombat"/> (détection de clic).</summary>
+(float OriginX, float OriginY, float CellSize) CombatGridGeometry()
+{
+    const float cellSize = 56f;
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+    var gridWidth = combatState!.GridWidth * cellSize;
+    var gridHeight = combatState.GridHeight * cellSize;
+    return (w / 2f - gridWidth / 2f, h / 2f - gridHeight / 2f - 30f, cellSize);
+}
+
+/// <summary>Cases atteignables par l'action en cours (Déplacement/Attaque) — voir retour utilisateur ("on doit pouvoir voir jusqu'où on peut se déplacer/attaquer").</summary>
+IEnumerable<(int X, int Y)> CombatReachableCells(CombatantState actor, CombatActionType action)
+{
+    var targetsEnemy = action is CombatActionType.Attack or CombatActionType.Capture;
+    var range = targetsEnemy ? actor.AttackRange : actor.MovementRange;
+
+    for (var y = 0; y < combatState!.GridHeight; y++)
+    {
+        for (var x = 0; x < combatState.GridWidth; x++)
+        {
+            if (Math.Abs(x - actor.PositionX) + Math.Abs(y - actor.PositionY) > range)
+            {
+                continue;
+            }
+
+            if (targetsEnemy)
+            {
+                var target = combatState.Combatants.FirstOrDefault(c => c.IsAlive && c.PositionX == x && c.PositionY == y);
+                if (target is null || target.Team == actor.Team)
+                {
+                    continue;
+                }
+            }
+            else if (combatState.Combatants.Any(c => c.IsAlive && c.PositionX == x && c.PositionY == y))
+            {
+                continue;
+            }
+
+            yield return (x, y);
+        }
+    }
+}
+
 void DrawCombat()
 {
     var w = uiCamera.ViewportWidth;
@@ -2527,11 +3151,7 @@ void DrawCombat()
         return;
     }
 
-    const float cellSize = 56f;
-    var gridWidth = combatState.GridWidth * cellSize;
-    var gridHeight = combatState.GridHeight * cellSize;
-    var originX = w / 2f - gridWidth / 2f;
-    var originY = h / 2f - gridHeight / 2f - 30f;
+    var (originX, originY, cellSize) = CombatGridGeometry();
 
     for (var y = 0; y < combatState.GridHeight; y++)
     {
@@ -2542,8 +3162,18 @@ void DrawCombat()
         }
     }
 
-    if (combatSelectedAction is not null)
+    if (combatSelectedAction is { } selectedAction && combatState.CurrentTurnCombatantId is { } actingId
+        && combatState.Combatants.FirstOrDefault(c => c.Id == actingId) is { } actingCombatant)
     {
+        var highlightColor = selectedAction is CombatActionType.Attack or CombatActionType.Capture
+            ? new Vector4(0.9f, 0.3f, 0.25f, 0.35f)
+            : new Vector4(0.3f, 0.75f, 0.9f, 0.28f);
+
+        foreach (var (x, y) in CombatReachableCells(actingCombatant, selectedAction))
+        {
+            DrawPanel(new Vector2(originX + x * cellSize + 1, originY + y * cellSize + 1), new Vector2(cellSize - 2, cellSize - 2), highlightColor);
+        }
+
         DrawPanel(new Vector2(originX + combatCursorX * cellSize + 1, originY + combatCursorY * cellSize + 1),
             new Vector2(cellSize - 2, cellSize - 2), new Vector4(0.9f, 0.75f, 0.35f, 0.4f));
     }
@@ -2613,14 +3243,54 @@ void DrawCombat()
         {
             if (combatSelectedAction is null)
             {
-                var options4 = captureSphereItemId is not null ? "  4:CAPTURER" : "";
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"1:DEPLACER  2:ATTAQUER  3:PASSER{options4}", new Vector2(w / 2f, h - 70f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+                // Boutons cliquables (voir retour utilisateur — "on doit pouvoir cliquer pour
+                // faire les actions") en plus des raccourcis clavier 1/2/3/4, toujours actifs.
+                List<(string Label, CombatActionType Action)> actionButtons =
+                [
+                    ("1:DEPLACER", CombatActionType.Move),
+                    ("2:ATTAQUER", CombatActionType.Attack),
+                    ("3:PASSER", CombatActionType.Pass),
+                ];
+
+                if (captureSphereItemId is not null)
+                {
+                    actionButtons.Add(("4:CAPTURER", CombatActionType.Capture));
+                }
+
+                const float buttonPixelSize = 2f;
+                const float buttonGap = 28f;
+                var widths = actionButtons.Select(b => TextRenderer.MeasureWidth(b.Label, buttonPixelSize)).ToList();
+                var totalWidth = widths.Sum() + buttonGap * (actionButtons.Count - 1);
+                var buttonX = w / 2f - totalWidth / 2f;
+
+                for (var i = 0; i < actionButtons.Count; i++)
+                {
+                    var center = new Vector2(buttonX + widths[i] / 2f, h - 70f);
+                    if (DrawClickableCentered(actionButtons[i].Label, center, buttonPixelSize, new Vector4(0.9f, 0.75f, 0.35f, 1f)))
+                    {
+                        if (actionButtons[i].Action == CombatActionType.Pass)
+                        {
+                            SendCombatAction(CombatActionType.Pass, 0, 0);
+                        }
+                        else
+                        {
+                            var current = combatState.Combatants.First(c => c.Id == combatState.CurrentTurnCombatantId);
+                            combatSelectedAction = actionButtons[i].Action;
+                            combatCursorX = current.PositionX;
+                            combatCursorY = current.PositionY;
+                        }
+                    }
+
+                    buttonX += widths[i] + buttonGap;
+                }
             }
             else
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture,
-                    $"{combatSelectedAction.ToString()!.ToUpperInvariant()} - FLECHES : VISER - ENTREE : VALIDER - ECHAP : ANNULER",
-                    new Vector2(w / 2f, h - 70f), 1.9f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+                var label = $"{combatSelectedAction.ToString()!.ToUpperInvariant()} - CLIQUEZ/FLECHES+ENTREE POUR AGIR - ECHAP : ANNULER";
+                if (DrawClickableCentered(label, new Vector2(w / 2f, h - 70f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f)))
+                {
+                    combatSelectedAction = null;
+                }
             }
         }
         else
@@ -3030,6 +3700,15 @@ enum PanelKind
     Shop,
     Party,
     Arena,
+    Monsters,
+}
+
+/// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
+enum GuildPanelMode
+{
+    None,
+    Create,
+    Search,
 }
 
 /// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe).</summary>

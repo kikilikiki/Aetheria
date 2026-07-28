@@ -302,6 +302,33 @@ de gameplay.
     voyage/téléportation). Le raccourci `--characterId` (lancement direct sans passer par l'écran
     de sélection) garde par défaut le royaume Nature faute de pouvoir résoudre le personnage sans
     appel réseau supplémentaire à ce stade du démarrage.
+14. ✅ Retours utilisateur après premier test en conditions réelles (combat trop long, actions
+    clavier uniquement, panneaux incomplets) :
+    - ✅ **Équilibrage du combat** (`CombatEngine.ResolveAttack`) : la Défense n'est plus
+      soustraite en entier de l'Attaque, seulement à moitié (`Attack - Defense / 2`, plancher à 2
+      au lieu de 1) — avec l'Attaque du joueur (10) et des créatures dont la Défense de base
+      atteint 15, la soustraction complète plafonnait presque tous les coups à 1 dégât contre des
+      PV de 26-60, rendant les combats interminables ("les monstres ont beaucoup trop de vie").
+    - ✅ Cases de déplacement/attaque affichées avant de valider une action (`CombatantState`
+      expose désormais `MovementRange`/`AttackRange`, absents jusqu'ici — `CombatReachableCells`
+      calcule les cases valides côté Client).
+    - ✅ Actions cliquables en plus du clavier partout où c'était encore clavier-only :
+      `DrawClickableCentered` (surlignage au survol + détection de clic) réutilisé pour les
+      boutons d'action de combat, le clic direct sur une case de la grille de combat, et une
+      nouvelle barre de boutons HUD (`DrawOutdoorHudButtons`, coin haut-droit) pour ouvrir
+      Inventaire/Montres/Groupe/Guilde/Boutique/Arène sans connaître les raccourcis clavier.
+    - ✅ Panneau Guilde réellement fonctionnel (`UpdateGuildPanel`/`GuildPanelMode`) : jusqu'ici en
+      lecture seule (n'affichait que la guilde déjà rejointe). Ajoute créer (`C`), rechercher par
+      nom et rejoindre (`R`) — nouvel endpoint `GET /api/guilds` (`GuildService.SearchAsync`,
+      absent jusqu'ici, seul `GET /api/guilds/mine` existait).
+    - ✅ UI de gestion des créatures (`PanelKind.Monsters`, touche `M`) : liste des créatures avec
+      niveau/barre d'XP, et "donner un objet" (touche `D`) qui consomme un objet d'inventaire
+      contre de l'XP (`MonsterCareService.GiveItemAsync`,
+      `POST /api/monsters/{id}/give-item`). Les créatures **ne montaient jamais de niveau** avant
+      cette phase (seul le personnage en gagnait) : `MonsterProgressionService` ajoute aussi de
+      l'XP aux créatures alliées survivantes à chaque victoire PvE (même mécanisme que le
+      personnage). **Simplification assumée** : tout objet donné accorde le même montant fixe
+      d'XP, pas encore d'effets différenciés par objet.
 
 > **Incident évité en testant :** une première tentative de vérification visuelle du site web
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche

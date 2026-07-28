@@ -47,6 +47,48 @@ public sealed class GameDataApiClient : IDisposable
         return await response.Content.ReadFromJsonAsync<GuildSummary>(JsonOptions, ct);
     }
 
+    /// <summary>Recherche de guildes par nom (voir GDD — panneau Guilde). Toutes les guildes si <paramref name="search"/> est vide.</summary>
+    public async Task<List<GuildSummary>> SearchGuildsAsync(string? search, CancellationToken ct = default)
+    {
+        var query = string.IsNullOrWhiteSpace(search) ? string.Empty : $"?search={Uri.EscapeDataString(search)}";
+        var result = await _http.GetFromJsonAsync<List<GuildSummary>>($"/api/guilds{query}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<GuildSummary> CreateGuildAsync(string sessionToken, Guid characterId, string name, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/guilds", new CreateGuildRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            Name = name,
+        }, JsonOptions, ct);
+
+        return await ReadGuildResultAsync(response, ct);
+    }
+
+    public async Task<GuildSummary> JoinGuildAsync(string sessionToken, Guid characterId, Guid guildId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/guilds/{guildId}/join", new JoinGuildRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return await ReadGuildResultAsync(response, ct);
+    }
+
+    private static async Task<GuildSummary> ReadGuildResultAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        return (await response.Content.ReadFromJsonAsync<GuildSummary>(JsonOptions, ct))!;
+    }
+
     public async Task<PartySummary?> GetMyPartyAsync(Guid characterId, CancellationToken ct = default)
     {
         var response = await _http.GetAsync($"/api/parties/mine?characterId={characterId}", ct);
@@ -98,6 +140,13 @@ public sealed class GameDataApiClient : IDisposable
         }
 
         return (await response.Content.ReadFromJsonAsync<PartySummary>(JsonOptions, ct))!;
+    }
+
+    /// <summary>Catalogue complet des espèces (voir GDD — UI de gestion des montres, résolution du nom d'affichage).</summary>
+    public async Task<List<MonsterSpeciesData>> GetAllSpeciesAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<MonsterSpeciesData>>("/api/monsters/species", JsonOptions, ct);
+        return result ?? [];
     }
 
     public async Task<List<DungeonData>> GetDungeonsAsync(CancellationToken ct = default)
@@ -154,6 +203,19 @@ public sealed class GameDataApiClient : IDisposable
 
         var body = await response.Content.ReadFromJsonAsync<ShopPurchaseResponse>(cancellationToken: ct);
         return body!;
+    }
+
+    /// <summary>Donne un objet d'inventaire à une créature (voir GDD — UI de gestion des montres).</summary>
+    public async Task<MonsterInstanceData?> GiveItemToMonsterAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/monsters/{monsterId}/give-item", new GiveItemToMonsterRequest
+        {
+            SessionToken = sessionToken,
+            MonsterId = monsterId,
+            ItemId = itemId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
     }
 
     public void Dispose() => _http.Dispose();
