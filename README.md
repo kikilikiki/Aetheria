@@ -70,14 +70,22 @@ build/bin/Aetheria.Launcher/Debug/net10.0-windows/Aetheria.Launcher.exe
 
 Le fichier `Server/Persistence/AdminAccountSeeder.cs` crée un compte administrateur au premier
 démarrage du serveur. Il **n'est pas versionné** (voir `.gitignore`) pour ne pas publier
-d'identifiants, même par défaut. Avant de lancer le serveur pour la première fois :
+d'identifiants, même par défaut — seul `Server/Persistence/AdminAccountSeeder.exemple` (un
+modèle, sans vrai secret) est dans le dépôt. Avant de lancer le serveur pour la première fois,
+deux étapes obligatoires :
 
-```powershell
-Copy-Item Server/Persistence/AdminAccountSeeder.exemple Server/Persistence/AdminAccountSeeder.cs
-```
+1. **Renommez** `Server/Persistence/AdminAccountSeeder.exemple` en
+   `Server/Persistence/AdminAccountSeeder.cs` :
 
-Puis modifiez `DefaultUsername`/`DefaultEmail`/`DefaultPassword` dans ce fichier avec vos propres
-identifiants avant de compiler/lancer le serveur.
+   ```powershell
+   Rename-Item Server/Persistence/AdminAccountSeeder.exemple AdminAccountSeeder.cs
+   ```
+
+2. **Modifiez** ce nouveau fichier `AdminAccountSeeder.cs` : changez `DefaultUsername`,
+   `DefaultEmail` et surtout `DefaultPassword` pour vos propres identifiants avant de
+   compiler/lancer le serveur.
+
+Sans ce fichier, le projet ne compile pas (`Server/Program.cs` référence `AdminAccountSeeder`).
 
 ## Licence
 

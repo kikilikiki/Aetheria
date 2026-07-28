@@ -11,6 +11,7 @@ using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
+using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Settings;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
@@ -54,6 +55,20 @@ NearbyInteraction? nearbyInteraction = null;
 var interiorTitle = string.Empty;
 var interiorBodyLines = Array.Empty<string>();
 var interiorAccent = new Vector4(0.5f, 0.5f, 0.5f, 1f);
+var interiorIsDungeon = false;
+
+// Combat tactique (voir Server/World/CombatService.cs) : déclenché depuis l'intérieur du
+// donjon (Entrée pour affronter un monstre sauvage) — voir GDD section Combats. Grille 7x7,
+// actions Move/Attack/Pass/Capture, IA gérée côté serveur entre deux tours joueur.
+CombatApiClient? combatApi = null;
+CombatSessionState? combatState = null;
+var combatCursorX = 0;
+var combatCursorY = 0;
+CombatActionType? combatSelectedAction = null;
+string? combatMessage = null;
+int? captureSphereItemId = null;
+Task<CombatResult>? combatStartTask = null;
+Task<CombatResult>? combatActionTask = null;
 
 // Dialogue PNJ, superposé au monde extérieur (le déplacement se fige tant qu'il est ouvert).
 Npc? activeDialogueNpc = null;
@@ -120,6 +135,7 @@ if (isConnectedMode)
     starterApi = new StarterApiClient(options.Host);
     characterApi = new CharacterApiClient(options.Host);
     gameDataApi = new GameDataApiClient(options.Host);
+    combatApi = new CombatApiClient(options.Host);
 
     if (chosenCharacterId is null)
     {
@@ -225,11 +241,42 @@ host.Update += deltaTime =>
 
     if (sceneMode == SceneMode.Interior)
     {
-        if (keyboard.WasJustPressed(Key.Escape))
+        if (combatStartTask is { IsCompleted: true } startedTask)
+        {
+            if (startedTask.IsFaulted)
+            {
+                combatMessage = "Connexion au serveur impossible.";
+            }
+            else if (startedTask.Result.IsSuccess)
+            {
+                combatState = startedTask.Result.State;
+                combatSelectedAction = null;
+                combatMessage = null;
+                sceneMode = SceneMode.Combat;
+            }
+            else
+            {
+                combatMessage = startedTask.Result.Error;
+            }
+
+            combatStartTask = null;
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
         {
             sceneMode = SceneMode.Outdoor;
         }
+        else if (interiorIsDungeon && keyboard.WasJustPressed(Key.Enter) && combatStartTask is null)
+        {
+            combatMessage = null;
+            combatStartTask = StartWildCombatAsync();
+        }
 
+        return;
+    }
+
+    if (sceneMode == SceneMode.Combat)
+    {
+        UpdateCombat();
         return;
     }
 
@@ -396,12 +443,14 @@ host.Update += deltaTime =>
                 interiorTitle = interaction.Building!.Name;
                 interiorBodyLines = BuildingFlavor(interaction.Building.Name);
                 interiorAccent = interaction.Building.RoofColor;
+                interiorIsDungeon = false;
                 break;
             case InteractionKind.Dungeon:
                 sceneMode = SceneMode.Interior;
                 interiorTitle = worldMap.DungeonName;
                 interiorBodyLines = DungeonFlavor();
                 interiorAccent = WorldMap.PortalMidColorBright;
+                interiorIsDungeon = true;
                 break;
         }
     }
@@ -483,6 +532,9 @@ host.Render += _ =>
         case SceneMode.Interior:
             DrawInteriorScene();
             break;
+        case SceneMode.Combat:
+            DrawCombat();
+            break;
         case SceneMode.Outdoor:
             DrawOutdoorHud();
             break;
@@ -497,6 +549,7 @@ connection?.Dispose();
 starterApi?.Dispose();
 characterApi?.Dispose();
 gameDataApi?.Dispose();
+combatApi?.Dispose();
 
 static Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, int Y) to)
 {
@@ -966,6 +1019,135 @@ void UpdatePanel()
     }
 }
 
+async Task<CombatResult> StartWildCombatAsync()
+{
+    if (combatApi is null || starterApi is null || gameDataApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return new CombatResult(null, "Connexion requise.");
+    }
+
+    try
+    {
+        var inventory = await gameDataApi.GetInventoryAsync(chosenCharacterId.Value);
+        captureSphereItemId = inventory.FirstOrDefault(i => i.ItemType == ItemType.ObjetDeCapture)?.ItemId;
+
+        var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
+        var monsterIds = monsters.Select(m => m.Id).Take(4).ToList();
+
+        var species = await starterApi.GetStarterSpeciesAsync();
+        if (species.Count == 0)
+        {
+            return new CombatResult(null, "Aucune créature sauvage disponible.");
+        }
+
+        var wildSpecies = species[Random.Shared.Next(species.Count)];
+        return await combatApi.StartAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, wildSpecies.Id);
+    }
+    catch (HttpRequestException)
+    {
+        return new CombatResult(null, "Connexion au serveur impossible.");
+    }
+}
+
+void SendCombatAction(CombatActionType actionType, int x, int y, int? captureItemId = null)
+{
+    if (combatApi is null || combatState is null || options.SessionToken is null)
+    {
+        return;
+    }
+
+    combatActionTask = combatApi.SubmitActionAsync(options.SessionToken, combatState.CombatId, actionType, x, y, captureItemId);
+    combatSelectedAction = null;
+}
+
+void UpdateCombat()
+{
+    if (combatActionTask is { IsCompleted: true } task)
+    {
+        if (task.IsFaulted || !task.Result.IsSuccess)
+        {
+            combatMessage = task.IsFaulted ? "Connexion au serveur impossible." : task.Result.Error;
+        }
+        else
+        {
+            combatState = task.Result.State;
+            combatMessage = null;
+        }
+
+        combatActionTask = null;
+        return;
+    }
+
+    if (combatState is null || combatActionTask is not null)
+    {
+        return;
+    }
+
+    if (combatState.IsFinished)
+    {
+        if (keyboard.WasJustPressed(Key.Enter) || keyboard.WasJustPressed(Key.Escape))
+        {
+            sceneMode = SceneMode.Interior;
+            combatState = null;
+            combatSelectedAction = null;
+        }
+
+        return;
+    }
+
+    var myTurn = combatState.CurrentTurnCombatantId is { } currentId
+        && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { Team: 0 };
+
+    if (!myTurn)
+    {
+        return;
+    }
+
+    if (combatSelectedAction is null)
+    {
+        var current = combatState.Combatants.First(c => c.Id == combatState.CurrentTurnCombatantId);
+
+        if (keyboard.WasJustPressed(Key.Number1))
+        {
+            combatSelectedAction = CombatActionType.Move;
+            combatCursorX = current.PositionX;
+            combatCursorY = current.PositionY;
+        }
+        else if (keyboard.WasJustPressed(Key.Number2))
+        {
+            combatSelectedAction = CombatActionType.Attack;
+            combatCursorX = current.PositionX;
+            combatCursorY = current.PositionY;
+        }
+        else if (keyboard.WasJustPressed(Key.Number3))
+        {
+            SendCombatAction(CombatActionType.Pass, 0, 0);
+        }
+        else if (keyboard.WasJustPressed(Key.Number4) && captureSphereItemId is not null)
+        {
+            combatSelectedAction = CombatActionType.Capture;
+            combatCursorX = current.PositionX;
+            combatCursorY = current.PositionY;
+        }
+    }
+    else
+    {
+        if (keyboard.WasJustPressed(Key.Right)) combatCursorX = Math.Min(combatCursorX + 1, combatState.GridWidth - 1);
+        else if (keyboard.WasJustPressed(Key.Left)) combatCursorX = Math.Max(combatCursorX - 1, 0);
+        else if (keyboard.WasJustPressed(Key.Down)) combatCursorY = Math.Min(combatCursorY + 1, combatState.GridHeight - 1);
+        else if (keyboard.WasJustPressed(Key.Up)) combatCursorY = Math.Max(combatCursorY - 1, 0);
+        else if (keyboard.WasJustPressed(Key.Enter))
+        {
+            var action = combatSelectedAction.Value;
+            SendCombatAction(action, combatCursorX, combatCursorY, action == CombatActionType.Capture ? captureSphereItemId : null);
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            combatSelectedAction = null;
+        }
+    }
+}
+
 void UpdateStarterSelection(float deltaTime)
 {
     starterAnimClock += deltaTime;
@@ -1359,7 +1541,127 @@ void DrawInteriorScene()
         lineY += TextRenderer.LineHeight(2.6f) + 6f;
     }
 
+    if (interiorIsDungeon)
+    {
+        var prompt = combatStartTask is not null ? "..." : "APPUYEZ SUR ENTREE POUR AFFRONTER UN MONSTRE SAUVAGE";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h * 0.80f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+
+        if (combatMessage is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        }
+    }
+
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
+}
+
+void DrawCombat()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.05f, 0.05f, 0.08f, 1f));
+
+    if (combatState is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT DU COMBAT...", new Vector2(w / 2f, h / 2f), 3f, Vector4.One);
+        return;
+    }
+
+    const float cellSize = 56f;
+    var gridWidth = combatState.GridWidth * cellSize;
+    var gridHeight = combatState.GridHeight * cellSize;
+    var originX = w / 2f - gridWidth / 2f;
+    var originY = h / 2f - gridHeight / 2f - 30f;
+
+    for (var y = 0; y < combatState.GridHeight; y++)
+    {
+        for (var x = 0; x < combatState.GridWidth; x++)
+        {
+            var cellColor = (x + y) % 2 == 0 ? new Vector4(0.14f, 0.15f, 0.19f, 1f) : new Vector4(0.11f, 0.12f, 0.16f, 1f);
+            DrawPanel(new Vector2(originX + x * cellSize + 1, originY + y * cellSize + 1), new Vector2(cellSize - 2, cellSize - 2), cellColor);
+        }
+    }
+
+    if (combatSelectedAction is not null)
+    {
+        DrawPanel(new Vector2(originX + combatCursorX * cellSize + 1, originY + combatCursorY * cellSize + 1),
+            new Vector2(cellSize - 2, cellSize - 2), new Vector4(0.9f, 0.75f, 0.35f, 0.4f));
+    }
+
+    foreach (var combatant in combatState.Combatants)
+    {
+        if (!combatant.IsAlive)
+        {
+            continue;
+        }
+
+        var center = new Vector2(originX + combatant.PositionX * cellSize + cellSize / 2f, originY + combatant.PositionY * cellSize + cellSize / 2f);
+        var color = combatant.Team == 0 ? new Vector4(0.35f, 0.55f, 0.85f, 1f) : new Vector4(0.8f, 0.3f, 0.3f, 1f);
+
+        if (combatant.Id == combatState.CurrentTurnCombatantId)
+        {
+            DrawPanel(center - new Vector2(cellSize / 2f - 2, cellSize / 2f - 2), new Vector2(cellSize - 4, cellSize - 4), new Vector4(1f, 1f, 1f, 0.15f));
+        }
+
+        DrawStarterPortrait(center, cellSize * 0.32f, color);
+
+        var hpRatio = Math.Clamp((float)combatant.CurrentHealth / combatant.MaxHealth, 0f, 1f);
+        var barWidth = cellSize * 0.8f;
+        var barTop = center - new Vector2(barWidth / 2f, cellSize * 0.5f);
+        DrawPanel(barTop, new Vector2(barWidth, 6f), new Vector4(0.2f, 0.05f, 0.05f, 1f));
+        DrawPanel(barTop, new Vector2(barWidth * hpRatio, 6f), new Vector4(0.3f, 0.8f, 0.3f, 1f));
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatant.Name.ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f), 1.1f, Vector4.One);
+    }
+
+    if (combatState.IsFinished)
+    {
+        var resultText = combatState.WinningTeam == 0 ? "VICTOIRE !" : "DEFAITE...";
+        var resultColor = combatState.WinningTeam == 0 ? new Vector4(0.4f, 0.9f, 0.4f, 1f) : new Vector4(0.9f, 0.4f, 0.4f, 1f);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, h - 120f), 4f, resultColor);
+
+        if (combatState.LastMessage is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 80f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR CONTINUER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    }
+    else
+    {
+        if (combatState.LastMessage is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 150f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        }
+
+        var myTurn = combatState.CurrentTurnCombatantId is { } currentId
+            && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { Team: 0 };
+
+        if (myTurn)
+        {
+            if (combatSelectedAction is null)
+            {
+                var options4 = captureSphereItemId is not null ? "  4:CAPTURER" : "";
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"1:DEPLACER  2:ATTAQUER  3:PASSER{options4}", new Vector2(w / 2f, h - 70f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            }
+            else
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture,
+                    $"{combatSelectedAction.ToString()!.ToUpperInvariant()} - FLECHES : VISER - ENTREE : VALIDER - ECHAP : ANNULER",
+                    new Vector2(w / 2f, h - 70f), 1.9f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            }
+        }
+        else
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TOUR ADVERSE...", new Vector2(w / 2f, h - 70f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+    }
+
+    if (combatMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h - 20f), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+    }
 }
 
 /// <summary>
@@ -1681,6 +1983,7 @@ enum SceneMode
     Outdoor,
     Interior,
     StarterSelection,
+    Combat,
 }
 
 enum CreateStage
