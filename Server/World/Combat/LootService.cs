@@ -126,6 +126,25 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Résout automatiquement tout butin non entièrement réclamé depuis plus de
+    /// <paramref name="timeout"/> (voir GDD/demande utilisateur — "timer de 10 secondes pour le
+    /// choix des gains") : les joueurs n'ayant pas encore choisi ne remportent simplement aucun
+    /// objet (voir <see cref="LootRoll.Resolve"/>, déjà tolérant à des réclamations partielles).
+    /// Appelé par <c>CombatTimeoutScheduler</c>, pas par un client.
+    /// </summary>
+    public async Task ResolveTimedOutAsync(IEnumerable<LootSession> sessions, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var cutoff = DateTime.UtcNow - timeout;
+        foreach (var session in sessions)
+        {
+            if (!session.IsResolved && session.CreatedAtUtc < cutoff)
+            {
+                await ResolveAsync(session, ct);
+            }
+        }
+    }
+
     private static LootSessionState ToState(LootSession session) => new()
     {
         LootId = session.Id,
@@ -135,5 +154,6 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
         IsResolved = session.IsResolved,
         Winners = session.Winners,
         ClaimCountsByItemIndex = session.Claims.Values.GroupBy(i => i).ToDictionary(g => g.Key, g => g.Count()),
+        CreatedAtUtc = session.CreatedAtUtc,
     };
 }

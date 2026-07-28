@@ -31,6 +31,16 @@ public sealed class GameSettings
     /// </summary>
     public string ServerHost { get; set; } = "176.150.163.19";
 
+    /// <summary>
+    /// Jeton de session persisté (voir GDD/demande utilisateur — "après la connexion à un
+    /// compte, on y reste connecté jusqu'à ce que l'on s'y déconnecte") : le Launcher le
+    /// revalide au démarrage (voir <c>MainViewModel</c>, endpoint <c>/api/account/session</c>)
+    /// plutôt que de redemander les identifiants à chaque lancement. Effacé à la déconnexion
+    /// explicite, ou automatiquement si la revalidation échoue (serveur redémarré depuis, jeton
+    /// expiré, compte banni/supprimé entre-temps).
+    /// </summary>
+    public string? SessionToken { get; set; }
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Aetheria", "settings.json");
 

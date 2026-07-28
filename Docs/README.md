@@ -800,6 +800,30 @@ de gameplay.
       par un style `ComboBoxItem` explicite (fond sombre, texte clair, surbrillance au survol).
     - Barre de défilement ajoutée (toujours visible, pas seulement "Auto") sur le panneau
       d'actions du panneau Communauté.
+28. ✅ Correctif : sondage du butin + timers de combat/gains + connexion persistante du Launcher
+    (voir GDD/demande utilisateur) :
+    - **Vrai correctif du choix d'objet bloqué en groupe** : comme pour le combat (point 25), le
+      client ne rafraîchissait `activeLoot` que via sa PROPRE réclamation — un coéquipier
+      n'apprenait jamais qu'un autre joueur avait choisi (ni qu'un timer avait résolu le butin,
+      voir ci-dessous) tant qu'il ne réclamait pas lui-même. Corrigé par le même principe de
+      sondage périodique (`GET /api/loot/{id}` toutes les 0,35s) que le combat.
+    - **Timer de 10 secondes entre chaque tour** (`GameInfo.CombatTurnTimeoutSeconds`) : un
+      combattant humain qui n'agit pas dans le délai voit son tour automatiquement passé
+      (`CombatService.AutoPassIfTimedOutAsync`, appelé par le nouveau `CombatTimeoutScheduler`,
+      tâche de fond vérifiée chaque seconde — même mécanique que `DailyDigestScheduler`). Compte
+      à rebours affiché en combat (approximatif côté client, le serveur fait foi).
+    - **Timer de 10 secondes pour le choix des gains** (`GameInfo.LootChoiceTimeoutSeconds`) :
+      un butin non entièrement réclamé est résolu automatiquement après ce délai
+      (`LootService.ResolveTimedOutAsync`, même `CombatTimeoutScheduler`) — les joueurs n'ayant
+      pas choisi ne remportent simplement aucun objet (`LootRoll.Resolve` tolère déjà les
+      réclamations partielles). Compte à rebours affiché sur l'écran de butin.
+    - **Connexion persistante du Launcher** (voir GDD/demande utilisateur — "on y reste connecté
+      jusqu'à ce que l'on s'y déconnecte") : le jeton de session est persisté
+      (`GameSettings.SessionToken`) et revalidé au démarrage via le nouvel endpoint léger
+      `GET /api/account/session` — évite de redemander les identifiants à chaque lancement.
+      Effacé uniquement à la déconnexion explicite, ou automatiquement si la revalidation échoue
+      (serveur redémarré depuis — `SessionTokenStore` vit en mémoire — ou compte banni/supprimé
+      entre-temps).
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

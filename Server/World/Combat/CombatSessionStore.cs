@@ -28,6 +28,9 @@ public sealed class CombatSessionStore
 
     public void Remove(Guid id) => _sessions.TryRemove(id, out _);
 
+    /// <summary>Tous les combats connus (terminés ou non) — utilisé par <see cref="CombatTimeoutScheduler"/> pour vérifier les délais de tour.</summary>
+    public IReadOnlyCollection<CombatSession> All() => _sessions.Values.ToList();
+
     /// <summary>Combat de groupe déjà en cours pour ce groupe, s'il y en a un (voir GDD/demande utilisateur — combat partagé entre membres d'un groupe).</summary>
     public bool TryGetActiveByPartyId(Guid partyId, out CombatSession session)
     {

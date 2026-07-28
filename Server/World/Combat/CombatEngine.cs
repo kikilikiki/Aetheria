@@ -14,6 +14,7 @@ internal static class CombatEngine
     {
         session.Combatants = [.. session.Combatants.OrderByDescending(c => c.Speed)];
         session.TurnIndex = 0;
+        session.TurnStartedAtUtc = DateTime.UtcNow;
         CheckEndCondition(session);
     }
 
@@ -195,6 +196,7 @@ internal static class CombatEngine
             session.TurnIndex = (session.TurnIndex + 1) % session.Combatants.Count;
             if (session.CurrentCombatant!.IsAlive)
             {
+                session.TurnStartedAtUtc = DateTime.UtcNow;
                 return;
             }
         }

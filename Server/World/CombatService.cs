@@ -344,6 +344,41 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 throw new AccountOperationException("Action de combat inconnue.");
         }
 
+        await FinalizeTurnAsync(session, wasCapture: request.ActionType == CombatActionType.Capture, ct);
+
+        return ToState(session);
+    }
+
+    /// <summary>
+    /// Fait passer automatiquement le combattant dont c'est le tour s'il a dépassé le délai
+    /// imparti (voir GDD/demande utilisateur — "timer de 10 secondes entre chaque tour") : ne
+    /// vise que les combattants humains (les combattants IA sont déjà résolus immédiatement, voir
+    /// <see cref="CombatEngine.RunAiTurnsUntilPlayerTurn"/>). Appelé par un service d'arrière-plan
+    /// (voir <c>CombatTimeoutScheduler</c>), pas par un client — aucun jeton de session à valider,
+    /// contrairement à <see cref="SubmitActionAsync"/>.
+    /// </summary>
+    public async Task<bool> AutoPassIfTimedOutAsync(CombatSession session, TimeSpan turnTimeout, CancellationToken ct = default)
+    {
+        if (session.IsFinished)
+        {
+            return false;
+        }
+
+        var actor = session.CurrentCombatant;
+        if (actor is not { IsPlayerControlled: true } || DateTime.UtcNow - session.TurnStartedAtUtc < turnTimeout)
+        {
+            return false;
+        }
+
+        session.LastMessage = $"{actor.Name} n'a pas agi à temps et passe son tour.";
+        CombatEngine.AdvanceTurn(session);
+        await FinalizeTurnAsync(session, wasCapture: false, ct);
+        return true;
+    }
+
+    /// <summary>Logique commune de fin de tour/fin de combat (voir GDD — récompenses PvE/PvP/Arène), partagée entre <see cref="SubmitActionAsync"/> et <see cref="AutoPassIfTimedOutAsync"/>.</summary>
+    private async Task FinalizeTurnAsync(CombatSession session, bool wasCapture, CancellationToken ct)
+    {
         if (!session.IsFinished)
         {
             CombatEngine.RunAiTurnsUntilPlayerTurn(session);
@@ -359,7 +394,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             {
                 await ApplyPvpResultAsync(session, ct);
             }
-            else if (request.ActionType != CombatActionType.Capture)
+            else if (!wasCapture)
             {
                 session.LootId = await ApplyPveVictoryRewardsAsync(session, ct);
             }
@@ -370,8 +405,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // pas") doit pouvoir le lire comme terminé, avec le même LootId, pas comme introuvable.
             session.FinishedAtUtc = DateTime.UtcNow;
         }
-
-        return ToState(session);
     }
 
     /// <summary>
@@ -713,5 +746,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         session.WinningTeam,
         session.LastMessage,
         session.LootId,
-        session.IsDungeonCombat);
+        session.IsDungeonCombat,
+        session.TurnStartedAtUtc);
 }

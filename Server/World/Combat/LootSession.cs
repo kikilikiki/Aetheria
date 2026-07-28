@@ -16,4 +16,7 @@ public sealed class LootSession
 
     /// <summary>Index de l'objet -> personnage gagnant, renseigné uniquement après résolution.</summary>
     public IReadOnlyDictionary<int, Guid>? Winners { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "timer de 10 secondes pour le choix des gains" (<see cref="Aetheria.Shared.GameInfo.LootChoiceTimeoutSeconds"/>), vérifié par <c>CombatTimeoutScheduler</c>.</summary>
+    public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
 }

@@ -160,6 +160,27 @@ app.MapPost("/api/account/login", async (LoginRequest request, HttpContext httpC
     }
 });
 
+// Revalidation légère d'un jeton de session persisté (voir GDD/demande utilisateur — "rester
+// connecté jusqu'à la déconnexion") : le Launcher l'appelle à son démarrage plutôt que de
+// redemander les identifiants, tant que le serveur (dont le SessionTokenStore vit en mémoire)
+// n'a pas redémarré et que le compte n'a pas été banni/supprimé entre-temps.
+app.MapGet("/api/account/session", async (string sessionToken) =>
+{
+    if (!app.Services.GetRequiredService<SessionTokenStore>().TryValidate(sessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null || user.IsDeleted || user.IsBanned)
+    {
+        return Results.Json(new ApiError { Message = "Compte introuvable, supprimé ou banni." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    return Results.Ok(new SessionInfoResponse { UserId = userId, IsAdmin = user.IsAdmin, Rank = user.Rank });
+});
+
 // Liste des personnages du compte authentifié — utilisé par le Client pour l'écran de
 // sélection/création en jeu (voir GDD : la création ne se fait plus dans le Launcher).
 app.MapGet("/api/characters/mine", async (string sessionToken) =>
@@ -1300,7 +1321,18 @@ var dailyDigestScheduler = new DailyDigestScheduler(
     app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<DailyDigestScheduler>());
 var dailyDigestTask = dailyDigestScheduler.RunAsync(shutdownCts.Token);
 
-await Task.WhenAll(tcpTask, httpTask, dailyDigestTask);
+// Timers de combat/butin (voir GDD/demande utilisateur — "timer de 10 secondes entre chaque
+// tour" et "pour le choix des gains") — tourne en tâche de fond pendant toute la durée de vie
+// du serveur, voir CombatTimeoutScheduler.
+var combatTimeoutScheduler = new Aetheria.Server.World.Combat.CombatTimeoutScheduler(
+    app.Services.GetRequiredService<CombatSessionStore>(),
+    app.Services.GetRequiredService<LootSessionStore>(),
+    app.Services.GetRequiredService<SessionTokenStore>(),
+    dbFactory,
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<Aetheria.Server.World.Combat.CombatTimeoutScheduler>());
+var combatTimeoutTask = combatTimeoutScheduler.RunAsync(shutdownCts.Token);
+
+await Task.WhenAll(tcpTask, httpTask, dailyDigestTask, combatTimeoutTask);
 
 return;
 
