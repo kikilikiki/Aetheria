@@ -20,5 +20,14 @@ public sealed class Combatant
     public required int AttackRange { get; init; }
     public bool IsPlayerControlled { get; init; }
 
+    /// <summary>
+    /// Joueur propriétaire de ce combattant précis — <c>null</c> pour les monstres sauvages
+    /// contrôlés par l'IA. Utilisé pour l'autorisation d'action (voir
+    /// <c>CombatService.SubmitActionAsync</c>) : contrairement à <see cref="Team"/>, permet à
+    /// plusieurs joueurs de partager la même équipe (arènes 2v2/3v3/4v4, voir GDD).
+    /// </summary>
+    public Guid? OwnerUserId { get; init; }
+    public Guid? OwnerCharacterId { get; init; }
+
     public bool IsAlive => CurrentHealth > 0;
 }
