@@ -176,6 +176,18 @@ de gameplay.
      initialement vérifié seulement *au sein d'un même processus* — un vrai bug (voir
      encadré ci-dessous, corrigé en Phase H2) faisait que le contenu changeait en fait à
      chaque redémarrage du serveur ; re-vérifié depuis entre deux processus distincts.
+   - ✅ Position dynamique des donjons sur la carte (`DungeonWorldService.EnsureCurrentPosition`,
+     appelé depuis `GET /api/dungeons`) : chaque donjon reçoit une position (`WorldX`/`WorldY`)
+     tirée de façon déterministe pour l'heure UTC en cours (seed du donjon + numéro d'heure),
+     recalculée paresseusement à la lecture plutôt que par une tâche planifiée — donc identique
+     pour tous les joueurs qui consultent la carte pendant la même heure, sans service en
+     arrière-plan à faire tourner. Vérifié via un harnais console isolé référençant directement
+     les projets compilés : première lecture assigne une position, une lecture dans la même
+     heure ne change rien, forcer un `PositionHourBucket` périmé déclenche un recalcul, et
+     plusieurs seeds de donjon produisent tous des coordonnées dans les limites de la carte.
+     **Non encore fait côté Client** : `Client/World/WorldMap.cs` affiche toujours une entrée de
+     donjon à position fixe et ne lit pas encore `WorldX`/`WorldY` — la rotation horaire de
+     position est pour l'instant un mécanisme serveur seul, sans effet visible en jeu.
    - ✅ Métiers et artisanat (`CharacterProfessionEntity`, `RecipeEntity`,
      `ProfessionService`, `GET /api/professions/recipes`, `POST /api/professions/gather`,
      `POST /api/professions/craft`) : chaîne de départ Mineur → Minerai de fer → Forgeron →

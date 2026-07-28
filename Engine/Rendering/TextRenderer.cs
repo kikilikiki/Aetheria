@@ -21,10 +21,9 @@ public static class TextRenderer
 
     public static float MeasureWidth(string text, float pixelSize)
     {
-        var glyphAdvance = (GlyphColumns + 1) * pixelSize;
         var lineWidth = 0f;
         var maxWidth = 0f;
-        foreach (var ch in text)
+        foreach (var ch in StripDiacritics(text))
         {
             if (ch == '\n')
             {
@@ -33,10 +32,24 @@ public static class TextRenderer
                 continue;
             }
 
-            lineWidth += glyphAdvance;
+            lineWidth += GlyphAdvance(ch, pixelSize);
         }
 
         return MathF.Max(maxWidth, lineWidth);
+    }
+
+    /// <summary>
+    /// Largeur d'avancement d'un glyphe. La plupart font <see cref="GlyphColumns"/> de large, mais
+    /// certaines lettres (N, M, W...) sont volontairement dessinées plus larges pour rester
+    /// distinguables de lettres visuellement proches (K, H) à la petite taille de rendu du jeu —
+    /// voir le commentaire sur ['N'] ci-dessous.
+    /// </summary>
+    private static float GlyphAdvance(char ch, float pixelSize)
+    {
+        var columns = Glyphs.TryGetValue(char.ToUpperInvariant(ch), out var rows) && rows.Length > 0
+            ? rows[0].Length
+            : GlyphColumns;
+        return (columns + 1) * pixelSize;
     }
 
     public static float LineHeight(float pixelSize) => (GlyphRows + 2) * pixelSize;
@@ -45,7 +58,6 @@ public static class TextRenderer
     public static void Draw(SpriteBatch spriteBatch, Texture2D pixel, string text, Vector2 position, float pixelSize, Vector4 color)
     {
         var cursor = position;
-        var glyphAdvance = (GlyphColumns + 1) * pixelSize;
 
         foreach (var ch in StripDiacritics(text))
         {
@@ -71,7 +83,7 @@ public static class TextRenderer
                 }
             }
 
-            cursor += new Vector2(glyphAdvance, 0f);
+            cursor += new Vector2(GlyphAdvance(ch, pixelSize), 0f);
         }
     }
 
@@ -129,7 +141,12 @@ public static class TextRenderer
             ['K'] = ["#.#", "#.#", "##.", "#.#", "#.#"],
             ['L'] = ["#..", "#..", "#..", "#..", "###"],
             ['M'] = ["#.#", "###", "#.#", "#.#", "#.#"],
-            ['N'] = ["#.#", "###", "#.#", "###", "#.#"],
+            // 4 colonnes (au lieu de 3) exprès : avec seulement 3 colonnes, tout dessin de N
+            // (barre pleine ou coude partiel) finissait par ressembler soit à H soit à K à la
+            // petite taille de rendu du jeu (retours utilisateur répétés). La colonne
+            // supplémentaire pour la diagonale rend la silhouette du N clairement plus large
+            // et différente des deux.
+            ['N'] = ["#..#", "##.#", "#.##", "#..#", "#..#"],
             ['O'] = [".#.", "#.#", "#.#", "#.#", ".#."],
             ['P'] = ["##.", "#.#", "##.", "#..", "#.."],
             ['Q'] = [".#.", "#.#", "#.#", "##.", "..#"],

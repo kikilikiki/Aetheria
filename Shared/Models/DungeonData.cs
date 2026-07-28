@@ -12,4 +12,11 @@ public sealed class DungeonData
     public required int KingdomId { get; init; }
     public string Description { get; init; } = string.Empty;
     public int Seed { get; init; }
+
+    /// <summary>
+    /// Position actuelle sur la carte du monde (voir GDD — les donjons apparaissent
+    /// aléatoirement et changent de place toutes les heures, voir DungeonWorldService).
+    /// </summary>
+    public int WorldX { get; init; }
+    public int WorldY { get; init; }
 }
