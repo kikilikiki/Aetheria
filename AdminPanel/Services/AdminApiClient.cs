@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Aetheria.Shared;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
 
@@ -97,6 +98,10 @@ public sealed class AdminApiClient : IDisposable
     public async Task<ApiResult<bool>> SetAdminAsync(Guid userId, string sessionToken, bool isAdmin)
         => await PostAsync($"/api/admin/users/{userId}/set-admin",
             new AdminSetPermissionRequest { SessionToken = sessionToken, IsAdmin = isAdmin });
+
+    public async Task<ApiResult<bool>> SetRankAsync(Guid userId, string sessionToken, UserRank rank)
+        => await PostAsync($"/api/admin/users/{userId}/set-rank",
+            new AdminSetRankRequest { SessionToken = sessionToken, Rank = rank });
 
     private async Task<ApiResult<bool>> PostAsync<T>(string url, T body)
     {

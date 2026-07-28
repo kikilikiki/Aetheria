@@ -588,6 +588,15 @@ de gameplay.
     persisté ni d'affichage automatique à la toute première connexion — F1 reste la seule façon
     de l'ouvrir, ce qui est honnête plutôt que de simuler un onboarding plus élaboré non demandé
     explicitement.
+18. ✅ Système de grade communautaire (voir GDD/demande utilisateur — "ajouter un système de
+    grade, le grade peut être donné par l'admin") : `UserRank` (`Joueur`/`Vétéran`/`Modérateur`/
+    `Administrateur`), nouvelle colonne sur `UserEntity` (migration `AddUserRank`), distincte du
+    flag technique `IsAdmin` (permission) — le grade est un statut communautaire affiché, pas une
+    permission. Assignable depuis l'AdminPanel (colonne "Grade" dans le tableau des joueurs +
+    sélecteur/bouton "Définir le grade" à côté du bouton de permission admin existant), via
+    `POST /api/admin/users/{userId}/set-rank`. **Limite assumée** : le grade n'est pas encore
+    affiché en jeu (tchat, liste des joueurs en ligne) — ce câblage fait l'objet d'un travail
+    séparé en cours.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

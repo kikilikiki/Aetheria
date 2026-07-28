@@ -882,6 +882,7 @@ app.MapGet("/api/admin/users", async (string? search) =>
         IsDeleted = u.IsDeleted,
         CreatedAtUtc = u.CreatedAtUtc,
         CharacterCount = u.Characters.Count,
+        Rank = u.Rank,
     }));
 });
 
@@ -960,6 +961,30 @@ app.MapPost("/api/admin/users/{userId:guid}/set-admin", async (Guid userId, Admi
     }
 
     user.IsAdmin = request.IsAdmin;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+// Grade communautaire (voir GDD/demande utilisateur — "le grade peut être donné par l'admin").
+app.MapPost("/api/admin/users/{userId:guid}/set-rank", async (Guid userId, AdminSetRankRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    user.Rank = request.Rank;
     await db.SaveChangesAsync();
     return Results.Ok();
 });

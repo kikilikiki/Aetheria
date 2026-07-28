@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Aetheria.AdminPanel.Services;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Admin;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -319,6 +320,41 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>Grade choisi dans le sélecteur (voir GDD/demande utilisateur — "le grade peut être donné par l'admin") — initialisé au grade actuel du joueur sélectionné.</summary>
+    [ObservableProperty]
+    private UserRank _selectedRank;
+
+    public IReadOnlyList<UserRank> AvailableRanks { get; } = Enum.GetValues<UserRank>();
+
+    private bool CanSetRank() => SelectedUser is not null && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanSetRank))]
+    private async Task SetRank()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.SetRankAsync(SelectedUser.Id, SessionToken, SelectedRank);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            await Search();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     partial void OnSelectedUserChanged(AdminUserSummary? value)
     {
         BanCommand.NotifyCanExecuteChanged();
@@ -327,6 +363,8 @@ public sealed partial class MainViewModel : ObservableObject
         RestoreUserCommand.NotifyCanExecuteChanged();
         ModifyUserCommand.NotifyCanExecuteChanged();
         ToggleAdminPermissionCommand.NotifyCanExecuteChanged();
+        SetRankCommand.NotifyCanExecuteChanged();
+        SelectedRank = value?.Rank ?? UserRank.Joueur;
     }
 
     partial void OnBanReasonChanged(string value) => BanCommand.NotifyCanExecuteChanged();
