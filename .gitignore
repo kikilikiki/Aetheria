@@ -38,6 +38,6 @@ appsettings.*.local.json
 .DS_Store
 Thumbs.db
 
-# Configuration locale des outils (Claude Code, etc.)
+# Configuration locale des outils (feelsman, etc.)
 .claude/
 .obsidian/
