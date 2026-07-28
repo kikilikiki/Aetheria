@@ -115,24 +115,46 @@ de gameplay.
      connexion → création de personnage → lancement du Client avec `--token`/`--characterId`
      → connexion TCP → `EnterWorldAccepted` reçu et affiché (`Entrée dans le monde acceptée
      en (0, 0)`). La boucle complète Launcher→Server→Database→Client fonctionne réellement.
-   - ✅ Rendu isométrique (`Client/World/IsoMath`, `Building`, `WorldMap`) : monde de
-     démonstration 50x50 cases (au lieu de 8x8), projection "2:1" façon Dofus/Diablo (tuiles
-     en losange via un nouveau `SpriteBatch.DrawQuad` acceptant 4 coins arbitraires, pas
-     seulement des rectangles axés). Terrain varié par hachage déterministe par case
-     (herbe claire/moyenne/foncée, étang, chemins reliant les bâtiments), 5 bâtiments
-     (Capitale, Village, Hôtel des ventes, Forge, Guilde) dessinés en pseudo-3D (toit +
-     2 murs ombrés, triés par profondeur avec le joueur pour une occlusion correcte), et
-     une entrée de donjon de test ("Donjon des Araignées", relié au vrai donjon seedé côté
-     serveur) déclenchant un message de proximité. **Vérifié visuellement** via capture
-     d'écran du process réel (Win32 `PrintWindow`) : tuiles en losange, chemins, et les
-     3 bâtiments visibles rendus correctement avec ombrage toit/mur. Le déplacement clavier
-     n'a pas pu être vérifié par simulation d'entrée dans cet environnement (la fenêtre
-     résiste à `SetForegroundWindow`/`SendKeys`) — la formule caméra-suit-joueur est
-     inconditionnelle donc correcte par construction, mais non re-testée empiriquement en
-     mouvement. **Limites assumées** : bâtiments à l'échelle d'une seule case (pas de
-     vraie emprise au sol), pas de liseré de tuile, pas de sprites/textures réels (couleurs
-     unies uniquement), la transition visuelle vers l'intérieur d'un donjon n'existe pas
-     encore (seul le message de proximité + l'API serveur déjà fonctionnelle).
+   - ✅ Rendu isométrique (`Client/World/IsoMath`, `Building`, `Npc`, `WorldMap`) : monde de
+     démonstration 50x50 cases, projection "2:1" (tuiles en losange via `SpriteBatch.DrawQuad`
+     acceptant 4 coins arbitraires, pas seulement des rectangles axés). Terrain varié par
+     hachage déterministe par case (herbe claire/moyenne/foncée, étang, chemins reliant les
+     bâtiments), 5 bâtiments (Capitale, Village, Hôtel des ventes, Forge, Guilde) en
+     pseudo-3D avec **enseigne** (poteau + plaque devant l'entrée), 4 PNJ statiques avec
+     animation d'attente (balancement procédural), un **portail de donjon** animé (anneaux
+     concentriques dont le cœur pulse entre deux teintes via `MathF.Sin`, relié au vrai
+     "Donjon des Araignées" seedé côté serveur), et un **personnage joueur amélioré**
+     (silhouette corps + tête au lieu d'un simple losange plat, avec balancement idle/marche).
+   - ✅ Déplacement à la souris (`Camera2D.ScreenToWorld`, `IsoMath.IsoToGrid`,
+     `Engine.Input.MouseState` étendu avec détection de clic) : clic gauche → case visée
+     par transformation isométrique inverse → chemin orthogonal calculé (même algorithme que
+     les routes de la carte) → suivi case par case (mode démo : interpolation continue ;
+     mode connecté : un `SendMove` par case, enchaîné à chaque confirmation serveur). Le
+     clavier reste disponible et reprend la main immédiatement sur un chemin cliqué en cours.
+   - ✅ Interaction de proximité généralisée aux bâtiments (en plus du donjon) : s'approcher
+     d'un bâtiment affiche "Vous entrez dans « Nom »", **honnêtement documenté comme n'ayant
+     pas de scène d'intérieur réelle** (pas de pièce, pas de PNJ à l'intérieur) — c'est un
+     message d'interaction, pas une simulation de fonctionnalité qui n'existe pas.
+   - **Vérifié visuellement** via captures d'écran ciblées du process réel (Win32
+     `PrintWindow` sur le handle de fenêtre spécifique — jamais de capture plein écran, voir
+     encadré ci-dessous) : bâtiments avec enseignes, PNJ de couleurs distinctes, portail
+     multi-anneaux rendu correctement. **Déplacement au clic vérifié en conditions réelles** :
+     un clic proche du centre de la fenêtre a produit un déplacement court et précis vers la
+     bonne case, avec la caméra recentrée correctement sur la nouvelle position — la formule
+     caméra-suit-joueur et le picking isométrique inverse sont donc confirmés corrects, pas
+     seulement corrects "par construction".
+   - **Limites assumées** : bâtiments/PNJ à l'échelle d'une fraction de case (silhouettes
+     stylisées, pas de vraie emprise au sol ni de sprites/textures réels — couleurs unies
+     uniquement), animations procédurales (balancement sinusoïdal) plutôt que sprites animés
+     faute d'assets, pas de scène d'intérieur pour les bâtiments/donjons (seule l'API serveur
+     de combat/génération de donjon est réellement fonctionnelle, voir plus haut), pas de
+     pathfinding évitant les obstacles (chemin orthogonal direct).
+
+> **Incident évité en testant :** une première tentative de vérification visuelle du site web
+> (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche
+> (une autre application ouverte sur la machine). L'image a été supprimée immédiatement sans
+> être exploitée. Depuis, toute capture d'écran cible exclusivement un processus lancé par
+> Claude lui-même via son handle de fenêtre (Win32 `PrintWindow`), jamais l'écran entier.
 7. ✅ Systèmes de jeu (voir `Server/Persistence` et `Server/World`) :
    - ✅ Création de personnage (`CharacterService`, `POST /api/characters`) — débloque le
      test ci-dessus.
