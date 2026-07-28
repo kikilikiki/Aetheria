@@ -241,10 +241,7 @@ var isConnectedMode = options.SessionToken is not null;
 
 if (isConnectedMode)
 {
-    // Le tunnel ngrok éventuel (voir GDD/demande utilisateur — "utilise ngrok") ne couvre que
-    // l'API HTTP de compte : la connexion TCP de jeu (ConnectAndEnterWorld) continue de cibler
-    // options.Host/options.Port (redirection de ports classique côté routeur).
-    var apiBaseUrl = options.ResolveApiBaseUrl(GameInfo.DefaultAccountApiPort);
+    var apiBaseUrl = $"http://{options.Host}:{GameInfo.DefaultAccountApiPort}";
     starterApi = new StarterApiClient(apiBaseUrl);
     characterApi = new CharacterApiClient(apiBaseUrl);
     gameDataApi = new GameDataApiClient(apiBaseUrl);
@@ -3180,7 +3177,7 @@ void DrawChatPanel(int w, int h)
     {
         var line = visible[i];
         var text = $"{ChatRankTag(line.Rank)}{line.SenderName} : {line.Message}";
-        TextRenderer.Draw(spriteBatch, whiteTexture, text, new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+        TextRenderer.Draw(spriteBatch, whiteTexture, text, new Vector2(topLeft.X + 20f, y), 1.6f, ChatRankColor(line.Rank));
         y -= 20f;
         if (y < messagesTop)
         {
@@ -3204,7 +3201,7 @@ void DrawChatPanel(int w, int h)
     }
 
     var listY = topLeft.Y + 90f;
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(myRank)}Vous", new Vector2(listLeft, listY), 1.5f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(myRank)}Vous", new Vector2(listLeft, listY), 1.5f, ChatRankColor(myRank));
     listY += 20f;
 
     foreach (var (_, remote) in others.OrderBy(kv => kv.Value.Name))
@@ -3214,17 +3211,31 @@ void DrawChatPanel(int w, int h)
             break;
         }
 
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(remote.Rank)}{remote.Name}", new Vector2(listLeft, listY), 1.5f, Vector4.One);
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(remote.Rank)}{remote.Name}", new Vector2(listLeft, listY), 1.5f, ChatRankColor(remote.Rank));
         listY += 20f;
     }
 }
 
+/// <summary>Préfixe affiché devant le pseudo (voir GDD/demande utilisateur — "il est affiché [FONDATEUR] pseudo") : rien pour le grade de base.</summary>
 static string ChatRankTag(UserRank rank) => rank switch
 {
-    UserRank.Veteran => "[Vet] ",
-    UserRank.Moderateur => "[Mod] ",
-    UserRank.Administrateur => "[Admin] ",
+    UserRank.VIP => "[VIP] ",
+    UserRank.Ami => "[AMI] ",
+    UserRank.Testeur => "[TESTEUR] ",
+    UserRank.Moderateur => "[MODERATEUR] ",
+    UserRank.Fondateur => "[FONDATEUR] ",
     _ => "",
+};
+
+/// <summary>Couleur associée au grade (voir GDD/demande utilisateur — "avec une couleur"), utilisée pour le préfixe ET le pseudo dans le tchat/la liste des joueurs en ligne.</summary>
+static Vector4 ChatRankColor(UserRank rank) => rank switch
+{
+    UserRank.VIP => new Vector4(0.95f, 0.8f, 0.35f, 1f),
+    UserRank.Ami => new Vector4(0.5f, 0.85f, 0.55f, 1f),
+    UserRank.Testeur => new Vector4(0.4f, 0.75f, 0.9f, 1f),
+    UserRank.Moderateur => new Vector4(0.55f, 0.6f, 0.95f, 1f),
+    UserRank.Fondateur => new Vector4(0.95f, 0.4f, 0.35f, 1f),
+    _ => Vector4.One,
 };
 
 static string ArenaFormatLabel(ArenaFormat format) => format switch

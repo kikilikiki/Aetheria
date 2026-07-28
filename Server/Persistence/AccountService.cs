@@ -45,8 +45,15 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
         return user.Id;
     }
 
-    public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
+    public async Task<LoginResponse> LoginAsync(LoginRequest request, string? remoteIp = null, CancellationToken ct = default)
     {
+        // Voir GDD/demande utilisateur — "ban ip" : bloque la connexion depuis une IP bannie
+        // quel que soit le compte utilisé, avant même de vérifier les identifiants.
+        if (!string.IsNullOrWhiteSpace(remoteIp) && await db.BannedIps.AnyAsync(b => b.IpAddress == remoteIp, ct))
+        {
+            throw new AccountOperationException("Cette adresse IP est bannie.");
+        }
+
         var user = await db.Users
             .Include(u => u.Characters)
             .FirstOrDefaultAsync(
@@ -67,12 +74,20 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
             throw new AccountOperationException($"Compte banni : {user.BanReason ?? "aucune raison fournie"}.");
         }
 
+        if (!string.IsNullOrWhiteSpace(remoteIp))
+        {
+            user.LastKnownIp = remoteIp;
+        }
+
         var token = tokenStore.CreateToken(user.Id);
+        await db.SaveChangesAsync(ct);
 
         return new LoginResponse
         {
             SessionToken = token,
             UserId = user.Id,
+            IsAdmin = user.IsAdmin,
+            Rank = user.Rank,
             Characters = user.Characters
                 .Select(c => new CharacterSummary
                 {

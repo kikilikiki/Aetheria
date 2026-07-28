@@ -76,6 +76,8 @@
                         <DataGridTextColumn Header="Supprimé" Binding="{Binding IsDeleted}" Width="70" />
                         <DataGridTextColumn Header="Admin" Binding="{Binding IsAdmin}" Width="55" />
                         <DataGridTextColumn Header="Grade" Binding="{Binding Rank}" Width="90" />
+                        <DataGridTextColumn Header="Muet" Binding="{Binding IsMuted}" Width="50" />
+                        <DataGridTextColumn Header="Derniere IP" Binding="{Binding LastKnownIp}" Width="110" />
                         <DataGridTextColumn Header="Raison" Binding="{Binding BanReason}" Width="*" />
                     </DataGrid.Columns>
                 </DataGrid>
@@ -114,6 +116,13 @@
                         <Button Content="Définir le grade" Command="{Binding SetRankCommand}" Padding="16,8" Margin="0,0,0,8" />
                         <Button Content="Supprimer le compte" Command="{Binding DeleteUserCommand}" Padding="16,8" Margin="0,0,0,8" />
                         <Button Content="Restaurer le compte" Command="{Binding RestoreUserCommand}" Padding="16,8" />
+
+                        <Separator Margin="0,16,0,12" />
+
+                        <TextBlock Text="Modération" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
+                        <Button Content="Basculer mute (tchat)" Command="{Binding ToggleMuteCommand}" Padding="16,8" Margin="0,0,0,8" />
+                        <Button Content="Bannir la dernière IP" Command="{Binding BanIpCommand}" Padding="16,8" Margin="0,0,0,8" />
+                        <Button Content="Réinitialiser le profil de jeu" Command="{Binding ResetProfileCommand}" Padding="16,8" />
 
                         <TextBlock Text="{Binding StatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap" Margin="0,16,0,0" />
                         <TextBlock Text="Chargement..." Foreground="#A0A0B0" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />

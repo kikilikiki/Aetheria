@@ -33,6 +33,9 @@ public sealed class PlayerSession(
     public int PositionX { get; private set; }
     public int PositionY { get; private set; }
 
+    /// <summary>Mis à jour immédiatement par la commande <c>/nick</c> (voir <see cref="HandleChatCommand"/>) — sans attendre une reconnexion.</summary>
+    public void UpdateCharacterName(string newName) => CharacterName = newName;
+
     private bool HasEnteredWorld => CharacterId != Guid.Empty;
 
     public void Run(CancellationToken ct)
@@ -201,8 +204,12 @@ public sealed class PlayerSession(
 
     /// <summary>
     /// Tchat global (tout le monde) ou tchat de guilde (voir GDD/demande utilisateur). Le serveur
-    /// ignore le nom/grade envoyés par le client (usurpation impossible) et renseigne les siens,
-    /// mis en cache sur la session depuis <see cref="HandleEnterWorld"/>.
+    /// ignore le nom/grade envoyés par le client (usurpation impossible) et renseigne les siens.
+    /// Les messages commençant par "/" sont traités comme des commandes réservées aux
+    /// modérateurs/administrateurs/fondateurs (voir <see cref="HandleChatCommand"/>) plutôt que
+    /// diffusés. Le grade/mute sont relus depuis la base à chaque message (pas depuis le cache de
+    /// <see cref="HandleEnterWorld"/>) pour qu'un changement s'applique immédiatement, sans
+    /// attendre une reconnexion.
     /// </summary>
     private void HandleChatMessage(ChatMessagePacket chat)
     {
@@ -217,17 +224,35 @@ public sealed class PlayerSession(
             return;
         }
 
+        using var db = dbContextFactory.CreateDbContext();
+        var self = db.Users.Where(u => u.Id == UserId).Select(u => new { u.IsAdmin, u.Rank, u.IsMuted }).FirstOrDefault();
+        if (self is null)
+        {
+            return;
+        }
+
+        if (trimmed.StartsWith('/'))
+        {
+            HandleChatCommand(db, trimmed, chat.Channel, self.IsAdmin, self.Rank);
+            return;
+        }
+
+        if (self.IsMuted)
+        {
+            SendPacket(new ChatMessagePacket { SenderName = "Système", Message = "Vous êtes muet(te) et ne pouvez pas parler dans le tchat.", Channel = chat.Channel });
+            return;
+        }
+
         var outgoing = new ChatMessagePacket
         {
             SenderName = CharacterName,
             Message = trimmed,
             Channel = chat.Channel,
-            Rank = Rank,
+            Rank = self.Rank,
         };
 
         if (chat.Channel == ChatChannel.Guild)
         {
-            using var db = dbContextFactory.CreateDbContext();
             var guildId = db.GuildMembers
                 .Where(m => m.CharacterId == CharacterId)
                 .Select(m => (Guid?)m.GuildId)
@@ -260,6 +285,159 @@ public sealed class PlayerSession(
             {
                 session.SendPacket(outgoing);
             }
+        }
+    }
+
+    /// <summary>
+    /// Commandes en jeu réservées aux modérateurs/administrateurs/fondateurs (voir GDD/demande
+    /// utilisateur — "commandes réservées au modérateur/admin/fonda : ban de tout son compte,
+    /// mute, nick pour renommer un nom d'utilisateur inapproprié"). Les réponses (confirmation ou
+    /// erreur) ne sont envoyées qu'à l'expéditeur, jamais diffusées. Cible résolue par nom de
+    /// personnage (celui vu dans le tchat) plutôt que par pseudo de compte, plus pratique en jeu.
+    /// **Simplification assumée** : un compte banni/mute en jeu n'est pas déconnecté de force si
+    /// déjà connecté (voir Docs/README.md) — le bannissement/mute s'applique dès le message
+    /// suivant/la prochaine connexion.
+    /// </summary>
+    private void HandleChatCommand(AetheriaDbContext db, string command, ChatChannel replyChannel, bool isAdmin, UserRank rank)
+    {
+        void Reply(string message) => SendPacket(new ChatMessagePacket { SenderName = "Système", Message = message, Channel = replyChannel });
+
+        if (!isAdmin && rank is not (UserRank.Moderateur or UserRank.Fondateur))
+        {
+            Reply("Commande réservée aux modérateurs/administrateurs/fondateurs.");
+            return;
+        }
+
+        var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        switch (parts[0].ToLowerInvariant())
+        {
+            case "/ban":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /ban <pseudo> [raison]");
+                    return;
+                }
+
+                BanTargetAccount(db, parts[1], parts.Length > 2 ? string.Join(' ', parts[2..]) : "Banni via commande en jeu.", Reply);
+                break;
+
+            case "/mute":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /mute <pseudo>");
+                    return;
+                }
+
+                SetTargetMute(db, parts[1], isMuted: true, Reply);
+                break;
+
+            case "/unmute":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /unmute <pseudo>");
+                    return;
+                }
+
+                SetTargetMute(db, parts[1], isMuted: false, Reply);
+                break;
+
+            case "/nick":
+                if (parts.Length < 3)
+                {
+                    Reply("Usage : /nick <pseudo> <nouveau_pseudo>");
+                    return;
+                }
+
+                RenameTarget(db, parts[1], parts[2], Reply);
+                break;
+
+            default:
+                Reply("Commande inconnue. Commandes disponibles : /ban, /mute, /unmute, /nick.");
+                break;
+        }
+    }
+
+    private static void BanTargetAccount(AetheriaDbContext db, string targetCharacterName, string reason, Action<string> reply)
+    {
+        var target = db.Characters.FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        var user = db.Users.FirstOrDefault(u => u.Id == target.UserId);
+        if (user is null)
+        {
+            reply("Compte introuvable.");
+            return;
+        }
+
+        user.IsBanned = true;
+        user.BanReason = reason;
+        db.SaveChanges();
+        reply($"{targetCharacterName} a été banni : {reason}");
+    }
+
+    private static void SetTargetMute(AetheriaDbContext db, string targetCharacterName, bool isMuted, Action<string> reply)
+    {
+        var target = db.Characters.FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        var user = db.Users.FirstOrDefault(u => u.Id == target.UserId);
+        if (user is null)
+        {
+            reply("Compte introuvable.");
+            return;
+        }
+
+        user.IsMuted = isMuted;
+        db.SaveChanges();
+        reply(isMuted ? $"{targetCharacterName} est maintenant muet(te)." : $"{targetCharacterName} peut de nouveau parler.");
+    }
+
+    private void RenameTarget(AetheriaDbContext db, string targetCharacterName, string newName, Action<string> reply)
+    {
+        var trimmedNewName = newName.Trim();
+        if (trimmedNewName.Length < 3)
+        {
+            reply("Le nouveau nom doit faire au moins 3 caractères.");
+            return;
+        }
+
+        var target = db.Characters.FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        if (db.Characters.Any(c => c.Name == trimmedNewName))
+        {
+            reply("Ce nom est déjà utilisé.");
+            return;
+        }
+
+        target.Name = trimmedNewName;
+        db.SaveChanges();
+        reply($"{targetCharacterName} a été renommé en {trimmedNewName}.");
+
+        var targetSession = registry.All().FirstOrDefault(s => s.CharacterId == target.Id);
+        if (targetSession is not null)
+        {
+            targetSession.UpdateCharacterName(trimmedNewName);
+            registry.BroadcastExcept(Guid.Empty, new PlayerJoinedPacket
+            {
+                CharacterId = target.Id,
+                Name = trimmedNewName,
+                PositionX = targetSession.PositionX,
+                PositionY = targetSession.PositionY,
+                Rank = targetSession.Rank,
+            });
         }
     }
 }

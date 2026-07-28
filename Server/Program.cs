@@ -141,14 +141,17 @@ app.MapPost("/api/account/register", async (RegisterRequest request) =>
     }
 });
 
-app.MapPost("/api/account/login", async (LoginRequest request) =>
+app.MapPost("/api/account/login", async (LoginRequest request, HttpContext httpContext) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var accountService = new AccountService(db, app.Services.GetRequiredService<SessionTokenStore>());
 
     try
     {
-        var response = await accountService.LoginAsync(request);
+        // Voir GDD/demande utilisateur — "ban ip" : l'IP appelante est vérifiée contre la liste
+        // des IP bannies puis mémorisée sur le compte (indépendamment du bannissement de compte).
+        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString();
+        var response = await accountService.LoginAsync(request, remoteIp);
         return Results.Ok(response);
     }
     catch (AccountOperationException ex)
@@ -930,6 +933,8 @@ app.MapGet("/api/admin/users", async (string? search) =>
         CreatedAtUtc = u.CreatedAtUtc,
         CharacterCount = u.Characters.Count,
         Rank = u.Rank,
+        IsMuted = u.IsMuted,
+        LastKnownIp = u.LastKnownIp,
     }));
 });
 
@@ -1032,6 +1037,140 @@ app.MapPost("/api/admin/users/{userId:guid}/set-rank", async (Guid userId, Admin
     }
 
     user.Rank = request.Rank;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+// Mute (voir GDD/demande utilisateur — "mute pour ne pas qu'il parle dans le tchat") : messages
+// silencieusement refusés côté serveur, voir PlayerSession.HandleChatMessage.
+app.MapPost("/api/admin/users/{userId:guid}/set-mute", async (Guid userId, AdminSetMuteRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    user.IsMuted = request.IsMuted;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+// Ban IP (voir GDD/demande utilisateur — "ban ip") : bannit la dernière IP connue du compte,
+// distinct du bannissement de compte — bloque la connexion depuis cette IP quel que soit le
+// compte utilisé ensuite (voir AccountService.LoginAsync).
+app.MapPost("/api/admin/users/{userId:guid}/ban-ip", async (Guid userId, AdminSessionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    if (string.IsNullOrWhiteSpace(user.LastKnownIp))
+    {
+        return Results.Conflict(new ApiError { Message = "Aucune IP connue pour ce compte." });
+    }
+
+    if (!await db.BannedIps.AnyAsync(b => b.IpAddress == user.LastKnownIp))
+    {
+        db.BannedIps.Add(new BannedIpEntity { Id = Guid.NewGuid(), IpAddress = user.LastKnownIp, Reason = $"Banni via le compte {user.Username}." });
+        await db.SaveChangesAsync();
+    }
+
+    return Results.Ok();
+});
+
+// Réinitialise le profil de jeu (voir GDD/demande utilisateur — "possibilité de reset le profil
+// en jeu de quelqu'un") : supprime tous les personnages (et leurs dépendances en cascade —
+// monstres, inventaire, professions) sans toucher au compte/login lui-même.
+app.MapPost("/api/admin/users/{userId:guid}/reset-profile", async (Guid userId, AdminSessionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    var characters = await db.Characters.Where(c => c.UserId == userId).ToListAsync();
+    var characterIds = characters.Select(c => c.Id).ToList();
+
+    // Retire ces personnages des groupes/guildes avant suppression (GuildMemberEntity et
+    // PartyMemberEntity référencent CharacterId en DeleteBehavior.Restrict) : transfère le lead
+    // au membre suivant ou supprime le groupe/la guilde s'il ne reste plus personne — même
+    // logique que PartyService.LeaveAsync (pas encore d'équivalent "quitter la guilde" à
+    // réutiliser côté guildes, voir Docs/README.md).
+    foreach (var characterId in characterIds)
+    {
+        var partyMembership = await db.PartyMembers.FirstOrDefaultAsync(m => m.CharacterId == characterId);
+        if (partyMembership is not null)
+        {
+            var party = await db.Parties.FirstAsync(p => p.Id == partyMembership.PartyId);
+            db.PartyMembers.Remove(partyMembership);
+
+            var remaining = await db.PartyMembers
+                .Where(m => m.PartyId == party.Id && m.Id != partyMembership.Id)
+                .OrderBy(m => m.JoinedAtUtc)
+                .ToListAsync();
+
+            if (remaining.Count == 0)
+            {
+                db.Parties.Remove(party);
+            }
+            else if (party.LeaderCharacterId == characterId)
+            {
+                party.LeaderCharacterId = remaining[0].CharacterId;
+            }
+        }
+
+        var guildMembership = await db.GuildMembers.FirstOrDefaultAsync(m => m.CharacterId == characterId);
+        if (guildMembership is not null)
+        {
+            var guild = await db.Guilds.FirstAsync(g => g.Id == guildMembership.GuildId);
+            if (guild.LeaderCharacterId == characterId)
+            {
+                var allMembers = await db.GuildMembers.Where(m => m.GuildId == guild.Id).ToListAsync();
+                db.GuildMembers.RemoveRange(allMembers);
+                db.Guilds.Remove(guild);
+            }
+            else
+            {
+                db.GuildMembers.Remove(guildMembership);
+            }
+        }
+    }
+
+    db.Characters.RemoveRange(characters);
     await db.SaveChangesAsync();
     return Results.Ok();
 });

@@ -355,6 +355,94 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    private bool CanToggleMute() => SelectedUser is not null && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanToggleMute))]
+    private async Task ToggleMute()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.SetMuteAsync(SelectedUser.Id, SessionToken, !SelectedUser.IsMuted);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            await Search();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanBanIp() => SelectedUser is { LastKnownIp.Length: > 0 } && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanBanIp))]
+    private async Task BanIp()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.BanIpAsync(SelectedUser.Id, SessionToken);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            StatusMessage = $"IP {SelectedUser.LastKnownIp} bannie.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanResetProfile() => SelectedUser is not null && SessionToken is not null;
+
+    /// <summary>Voir GDD/demande utilisateur — "possibilité de reset le profil en jeu de quelqu'un" : supprime tous ses personnages, pas le compte lui-même.</summary>
+    [RelayCommand(CanExecute = nameof(CanResetProfile))]
+    private async Task ResetProfile()
+    {
+        if (SelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var result = await _api.ResetProfileAsync(SelectedUser.Id, SessionToken);
+            if (!result.IsSuccess)
+            {
+                StatusMessage = result.Error;
+                return;
+            }
+
+            await Search();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     partial void OnSelectedUserChanged(AdminUserSummary? value)
     {
         BanCommand.NotifyCanExecuteChanged();
@@ -364,6 +452,9 @@ public sealed partial class MainViewModel : ObservableObject
         ModifyUserCommand.NotifyCanExecuteChanged();
         ToggleAdminPermissionCommand.NotifyCanExecuteChanged();
         SetRankCommand.NotifyCanExecuteChanged();
+        ToggleMuteCommand.NotifyCanExecuteChanged();
+        BanIpCommand.NotifyCanExecuteChanged();
+        ResetProfileCommand.NotifyCanExecuteChanged();
         SelectedRank = value?.Rank ?? UserRank.Joueur;
     }
 

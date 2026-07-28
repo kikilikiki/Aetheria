@@ -10,7 +10,7 @@ namespace Aetheria.Launcher.Services;
 /// </summary>
 public static class ClientLauncher
 {
-    public static bool TryLaunch(string sessionToken, string serverHost, string? apiBaseUrl, out string? error)
+    public static bool TryLaunch(string sessionToken, string serverHost, out string? error)
     {
         var clientPath = ResolveClientExecutablePath();
         if (clientPath is null)
@@ -22,16 +22,13 @@ public static class ClientLauncher
         // Le personnage n'est plus choisi ici : le Client affiche sa propre scène de
         // sélection/création en jeu (voir Client/Program.cs — SceneMode.CharacterSelect).
         // --host transmet l'adresse du serveur configurée dans les Paramètres (voir GDD/demande
-        // utilisateur — jouer depuis un autre PC/réseau contre un serveur distant hébergé
-        // ailleurs) : sans ça, le Client retombait toujours sur "localhost" par défaut
-        // (LaunchOptions.Parse), même quand le Launcher pointait ailleurs. --apiUrl transmet en
-        // plus le tunnel ngrok éventuel pour l'API de compte (voir GDD/demande utilisateur —
-        // "utilise ngrok"), distinct du --host qui reste la connexion TCP de jeu.
-        var apiUrlArg = string.IsNullOrWhiteSpace(apiBaseUrl) ? string.Empty : $" --apiUrl=\"{apiBaseUrl}\"";
+        // utilisateur — jouer depuis un autre réseau contre le serveur distant) : sans ça, le
+        // Client retombait toujours sur "localhost" par défaut (LaunchOptions.Parse), même quand
+        // le Launcher pointait ailleurs.
         Process.Start(new ProcessStartInfo
         {
             FileName = clientPath,
-            Arguments = $"--token=\"{sessionToken}\" --host=\"{serverHost}\"{apiUrlArg}",
+            Arguments = $"--token=\"{sessionToken}\" --host=\"{serverHost}\"",
             UseShellExecute = false,
         });
 

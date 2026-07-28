@@ -1,4 +1,5 @@
 using Aetheria.Shared;
+using Aetheria.Shared.Settings;
 
 namespace Aetheria.Client;
 
@@ -7,19 +8,19 @@ namespace Aetheria.Client;
 /// Sans <see cref="SessionToken"/>, le Client tourne en mode démo hors-ligne (utile pour
 /// développer le moteur sans lancer le Launcher/Server).
 /// </summary>
-public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, string Host, int Port, string? ApiBaseUrl)
+public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, string Host, int Port)
 {
-    /// <summary>Base URL effective de l'API de compte : <see cref="ApiBaseUrl"/> (ex. tunnel ngrok) si renseigné, sinon <c>http://{Host}:{apiPort}</c>.</summary>
-    public string ResolveApiBaseUrl(int apiPort) =>
-        string.IsNullOrWhiteSpace(ApiBaseUrl) ? $"http://{Host}:{apiPort}" : ApiBaseUrl.TrimEnd('/');
-
     public static LaunchOptions Parse(string[] args)
     {
         string? token = null;
         Guid? characterId = null;
-        var host = "localhost";
+        // Voir GDD/demande utilisateur — "retire les localhost mais l'IP pour les autres qui ne
+        // sont pas sur le même réseau" : reprend l'adresse configurée (GameSettings.ServerHost,
+        // l'IP publique du serveur par défaut) plutôt que de retomber sur "localhost", utile
+        // uniquement quand Client.exe est lancé directement sans --host (sans passer par le
+        // Launcher).
+        var host = GameSettings.Load().ServerHost;
         var port = GameInfo.DefaultGamePort;
-        string? apiBaseUrl = null;
 
         foreach (var arg in args)
         {
@@ -43,12 +44,9 @@ public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, stri
                 case "--port":
                     port = int.Parse(parts[1]);
                     break;
-                case "--apiUrl":
-                    apiBaseUrl = parts[1].Trim('"');
-                    break;
             }
         }
 
-        return new LaunchOptions(token, characterId, host, port, apiBaseUrl);
+        return new LaunchOptions(token, characterId, host, port);
     }
 }

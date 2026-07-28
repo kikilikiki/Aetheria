@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using Aetheria.Launcher.Models;
 using Aetheria.Launcher.Services;
 using Aetheria.Shared;
+using Aetheria.Shared.Enums;
+using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -19,6 +21,7 @@ namespace Aetheria.Launcher.ViewModels;
 public sealed partial class MainViewModel : ObservableObject
 {
     private AccountApiClient _accountApi;
+    private AdminApiClient? _adminApi;
 
     [ObservableProperty]
     private string _title = $"{GameInfo.Name} Launcher — v{GameInfo.Version}";
@@ -64,16 +67,19 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSettingsOpen;
 
+    /// <summary>Voir GDD/demande utilisateur — bouton "Communauté" et panneau d'administration réservés aux comptes admin/fondateur (renseigné à la connexion, voir <see cref="Login"/>).</summary>
+    [ObservableProperty]
+    private bool _isAdminAccount;
+
+    [ObservableProperty]
+    private bool _isAdminPanelOpen;
+
     [ObservableProperty]
     private KeyboardLayoutPreference _keyboardLayoutPreference;
 
-    /// <summary>Adresse du serveur (voir GDD/demande utilisateur — jeu installé ailleurs, serveur hébergé chez l'utilisateur). "localhost" par défaut.</summary>
+    /// <summary>Adresse du serveur (voir GDD/demande utilisateur — jeu installé ailleurs, serveur hébergé chez l'utilisateur). Réglée par défaut sur l'IP publique du serveur (voir GameSettings.ServerHost) : fonctionne aussi bien en local que depuis un autre réseau, sans réglage ngrok supplémentaire. Écrasée par la valeur persistée dans le constructeur ; ce champ n'est qu'un défaut avant chargement.</summary>
     [ObservableProperty]
-    private string _serverHost = "localhost";
-
-    /// <summary>Tunnel ngrok éventuel pour l'API de compte (voir GDD/demande utilisateur — "utilise ngrok"), vide = pas de tunnel, on utilise ServerHost:7778 comme avant.</summary>
-    [ObservableProperty]
-    private string _accountApiBaseUrl = string.Empty;
+    private string _serverHost = new GameSettings().ServerHost;
 
     public IReadOnlyList<KeyboardLayoutPreference> AvailableKeyboardLayouts { get; } = Enum.GetValues<KeyboardLayoutPreference>();
 
@@ -100,8 +106,7 @@ public sealed partial class MainViewModel : ObservableObject
         var settings = GameSettings.Load();
         _keyboardLayoutPreference = settings.KeyboardLayout;
         _serverHost = settings.ServerHost;
-        _accountApiBaseUrl = settings.AccountApiBaseUrl ?? string.Empty;
-        _accountApi = new AccountApiClient(settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort));
+        _accountApi = new AccountApiClient($"http://{_serverHost}:{GameInfo.DefaultAccountApiPort}");
 
         _ = CheckServerStatusAsync();
         LoadNews();
@@ -206,24 +211,14 @@ public sealed partial class MainViewModel : ObservableObject
         settings.Save();
 
         _accountApi.Dispose();
-        _accountApi = new AccountApiClient(settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort));
-        _ = CheckServerStatusAsync();
-    }
+        _accountApi = new AccountApiClient($"http://{value}:{GameInfo.DefaultAccountApiPort}");
 
-    /// <summary>
-    /// Persiste le tunnel ngrok éventuel et reconstruit le client HTTP en conséquence (même
-    /// logique que <see cref="OnServerHostChanged"/>) — voir GDD/demande utilisateur : "utilise
-    /// ngrok" pour l'API de compte, ServerHost restant utilisé tel quel pour la connexion TCP de
-    /// jeu (transmis au Client via --host, distinct de --apiUrl).
-    /// </summary>
-    partial void OnAccountApiBaseUrlChanged(string value)
-    {
-        var settings = GameSettings.Load();
-        settings.AccountApiBaseUrl = value;
-        settings.Save();
+        if (_adminApi is not null)
+        {
+            _adminApi.Dispose();
+            _adminApi = new AdminApiClient($"http://{value}:{GameInfo.DefaultAccountApiPort}");
+        }
 
-        _accountApi.Dispose();
-        _accountApi = new AccountApiClient(settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort));
         _ = CheckServerStatusAsync();
     }
 
@@ -236,9 +231,8 @@ public sealed partial class MainViewModel : ObservableObject
     {
         try
         {
-            var settings = GameSettings.Load();
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
-            var response = await http.GetAsync($"{settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort)}/api/health");
+            var response = await http.GetAsync($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}/api/health");
             IsServerOnline = response.IsSuccessStatusCode;
             ServerStatusText = IsServerOnline ? "Serveur en ligne" : "Serveur hors ligne";
 
@@ -335,6 +329,10 @@ public sealed partial class MainViewModel : ObservableObject
             SessionToken = result.Value!.SessionToken;
             IsLoggedIn = true;
             StatusMessage = null;
+
+            // Voir GDD/demande utilisateur — panneau "Communauté" réservé aux admin/fondateur.
+            IsAdminAccount = result.Value.IsAdmin || result.Value.Rank == UserRank.Fondateur;
+            _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
         }
         finally
         {
@@ -349,6 +347,9 @@ public sealed partial class MainViewModel : ObservableObject
         SessionToken = null;
         Password = string.Empty;
         StatusMessage = null;
+        IsAdminAccount = false;
+        IsAdminPanelOpen = false;
+        AdminUsers.Clear();
     }
 
     private bool CanPlay() => SessionToken is not null && !IsUpdateAvailable;
@@ -361,7 +362,7 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (!ClientLauncher.TryLaunch(SessionToken, ServerHost, AccountApiBaseUrl, out var error))
+        if (!ClientLauncher.TryLaunch(SessionToken, ServerHost, out var error))
         {
             StatusMessage = error;
         }
@@ -388,4 +389,307 @@ public sealed partial class MainViewModel : ObservableObject
         public string? Status { get; init; }
         public string? Version { get; init; }
     }
+
+    // ===== Panneau "Communauté" (voir GDD/demande utilisateur — bouton Communauté, liste des
+    // utilisateurs avec email/avatar, grade/mute/ban/ban IP/reset profil, réservé aux comptes
+    // admin/fondateur) : même logique que AdminPanel/ViewModels/MainViewModel.cs, dupliquée ici
+    // plutôt que partagée entre les deux projets WPF pour un client HTTP aussi simple. **Avatar**
+    // simplifié en pastille de couleur + initiale (pas d'image de profil, voir Docs/README.md).
+
+    public ObservableCollection<AdminUserSummary> AdminUsers { get; } = [];
+
+    [ObservableProperty]
+    private string _adminSearchText = string.Empty;
+
+    [ObservableProperty]
+    private AdminUserSummary? _adminSelectedUser;
+
+    [ObservableProperty]
+    private string _adminBanReason = string.Empty;
+
+    [ObservableProperty]
+    private string _adminNewUsername = string.Empty;
+
+    [ObservableProperty]
+    private string _adminNewEmail = string.Empty;
+
+    [ObservableProperty]
+    private UserRank _adminSelectedRank;
+
+    public IReadOnlyList<UserRank> AdminAvailableRanks { get; } = Enum.GetValues<UserRank>();
+
+    [ObservableProperty]
+    private string? _adminStatusMessage;
+
+    [ObservableProperty]
+    private bool _adminIsBusy;
+
+    private bool CanToggleAdminPanel() => IsAdminAccount;
+
+    [RelayCommand(CanExecute = nameof(CanToggleAdminPanel))]
+    private async Task ToggleAdminPanel()
+    {
+        IsAdminPanelOpen = !IsAdminPanelOpen;
+        if (IsAdminPanelOpen)
+        {
+            await AdminSearch();
+        }
+    }
+
+    [RelayCommand]
+    private async Task AdminSearch()
+    {
+        if (_adminApi is null || SessionToken is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.GetUsersAsync(AdminSearchText);
+            AdminUsers.Clear();
+            if (result.IsSuccess)
+            {
+                foreach (var user in result.Value!)
+                {
+                    AdminUsers.Add(user);
+                }
+            }
+            else
+            {
+                AdminStatusMessage = result.Error;
+            }
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    private bool CanAdminBan() => AdminSelectedUser is { IsBanned: false } && AdminBanReason.Trim().Length > 0 && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanAdminBan))]
+    private async Task AdminBan()
+    {
+        if (_adminApi is null || AdminSelectedUser is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.BanAsync(AdminSelectedUser.Id, AdminBanReason.Trim());
+            if (!result.IsSuccess)
+            {
+                AdminStatusMessage = result.Error;
+                return;
+            }
+
+            AdminBanReason = string.Empty;
+            await AdminSearch();
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    private bool CanAdminUnban() => AdminSelectedUser is { IsBanned: true };
+
+    [RelayCommand(CanExecute = nameof(CanAdminUnban))]
+    private async Task AdminUnban()
+    {
+        if (_adminApi is null || AdminSelectedUser is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.UnbanAsync(AdminSelectedUser.Id);
+            if (!result.IsSuccess)
+            {
+                AdminStatusMessage = result.Error;
+                return;
+            }
+
+            await AdminSearch();
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    private bool CanAdminModify() => AdminSelectedUser is not null && SessionToken is not null
+        && (AdminNewUsername.Trim().Length > 0 || AdminNewEmail.Trim().Length > 0);
+
+    [RelayCommand(CanExecute = nameof(CanAdminModify))]
+    private async Task AdminModify()
+    {
+        if (_adminApi is null || AdminSelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.ModifyUserAsync(
+                AdminSelectedUser.Id, SessionToken,
+                AdminNewUsername.Trim().Length > 0 ? AdminNewUsername.Trim() : null,
+                AdminNewEmail.Trim().Length > 0 ? AdminNewEmail.Trim() : null);
+
+            if (!result.IsSuccess)
+            {
+                AdminStatusMessage = result.Error;
+                return;
+            }
+
+            AdminNewUsername = string.Empty;
+            AdminNewEmail = string.Empty;
+            await AdminSearch();
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    private bool CanAdminSetRank() => AdminSelectedUser is not null && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanAdminSetRank))]
+    private async Task AdminSetRank()
+    {
+        if (_adminApi is null || AdminSelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.SetRankAsync(AdminSelectedUser.Id, SessionToken, AdminSelectedRank);
+            if (!result.IsSuccess)
+            {
+                AdminStatusMessage = result.Error;
+                return;
+            }
+
+            await AdminSearch();
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    private bool CanAdminToggleMute() => AdminSelectedUser is not null && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanAdminToggleMute))]
+    private async Task AdminToggleMute()
+    {
+        if (_adminApi is null || AdminSelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.SetMuteAsync(AdminSelectedUser.Id, SessionToken, !AdminSelectedUser.IsMuted);
+            if (!result.IsSuccess)
+            {
+                AdminStatusMessage = result.Error;
+                return;
+            }
+
+            await AdminSearch();
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    private bool CanAdminBanIp() => AdminSelectedUser is { LastKnownIp.Length: > 0 } && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanAdminBanIp))]
+    private async Task AdminBanIp()
+    {
+        if (_adminApi is null || AdminSelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.BanIpAsync(AdminSelectedUser.Id, SessionToken);
+            AdminStatusMessage = result.IsSuccess ? $"IP {AdminSelectedUser.LastKnownIp} bannie." : result.Error;
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    private bool CanAdminResetProfile() => AdminSelectedUser is not null && SessionToken is not null;
+
+    [RelayCommand(CanExecute = nameof(CanAdminResetProfile))]
+    private async Task AdminResetProfile()
+    {
+        if (_adminApi is null || AdminSelectedUser is null || SessionToken is null)
+        {
+            return;
+        }
+
+        AdminIsBusy = true;
+        AdminStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.ResetProfileAsync(AdminSelectedUser.Id, SessionToken);
+            if (!result.IsSuccess)
+            {
+                AdminStatusMessage = result.Error;
+                return;
+            }
+
+            await AdminSearch();
+        }
+        finally
+        {
+            AdminIsBusy = false;
+        }
+    }
+
+    partial void OnIsAdminAccountChanged(bool value) => ToggleAdminPanelCommand.NotifyCanExecuteChanged();
+
+    partial void OnAdminSelectedUserChanged(AdminUserSummary? value)
+    {
+        AdminBanCommand.NotifyCanExecuteChanged();
+        AdminUnbanCommand.NotifyCanExecuteChanged();
+        AdminModifyCommand.NotifyCanExecuteChanged();
+        AdminSetRankCommand.NotifyCanExecuteChanged();
+        AdminToggleMuteCommand.NotifyCanExecuteChanged();
+        AdminBanIpCommand.NotifyCanExecuteChanged();
+        AdminResetProfileCommand.NotifyCanExecuteChanged();
+        AdminSelectedRank = value?.Rank ?? UserRank.Joueur;
+    }
+
+    partial void OnAdminBanReasonChanged(string value) => AdminBanCommand.NotifyCanExecuteChanged();
+
+    partial void OnAdminNewUsernameChanged(string value) => AdminModifyCommand.NotifyCanExecuteChanged();
+
+    partial void OnAdminNewEmailChanged(string value) => AdminModifyCommand.NotifyCanExecuteChanged();
 }

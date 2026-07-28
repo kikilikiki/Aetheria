@@ -8,6 +8,12 @@ public sealed class LoginResponse
     public required string SessionToken { get; init; }
     public required Guid UserId { get; init; }
     public required IReadOnlyList<CharacterSummary> Characters { get; init; }
+
+    /// <summary>Permission technique admin (voir GDD/demande utilisateur — panneau d'administration accessible depuis le Launcher pour les comptes admin/fondateur).</summary>
+    public required bool IsAdmin { get; init; }
+
+    /// <summary>Grade communautaire (voir GDD — affiché en jeu, détermine aussi l'accès au panneau d'administration du Launcher pour Fondateur).</summary>
+    public required UserRank Rank { get; init; }
 }
 
 /// <summary>

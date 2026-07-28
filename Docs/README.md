@@ -724,6 +724,45 @@ de gameplay.
       membres engagent exactement au même instant (fenêtre de course très étroite) ; le nombre
       d'ennemis reste fixé au moment de la création du combat, pas réajusté si un membre rejoint
       ensuite.
+24. ✅ Accès réseau simplifié (retrait de ngrok) et système de modération complet (voir
+    GDD/demande utilisateur) :
+    - **Retrait du tunnel ngrok** : `GameSettings.AccountApiBaseUrl` et le champ correspondant
+      dans les Paramètres du Launcher ont été retirés — un seul réglage (`ServerHost`) suffit
+      désormais, pour l'API de compte comme pour la connexion TCP de jeu. `GameSettings.ServerHost`
+      est réglé par défaut sur l'IP publique du serveur (plus "localhost") : que ce soit en local
+      ou depuis un autre réseau, la même adresse fonctionne sans réglage supplémentaire (le
+      serveur écoute sur `0.0.0.0`, voir redirection de ports classique côté routeur).
+    - **Grades étendus** (`UserRank` : Joueur/VIP/Ami/Testeur/Modérateur/Fondateur, remplace
+      l'ancien jeu Joueur/Vétéran/Modérateur/Administrateur) : affichés en jeu (tchat, liste des
+      joueurs en ligne) sous la forme `[GRADE] Pseudo`, avec une couleur dédiée par grade. Un
+      compte Fondateur a désormais aussi accès aux actions d'administration (voir
+      `AdminAuthService`), sans nécessiter le flag technique séparé `IsAdmin`.
+    - **Mute** (`UserEntity.IsMuted`) : un message envoyé par un compte muet est silencieusement
+      refusé côté serveur (`PlayerSession.HandleChatMessage`), avec un message "Système" visible
+      seulement par l'expéditeur.
+    - **Ban IP** (`BannedIpEntity`, distinct du bannissement de compte) : bloque la connexion
+      depuis une IP bannie quel que soit le compte utilisé ensuite (vérifié dans
+      `AccountService.LoginAsync`, avant même de vérifier les identifiants). L'IP appelante est
+      mémorisée sur le compte à chaque connexion réussie (`UserEntity.LastKnownIp`) — c'est cette
+      dernière IP connue qui est bannie par l'action "Bannir la dernière IP".
+    - **Réinitialisation de profil** (voir GDD/demande utilisateur — "possibilité de reset le
+      profil en jeu de quelqu'un") : supprime tous les personnages d'un compte (et leurs
+      dépendances) sans toucher au compte/login. Retire d'abord les personnages des
+      groupes/guildes (transfert de leadership ou suppression si plus personne, même logique que
+      `PartyService.LeaveAsync`) pour respecter les clés étrangères en `DeleteBehavior.Restrict`.
+    - **Commandes en jeu réservées modérateur/administrateur/fondateur** (voir
+      `PlayerSession.HandleChatCommand`) : `/ban <pseudo> [raison]`, `/mute <pseudo>`,
+      `/unmute <pseudo>`, `/nick <pseudo> <nouveau_pseudo>` — tapées dans le tchat, résolues par
+      nom de personnage, réponse (confirmation/erreur) visible uniquement par l'expéditeur.
+      **Simplification assumée** : un compte banni/mute en jeu n'est pas déconnecté de force s'il
+      est déjà connecté — l'effet s'applique au message suivant/à la prochaine connexion.
+    - **Panneau "Communauté" dans le Launcher** (voir GDD/demande utilisateur — "le tout peut
+      aussi se faire via le launcher [...] seulement pour les admin/fondateur") : bouton dédié
+      dans la barre latérale (masqué pour les comptes sans droit), reprenant la liste des
+      utilisateurs (pseudo, email, grade, muet, dernière IP) avec toutes les actions ci-dessus
+      (grade, ban compte/IP, mute, reset profil, renommage). **Simplification assumée** : pas
+      d'image de profil réelle (aucun pipeline d'upload/stockage n'existe) — l'"avatar" est une
+      pastille de couleur dérivée du pseudo (déterministe) avec son initiale.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

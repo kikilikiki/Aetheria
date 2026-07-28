@@ -2,7 +2,6 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Aetheria.Shared;
 using Aetheria.Shared.Models.Account;
 
 namespace Aetheria.Launcher.Services;
@@ -33,11 +32,11 @@ public sealed class AccountApiClient : IDisposable
 
     private readonly HttpClient _http;
 
-    public AccountApiClient(string? baseUrl = null)
+    public AccountApiClient(string baseUrl)
     {
         _http = new HttpClient
         {
-            BaseAddress = new Uri(baseUrl ?? $"http://localhost:{GameInfo.DefaultAccountApiPort}"),
+            BaseAddress = new Uri(baseUrl),
             Timeout = TimeSpan.FromSeconds(10),
         };
     }
