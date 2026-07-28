@@ -35,7 +35,9 @@ appsettings.*.local.json
 .env
 
 # État local du bot Discord (dernier commit annoncé) — voir Server/Discord/GitChangelogAnnouncer.cs
-.discord-last-announced
+.discord-last-logged
+.discord-pending-changes.txt
+.discord-last-digest-date
 
 # Divers OS
 .DS_Store

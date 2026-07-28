@@ -44,6 +44,11 @@ const double WildEncounterChance = 0.08;
 
 var stateLock = new object();
 var gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
+
+// Position confirmée par le serveur (mode connecté) — voir GDD ("des animations quand on se
+// déplace au lieu d'un TP") : gridPosition se rapproche de celle-ci case par case au lieu de s'y
+// téléporter, comme le fait déjà le mode démo hors-ligne pour un chemin cliqué.
+var serverConfirmedPosition = gridPosition;
 var statusMessage = string.Empty;
 
 var moveQueue = new Queue<(int X, int Y)>();
@@ -490,6 +495,41 @@ host.Update += deltaTime =>
             var targetY = Math.Clamp((int)positionBeforeInput.Y + dy, 0, worldMap.Size - 1);
             connection.SendMove(targetX, targetY);
         }
+
+        // Anime gridPosition case par case vers la dernière position confirmée par le serveur
+        // (voir GDD — "des animations quand on se déplace au lieu d'un TP") au lieu d'y sauter
+        // instantanément. Une fois l'animation arrivée, enchaîne l'étape suivante d'un chemin
+        // cliqué (voir GameConnection.PositionUpdated, qui ne fait plus que mettre à jour
+        // serverConfirmedPosition sans avancer la file lui-même).
+        Vector2 confirmedTarget;
+        lock (stateLock)
+        {
+            confirmedTarget = serverConfirmedPosition;
+        }
+
+        var toConfirmed = confirmedTarget - positionBeforeInput;
+        if (toConfirmed.LengthSquared() > 0.0001f)
+        {
+            var step = Vector2.Normalize(toConfirmed) * 6f * deltaTime;
+            if (step.LengthSquared() > toConfirmed.LengthSquared())
+            {
+                step = toConfirmed;
+            }
+
+            lock (stateLock)
+            {
+                gridPosition = positionBeforeInput + step;
+            }
+        }
+        else if (moveQueue.Count > 0)
+        {
+            var next = moveQueue.Dequeue();
+            connection.SendMove(next.X, next.Y);
+        }
+        else
+        {
+            isAwaitingServerStep = false;
+        }
     }
 
     Vector2 positionAfterInput;
@@ -821,6 +861,7 @@ void ConnectAndEnterWorld(Guid characterId)
         lock (stateLock)
         {
             gridPosition = new Vector2(packet.PositionX, packet.PositionY);
+            serverConfirmedPosition = gridPosition;
             statusMessage = "Connecté au monde.";
         }
 
@@ -852,20 +893,14 @@ void ConnectAndEnterWorld(Guid characterId)
             return;
         }
 
+        // Ne téléporte plus gridPosition ici : la boucle Update anime le déplacement case par
+        // case jusqu'à cette position (voir GDD — "des animations quand on se déplace au lieu
+        // d'un TP"), et c'est elle qui enchaîne l'étape suivante d'un chemin cliqué une fois
+        // l'animation arrivée à destination (pas immédiatement à la confirmation serveur, sinon
+        // le serveur pourrait avancer plus vite que ce qui peut être animé à l'écran).
         lock (stateLock)
         {
-            gridPosition = new Vector2(packet.PositionX, packet.PositionY);
-        }
-
-        // Marche automatique : si un chemin cliqué est en cours, on enchaîne la prochaine case.
-        if (moveQueue.Count > 0)
-        {
-            var next = moveQueue.Dequeue();
-            connection.SendMove(next.X, next.Y);
-        }
-        else
-        {
-            isAwaitingServerStep = false;
+            serverConfirmedPosition = new Vector2(packet.PositionX, packet.PositionY);
         }
 
         // Rencontre sauvage aléatoire hors donjon (voir GDD) : uniquement en extérieur, hors
@@ -2682,25 +2717,34 @@ void DrawMonstersPanel(int w, int h)
     }
     else
     {
-        var y = topLeft.Y + 60f;
+        var y = topLeft.Y + 70f;
         for (var i = 0; i < ownedMonsters.Count; i++)
         {
             var monster = ownedMonsters[i];
             var isSelected = i == monsterCursor;
-            var name = monster.Nickname.Length > 0 ? monster.Nickname : (speciesById.TryGetValue(monster.SpeciesId, out var species) ? species.Name : "Créature");
+            speciesById.TryGetValue(monster.SpeciesId, out var species);
+            var name = monster.Nickname.Length > 0 ? monster.Nickname : (species?.Name ?? "Créature");
             var prefix = isSelected ? "> " : "  ";
             var color = isSelected ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : Vector4.One;
 
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()} - NIV. {monster.Level}", new Vector2(topLeft.X + 24f, y), 2f, color);
+            // Portrait (voir GDD/demande utilisateur — "voir à quoi il ressemble") : réutilise le
+            // même rendu que la sélection du starter/le combat, coloré selon l'élément de
+            // l'espèce, faute de vrais sprites (voir Docs/README.md pour cette limite assumée).
+            var portraitColor = species is not null ? ElementColor(species.Element) : new Vector4(0.5f, 0.5f, 0.55f, 1f);
+            var portraitCenter = new Vector2(topLeft.X + 44f, y + 8f);
+            DrawStarterPortrait(portraitCenter, 22f, portraitColor);
+
+            var textX = topLeft.X + 78f;
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()} - NIV. {monster.Level}", new Vector2(textX, y), 2f, color);
 
             var xpForNextLevel = monster.Level * 100;
             var xpRatio = Math.Clamp((float)monster.Experience / Math.Max(1, xpForNextLevel), 0f, 1f);
-            var barTop = new Vector2(topLeft.X + 24f, y + 24f);
-            DrawPanel(barTop, new Vector2(220f, 6f), new Vector4(0.2f, 0.2f, 0.22f, 1f));
-            DrawPanel(barTop, new Vector2(220f * xpRatio, 6f), new Vector4(0.4f, 0.85f, 0.5f, 1f));
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{monster.Experience}/{xpForNextLevel} XP", barTop + new Vector2(230f, -4f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            var barTop = new Vector2(textX, y + 24f);
+            DrawPanel(barTop, new Vector2(190f, 6f), new Vector4(0.2f, 0.2f, 0.22f, 1f));
+            DrawPanel(barTop, new Vector2(190f * xpRatio, 6f), new Vector4(0.4f, 0.85f, 0.5f, 1f));
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{monster.Experience}/{xpForNextLevel} XP", barTop + new Vector2(200f, -4f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
-            y += 42f;
+            y += 48f;
         }
 
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : DONNER UN OBJET A LA CREATURE SELECTIONNEE", new Vector2(w / 2f, topLeft.Y + boxHeight - 44f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));

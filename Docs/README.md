@@ -505,36 +505,43 @@ de gameplay.
      `AetheriaInstaller.exe` relancé depuis l'extraction (le paquet fonctionne réellement).
      Limite assumée : paquet reconstruit et commité manuellement, pas de CI de publication ;
      build "framework-dependent" (nécessite le runtime .NET 10 Desktop sur la machine cible).
-   - ✅ Annonces Discord (`Server/Discord/DiscordAnnouncer.cs`) : poste un embed dans un salon
-     Discord fixe via l'API REST des bots (`Authorization: Bot <token>`) plutôt qu'une connexion
-     gateway complète — pas besoin de recevoir d'évènements Discord pour de simples annonces
-     sortantes. "Hébergé" par le processus `Aetheria.Server` existant : pas de bot séparé à faire
-     tourner. Le jeton (`DISCORD_BOT_TOKEN`) et l'identifiant de salon optionnel
-     (`DISCORD_ANNOUNCE_CHANNEL_ID`) se configurent via un fichier `.env` à la racine (voir
-     `.env.exemple` — copier en `.env`, jamais commité), chargé par `DotEnv.LoadIfPresent()` au
-     démarrage.
-     - ✅ **Annonce automatique** (`Server/Discord/GitChangelogAnnouncer.cs`, appelé une fois au
-       démarrage du serveur) : compare le commit `HEAD` courant à celui de la dernière annonce
-       (mémorisé dans `.discord-last-announced` à la racine du dépôt, jamais commité — voir
-       `.gitignore`) et poste automatiquement un embed listant les sujets des nouveaux commits si
-       `HEAD` a changé, sans aucune action manuelle. Repose sur le flux de travail réel du projet
-       ("modifier le code → reconstruire → relancer le serveur") : relancer le serveur EST la
-       mise à jour, donc pas besoin d'un hook Git séparé ni d'un service de surveillance de
-       fichiers. Premier démarrage (pas encore de fichier d'état) : annonce les 20 derniers
-       commits plutôt que tout l'historique. Vérifié via un harnais console isolé sur un vrai
-       dépôt Git jetable (jeton Discord factice) : premier démarrage écrit l'état et tente
-       l'annonce, un second démarrage sans nouveau commit ne fait rien, un nouveau commit
-       redéclenche bien une annonce (et seulement de ce commit-là) et met à jour l'état.
+   - ✅ Annonces Discord (`Server/Discord/DiscordAnnouncer.cs`) : poste un embed dans un ou
+     plusieurs salons Discord fixes via l'API REST des bots (`Authorization: Bot <token>`) plutôt
+     qu'une connexion gateway complète — pas besoin de recevoir d'évènements Discord pour de
+     simples annonces sortantes. "Hébergé" par le processus `Aetheria.Server` existant : pas de
+     bot séparé à faire tourner. Le jeton (`DISCORD_BOT_TOKEN`), les salons
+     (`DISCORD_ANNOUNCE_CHANNEL_IDS`, séparés par des virgules — `DISCORD_ANNOUNCE_CHANNEL_ID` au
+     singulier reste accepté) et le rôle notifié (`DISCORD_ANNOUNCE_ROLE_ID`) se configurent via
+     un fichier `.env` à la racine (voir `.env.exemple` — copier en `.env`, jamais commité),
+     chargé par `DotEnv.LoadIfPresent()` au démarrage. Chaque message mentionne
+     (`<@&ROLE_ID>` dans `content`, avec `allowed_mentions.roles` explicite) un rôle fixe.
+     **Vérifié en conditions réelles avec un vrai jeton/salon** : plusieurs annonces de test
+     postées avec succès pendant cette phase de développement (y compris le ping de rôle).
+     - ✅ **Récapitulatif quotidien à 23h** (`Server/Discord/GitChangelogAnnouncer.cs` +
+       `PendingChangesLog` + `DailyDigestScheduler`) : les nouveaux commits Git sont détectés à
+       chaque démarrage du serveur (comparaison au commit `HEAD` mémorisé dans
+       `.discord-last-logged`, jamais commité) et **accumulés dans un fichier**
+       (`.discord-pending-changes.txt`, jamais commité) plutôt que postés immédiatement.
+       `DailyDigestScheduler` tourne en tâche de fond pendant toute la durée de vie du serveur
+       (vérification toutes les minutes) et, une fois par jour à 23h heure locale, lit et vide ce
+       fichier (`.discord-last-digest-date` retient la dernière date déjà traitée, pour ne poster
+       qu'une fois par jour même à travers plusieurs redémarrages) : **si le fichier est vide à ce
+       moment-là, aucun message n'est envoyé** — voir demande utilisateur explicite sur ces trois
+       points. Repose sur le flux de travail réel du projet ("modifier le code → reconstruire →
+       relancer le serveur") pour la détection des commits : pas besoin d'un hook Git séparé ni
+       d'un service de surveillance de fichiers. Premier démarrage (pas encore de fichier d'état) :
+       journalise les 20 derniers commits plutôt que tout l'historique. Vérifié via un harnais
+       console isolé sur un vrai dépôt Git jetable : premier démarrage écrit l'état et journalise,
+       un second démarrage sans nouveau commit ne journalise rien, un nouveau commit redéclenche
+       bien une journalisation (et seulement de ce commit-là) ; `PendingChangesLog.Append`/
+       `ReadAndClear` vérifiés séparément (accumulation sur plusieurs appels, vidage effectif
+       après lecture, liste vide si aucun changement). **La bascule horaire à 23h elle-même n'a
+       pas pu être testée en conditions réelles** (dépendante de l'heure système au moment du
+       test) — vérifiée par relecture de code uniquement.
      - ✅ Endpoint manuel (`POST /api/admin/discord/announce`, réservé aux comptes admin via
-       `AdminAuthService`) conservé en plus de l'annonce automatique, pour un message ad hoc hors
-       du cycle de vie du serveur. `Tools/discord-announce.ps1` automatise cet appel (connexion
-       admin + annonce) en une seule commande.
-     - **Non vérifié de bout en bout avec un vrai jeton/salon Discord** (aucun jeton disponible
-       dans cet environnement de développement) — la logique de détection des nouveaux commits a
-       été vérifiée avec un vrai dépôt Git (voir ci-dessus), mais l'envoi réel à Discord seulement
-       par relecture de code + un jeton factice (échec 401 attendu, capturé proprement). Sans
-       jeton configuré, l'appel est journalisé et ignoré proprement (`IsConfigured == false`)
-       plutôt que de faire planter le serveur.
+       `AdminAuthService`) conservé en plus du récapitulatif quotidien, pour un message ad hoc
+       immédiat. `Tools/discord-announce.ps1` automatise cet appel (connexion admin + annonce) en
+       une seule commande.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
