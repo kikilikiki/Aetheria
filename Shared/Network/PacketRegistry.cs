@@ -17,6 +17,8 @@ public static class PacketRegistry
         [OpCode.EnterWorldRejected] = EnterWorldRejectedPacket.Read,
         [OpCode.PlayerMove] = PlayerMovePacket.Read,
         [OpCode.PlayerPositionUpdate] = PlayerPositionUpdatePacket.Read,
+        [OpCode.PlayerJoined] = PlayerJoinedPacket.Read,
+        [OpCode.PlayerLeft] = PlayerLeftPacket.Read,
         [OpCode.ChatMessage] = ChatMessagePacket.Read,
     };
 

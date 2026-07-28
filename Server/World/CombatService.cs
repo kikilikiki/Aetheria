@@ -16,8 +16,10 @@ namespace Aetheria.Server.World;
 /// joueurs, défi direct). Le mode Coopération (4 joueurs contre un monstre) et les
 /// compétences/sorts (au-delà de l'attaque de base) restent à faire.
 /// </summary>
-public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenStore, CombatSessionStore combatStore)
+public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenStore, CombatSessionStore combatStore, LootSessionStore lootStore)
 {
+    /// <summary>XP de base accordée à la victoire PvE (voir GDD — partagée en groupe via <see cref="PartyService"/>). Simplification assumée : montant fixe plutôt que calculé sur le niveau/rareté exacte de la créature vaincue.</summary>
+    private const long PveVictoryExperience = 30;
     public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default)
     {
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
@@ -195,17 +197,43 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             CombatEngine.RunAiTurnsUntilPlayerTurn(session);
         }
 
+        Guid? lootId = null;
         if (session.IsFinished)
         {
             if (session.IsPvp)
             {
                 await ApplyPvpResultAsync(session, ct);
             }
+            else if (request.ActionType != CombatActionType.Capture)
+            {
+                lootId = await ApplyPveVictoryRewardsAsync(session, ct);
+            }
 
             combatStore.Remove(session.Id);
         }
 
-        return ToState(session);
+        return ToState(session, lootId);
+    }
+
+    /// <summary>
+    /// XP + butin de victoire PvE (voir GDD). Rien n'est accordé si le joueur a perdu, ni pour
+    /// une victoire par capture réussie (le monstre capturé disparaît du combat, la capture est
+    /// déjà sa propre récompense — voir <see cref="ResolveCaptureAsync"/>).
+    /// </summary>
+    private async Task<Guid?> ApplyPveVictoryRewardsAsync(CombatSession session, CancellationToken ct)
+    {
+        const int playerTeam = 0;
+        if (session.WinningTeam != playerTeam || !session.TeamCharacterId.TryGetValue(playerTeam, out var winnerCharacterId))
+        {
+            return null;
+        }
+
+        var partyService = new PartyService(db, tokenStore);
+        await partyService.GrantSharedExperienceAsync(winnerCharacterId, PveVictoryExperience, ct);
+
+        var lootService = new LootService(db, lootStore, partyService);
+        var loot = await lootService.CreateFromVictoryAsync(winnerCharacterId, ct);
+        return loot?.LootId;
     }
 
     public bool TryGetState(Guid combatId, out CombatSessionState state)
@@ -334,7 +362,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         }
     }
 
-    private static CombatSessionState ToState(CombatSession session) => new(
+    private static CombatSessionState ToState(CombatSession session, Guid? lootId = null) => new(
         session.Id,
         CombatSession.GridWidth,
         CombatSession.GridHeight,
@@ -344,5 +372,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,
         session.WinningTeam,
-        session.LastMessage);
+        session.LastMessage,
+        lootId);
 }

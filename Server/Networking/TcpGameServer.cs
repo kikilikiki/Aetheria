@@ -15,6 +15,9 @@ public sealed class TcpGameServer(
 {
     private readonly ILogger<TcpGameServer> _logger = loggerFactory.CreateLogger<TcpGameServer>();
 
+    /// <summary>Partagé par toutes les <see cref="PlayerSession"/> acceptées par ce serveur (voir GDD — visibilité globale des joueurs).</summary>
+    private readonly WorldSessionRegistry _registry = new();
+
     public async Task RunAsync(int port, CancellationToken ct)
     {
         var listener = new TcpListener(IPAddress.Any, port);
@@ -28,7 +31,7 @@ public sealed class TcpGameServer(
                 var client = await listener.AcceptTcpClientAsync(ct);
                 _logger.LogInformation("Connexion entrante : {Endpoint}", client.Client.RemoteEndPoint);
 
-                var session = new PlayerSession(client, tokenStore, dbContextFactory, loggerFactory.CreateLogger<PlayerSession>());
+                var session = new PlayerSession(client, tokenStore, dbContextFactory, _registry, loggerFactory.CreateLogger<PlayerSession>());
                 _ = Task.Run(() => session.Run(ct), ct);
             }
         }

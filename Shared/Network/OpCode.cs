@@ -16,6 +16,8 @@ public enum OpCode : byte
 
     PlayerMove = 20,
     PlayerPositionUpdate = 21,
+    PlayerJoined = 22,
+    PlayerLeft = 23,
 
     ChatMessage = 30,
 }
