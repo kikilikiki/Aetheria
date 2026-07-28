@@ -77,5 +77,24 @@ public sealed class CombatApiClient : IDisposable
         return new CombatResult(state, null);
     }
 
+    /// <summary>Récupère le butin de victoire (voir GDD — 4 objets à départager) associé à <see cref="CombatSessionState.LootId"/>.</summary>
+    public async Task<LootSessionState?> GetLootAsync(Guid lootId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/loot/{lootId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<LootSessionState>(JsonOptions, ct) : null;
+    }
+
+    public async Task<LootSessionState?> ClaimLootAsync(string sessionToken, Guid lootId, Guid characterId, int itemIndex, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/loot/{lootId}/claim", new LootClaimRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ItemIndex = itemIndex,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<LootSessionState>(JsonOptions, ct) : null;
+    }
+
     public void Dispose() => _http.Dispose();
 }
