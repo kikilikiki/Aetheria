@@ -580,6 +580,14 @@ de gameplay.
     (il n'existe toujours pas de serveur de distribution de contenu, voir point 5 plus haut) — le
     bouton informe seulement qu'une nouvelle version tourne côté serveur et invite à
     retélécharger le Launcher manuellement, il ne fait rien d'automatique.
+17. ✅ Tutoriel en jeu (voir GDD/demande utilisateur — "ajoute un tutoriel pour expliquer comment
+    jouer") : ouvrable/fermable à tout moment avec F1 (mentionné dans le rappel de touches en bas
+    à gauche), pas seulement au premier lancement — 6 pages courtes (bienvenue, déplacement,
+    interaction, panneaux en jeu, combat, donjons), navigables aux flèches/Entrée, superposées en
+    plein écran comme une scène d'intérieur. **Simplification assumée** : pas de suivi "déjà vu"
+    persisté ni d'affichage automatique à la toute première connexion — F1 reste la seule façon
+    de l'ouvrir, ce qui est honnête plutôt que de simuler un onboarding plus élaboré non demandé
+    explicitement.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
