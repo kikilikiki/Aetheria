@@ -11,4 +11,11 @@ public sealed record CombatSessionState(
     int? WinningTeam,
     string? LastMessage,
     /// <summary>Renseigné uniquement à la victoire en PvE (voir GDD — butin de 4 objets) — voir <c>LootSessionState</c>.</summary>
-    Guid? LootId = null);
+    Guid? LootId = null,
+    /// <summary>
+    /// Vrai pour un combat déclenché dans un donjon (voir GDD/demande utilisateur — "impossible
+    /// de fuir un combat en donjon") : source de vérité pour l'affichage du bouton Fuir côté
+    /// client, plutôt que l'état de scène local du client (qui peut rester périmé après être
+    /// retourné à l'extérieur — voir <c>Client/Program.cs</c>, <c>interiorIsDungeon</c>).
+    /// </summary>
+    bool IsDungeonCombat = false);

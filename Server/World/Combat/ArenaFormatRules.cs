@@ -4,10 +4,10 @@ namespace Aetheria.Server.World.Combat;
 
 /// <summary>
 /// Règles de composition d'équipe par format d'arène (voir GDD — "1v1 = 4 unités par joueur,
-/// 2v2 = 2 unités par joueur, 3v3 asymétrique, 4v4 = 1 unité par joueur"). "Unité" désigne ici les
-/// créatures engagées en plus du personnage lui-même, qui est toujours présent en tant que
-/// combattant séparé (voir <c>CombatService.BuildArenaTeamCombatantsAsync</c>) — cohérent avec le
-/// mode Solo existant (personnage + jusqu'à 4 créatures).
+/// 2v2 = 2 unités par joueur, 3v3 asymétrique, 4v4 = 1 unité par joueur"). "Unité" désigne les
+/// créatures engagées par le joueur — le personnage humain ne combat jamais directement (voir
+/// GDD/demande utilisateur — "je ne veux pas que notre personnage soit présent en combat"),
+/// cohérent avec le mode Solo (voir <c>CombatService.BuildPlayerCombatantsAsync</c>).
 /// </summary>
 public static class ArenaFormatRules
 {

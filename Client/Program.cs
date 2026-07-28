@@ -2344,11 +2344,12 @@ void UpdateCombat()
             combatCursorX = current.PositionX;
             combatCursorY = current.PositionY;
         }
-        else if (keyboard.WasJustPressed(Key.Number6) && !interiorIsDungeon)
+        else if (keyboard.WasJustPressed(Key.Number6) && !combatState.IsDungeonCombat)
         {
             // Fuite (voir GDD/demande utilisateur — "un bouton pour fuir les combats, impossible
-            // en donjon") : le serveur refuse aussi via IsDungeonCombat, cette condition cliente
-            // n'est qu'un confort d'affichage (bouton absent plutôt qu'un refus après coup).
+            // en donjon") : lu depuis combatState.IsDungeonCombat (autoritaire, renvoyé par le
+            // serveur), pas depuis interiorIsDungeon (état de scène local resté périmé si le
+            // joueur était déjà passé par un donjon plus tôt dans la session — voir bug corrigé).
             SendCombatAction(CombatActionType.Flee, 0, 0);
         }
     }
@@ -3691,11 +3692,12 @@ void DrawCombat()
                     actionButtons.Add(("5:CAPTURER", CombatActionType.Capture));
                 }
 
-                if (!interiorIsDungeon)
+                if (!combatState.IsDungeonCombat)
                 {
                     // Voir GDD/demande utilisateur — "ajoute un bouton pour fuir les combats, on
-                    // ne peut pas en donjon mais en dehors on peut" : absent plutôt que désactivé,
-                    // cohérent avec CombatSession.IsDungeonCombat côté serveur.
+                    // ne peut pas en donjon mais en dehors on peut" : absent plutôt que désactivé.
+                    // Lu depuis combatState.IsDungeonCombat (autoritaire), pas interiorIsDungeon
+                    // (état de scène local pouvant rester périmé — voir bug corrigé).
                     actionButtons.Add(("6:FUIR", CombatActionType.Flee));
                 }
 

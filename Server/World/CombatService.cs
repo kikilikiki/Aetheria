@@ -35,21 +35,22 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         var combatants = await BuildPlayerCombatantsAsync(character, request.MonsterIds, team: 0, leftSide: true, ct);
 
-        // 4 ennemis plutôt qu'un seul (voir GDD/demande utilisateur — "les ennemis sont 4 et pas
-        // 1") : même espèce tirée, en formation sur le côté droit de la grille, chacun avec son
-        // propre total de PV (pas de mise à l'échelle des stats — un combat 4 contre jusqu'à 4
-        // reste équilibré par le nombre plutôt que par des ennemis individuellement plus forts).
+        // Autant d'ennemis que de créatures emmenées (voir GDD/demande utilisateur — "le nombre
+        // d'ennemis est synchronisé avec le nombre de monstres que l'on a"), même espèce tirée,
+        // en formation sur le côté droit de la grille, chacun avec son propre total de PV (pas de
+        // mise à l'échelle des stats individuelles).
         (int X, int Y)[] enemyPositions = [(CombatSession.GridWidth - 1, 1), (CombatSession.GridWidth - 1, 3), (CombatSession.GridWidth - 1, 5), (CombatSession.GridWidth - 2, 3)];
-        for (var i = 0; i < enemyPositions.Length; i++)
+        var enemyCount = Math.Clamp(combatants.Count, 1, enemyPositions.Length);
+        for (var i = 0; i < enemyCount; i++)
         {
             var (x, y) = enemyPositions[i];
             combatants.Add(new Combatant
             {
-                Id = Guid.NewGuid(), Name = $"{wildSpecies.Name} {i + 1}", Team = 1, X = x, Y = y,
+                Id = Guid.NewGuid(), Name = enemyCount > 1 ? $"{wildSpecies.Name} {i + 1}" : wildSpecies.Name, Team = 1, X = x, Y = y,
                 MaxHealth = Math.Max(1, wildSpecies.BaseHealth), CurrentHealth = Math.Max(1, wildSpecies.BaseHealth),
                 Attack = wildSpecies.BaseAttack, Defense = wildSpecies.BaseDefense, Speed = wildSpecies.BaseSpeed,
                 MovementRange = 2, AttackRange = 1, IsPlayerControlled = false,
-                Type = wildSpecies.Type, Element = wildSpecies.Element,
+                Type = wildSpecies.Type, Element = wildSpecies.Element, SpeciesId = wildSpecies.Id,
             });
         }
 
@@ -385,28 +386,29 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         return false;
     }
 
+    /// <summary>
+    /// Combattants d'un joueur (voir GDD/demande utilisateur — "je ne veux pas que notre
+    /// personnage soit présent en combat") : uniquement ses créatures, le personnage humain ne
+    /// combat jamais directement (dresseur plutôt que combattant), y compris en PvP/Arène — il
+    /// reste identifié via <see cref="CombatSession.TeamCharacterId"/> pour l'attribution des
+    /// récompenses, sans figurer sur la grille.
+    /// </summary>
     private async Task<List<Combatant>> BuildPlayerCombatantsAsync(
         CharacterEntity character, IReadOnlyList<Guid> monsterIds, int team, bool leftSide, CancellationToken ct)
     {
-        var characterX = leftSide ? 0 : CombatSession.GridWidth - 1;
-        var monsterX = leftSide ? 1 : CombatSession.GridWidth - 2;
-
-        var combatants = new List<Combatant>
-        {
-            new()
-            {
-                Id = character.Id, Name = character.Name, Team = team, X = characterX, Y = 3,
-                MaxHealth = 50, CurrentHealth = 50, Attack = 10, Defense = 8, Speed = 10,
-                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
-                OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
-            },
-        };
+        var monsterX = leftSide ? 0 : CombatSession.GridWidth - 1;
+        var combatants = new List<Combatant>();
 
         var playerMonsters = monsterIds.Count == 0
             ? []
             : await db.Monsters
                 .Where(m => monsterIds.Contains(m.Id) && m.OwnerCharacterId == character.Id)
                 .ToListAsync(ct);
+
+        if (playerMonsters.Count == 0)
+        {
+            throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
+        }
 
         (int X, int Y)[] monsterSlots = [(monsterX, 1), (monsterX, 2), (monsterX, 4), (monsterX, 5)];
         for (var i = 0; i < playerMonsters.Count && i < monsterSlots.Length; i++)
@@ -422,7 +424,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
                 MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
-                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre,
+                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
             });
         }
 
@@ -501,15 +503,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             return combatants;
         }
 
-        var (charX, charY) = cellQueue.Dequeue();
-        combatants.Add(new Combatant
-        {
-            Id = character.Id, Name = character.Name, Team = team, X = charX, Y = charY,
-            MaxHealth = 50, CurrentHealth = 50, Attack = 10, Defense = 8, Speed = 10,
-            MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
-            OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
-        });
-
         var playerMonsters = monsterIds.Count == 0
             ? []
             : await db.Monsters
@@ -535,7 +528,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
                 MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
-                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre,
+                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
             });
         }
 
@@ -552,10 +545,12 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var wildCombatant = session.Combatants.FirstOrDefault(c => c.Team != actor.Team && c.IsAlive)
             ?? throw new AccountOperationException("Aucun monstre sauvage à capturer.");
 
-        // L'identifiant d'espèce n'est pas dupliqué sur le combattant : on le retrouve par nom.
-        // Limite assumée pour cette version — un identifiant explicite serait plus robuste
-        // dès que deux espèces pourraient partager un nom.
-        var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Name == wildCombatant.Name, ct)
+        if (wildCombatant.SpeciesId is not { } speciesId)
+        {
+            throw new AccountOperationException("Espèce introuvable pour la capture.");
+        }
+
+        var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == speciesId, ct)
             ?? throw new AccountOperationException("Espèce introuvable pour la capture.");
 
         var healthPercent = (int)Math.Round(100.0 * wildCombatant.CurrentHealth / wildCombatant.MaxHealth);
@@ -711,5 +706,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         session.IsFinished,
         session.WinningTeam,
         session.LastMessage,
-        lootId);
+        lootId,
+        session.IsDungeonCombat);
 }

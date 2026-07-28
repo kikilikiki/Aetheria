@@ -655,6 +655,38 @@ de gameplay.
       compétences), le personnage joueur est toujours de type Guerrier (pas de choix), et le
       MonsterEditor ne permet pas encore d'éditer le type d'une espèce depuis son interface
       (toujours modifiable via l'API/le seeder).
+21. ✅ Corrections suite au premier test du point 20, et retrait du personnage joueur des combats
+    (voir GDD/demande utilisateur) :
+    - **Le personnage humain ne combat plus jamais directement** — "je ne veux pas que notre
+      personnage soit présent en combat" — seules ses créatures sont désormais combattantes,
+      aussi bien en PvE (rencontre sauvage/donjon) qu'en PvP/Arène. Le nombre d'ennemis se
+      synchronise sur le nombre de créatures emmenées (1 à 4) plutôt qu'un total fixe de 4. Le
+      personnage reste identifié via `CombatSession.TeamCharacterId` pour l'attribution des
+      récompenses (XP/butin), sans figurer sur la grille. **Piège rencontré et corrigé** :
+      `ResolveCaptureAsync` retrouvait l'espèce d'un monstre sauvage par son nom — cassé par le
+      nommage numéroté des ennemis multiples ("Braisillon 1", "Braisillon 2", ...) introduit au
+      point 20. Corrigé en ajoutant `Combatant.SpeciesId` (identifiant explicite) plutôt que de
+      re-déduire l'espèce depuis un nom d'affichage.
+    - **Piège rencontré et corrigé (bouton Fuir invisible hors donjon)** : le client décidait
+      d'afficher le bouton Fuir à partir de son état de scène local (`interiorIsDungeon`), qui
+      n'était jamais remis à `false` en quittant un donjon vers l'extérieur — un joueur ayant
+      visité un donjon plus tôt dans sa session voyait le bouton Fuir durablement absent, même
+      lors d'une rencontre sauvage hors donjon. Corrigé en ajoutant `IsDungeonCombat` à
+      `CombatSessionState` (renvoyé par le serveur, toujours à jour) et en l'utilisant à la place
+      de l'état de scène local.
+    - **Diagnostic "connexion impossible à la création du personnage, mais fonctionne après un
+      redémarrage du jeu"** : cause identifiée comme une erreur de configuration locale, pas un
+      bug de code — `AccountApiBaseUrl` (voir point 20) avait été réglé sur le tunnel ngrok
+      *sur la machine hébergeant elle-même le serveur*, alors que ce réglage n'a de sens que pour
+      des joueurs distants. Faire transiter le trafic local par un aller-retour vers les serveurs
+      ngrok (au lieu d'un appel direct à `localhost`) ajoutait une latence/fragilité inutile,
+      cohérente avec des échecs intermittents qui se résolvaient au hasard d'un nouvel essai.
+      Corrigé en remettant `ServerHost`/`AccountApiBaseUrl` sur `localhost`/vide pour les tests
+      sur cette machine — `AccountApiBaseUrl` reste un réglage à ne renseigner que côté joueurs
+      distants, jamais sur la machine du serveur lui-même.
+    - **Paquet d'installation reconstruit** (`Sites/downloads/AetheriaSetup.zip`) avec le Launcher
+      et le Client à jour (configuration Release) — voir `Sites/README.md` pour la procédure
+      manuelle de reconstruction (pas encore de chaîne de publication automatisée).
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

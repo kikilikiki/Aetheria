@@ -29,6 +29,14 @@ public sealed class Combatant
     public Element Element { get; init; } = Element.Neutre;
 
     /// <summary>
+    /// Espèce d'origine (monstre sauvage ou créature possédée), <c>null</c> pour un combattant
+    /// sans espèce. Utilisé par <c>ResolveCaptureAsync</c> pour retrouver l'espèce de façon
+    /// fiable — <see cref="Name"/> seul ne suffit plus depuis que plusieurs ennemis sauvages
+    /// partagent la même espèce avec un nom numéroté ("Braisillon 1", "Braisillon 2", ...).
+    /// </summary>
+    public int? SpeciesId { get; init; }
+
+    /// <summary>
     /// Joueur propriétaire de ce combattant précis — <c>null</c> pour les monstres sauvages
     /// contrôlés par l'IA. Utilisé pour l'autorisation d'action (voir
     /// <c>CombatService.SubmitActionAsync</c>) : contrairement à <see cref="Team"/>, permet à
