@@ -1,6 +1,7 @@
 using System.Net.Http;
 using Aetheria.Launcher.Services;
 using Aetheria.Shared;
+using Aetheria.Shared.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -46,9 +47,33 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _serverStatusText = "Vérification du serveur...";
 
+    [ObservableProperty]
+    private bool _isSettingsOpen;
+
+    [ObservableProperty]
+    private KeyboardLayoutPreference _keyboardLayoutPreference;
+
+    public IReadOnlyList<KeyboardLayoutPreference> AvailableKeyboardLayouts { get; } = Enum.GetValues<KeyboardLayoutPreference>();
+
+    public string DetectedLayoutText => KeyboardLayoutResolver.IsAzertyDetected()
+        ? "Détecté sur cette machine : AZERTY"
+        : "Détecté sur cette machine : QWERTY";
+
     public MainViewModel()
     {
         _ = CheckServerStatusAsync();
+        _keyboardLayoutPreference = GameSettings.Load().KeyboardLayout;
+    }
+
+    [RelayCommand]
+    private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
+
+    /// <summary>Persiste immédiatement — le fichier de préférences est partagé avec le Client (voir GDD).</summary>
+    partial void OnKeyboardLayoutPreferenceChanged(KeyboardLayoutPreference value)
+    {
+        var settings = GameSettings.Load();
+        settings.KeyboardLayout = value;
+        settings.Save();
     }
 
     /// <summary>
