@@ -19,6 +19,8 @@ public sealed class GameConnection : IDisposable
     public event Action<EnterWorldAcceptedPacket>? EnterWorldAccepted;
     public event Action<EnterWorldRejectedPacket>? EnterWorldRejected;
     public event Action<PlayerPositionUpdatePacket>? PositionUpdated;
+    public event Action<PlayerJoinedPacket>? PlayerJoined;
+    public event Action<PlayerLeftPacket>? PlayerLeft;
     public event Action? Disconnected;
 
     public void Connect(string host, int port)
@@ -77,6 +79,12 @@ public sealed class GameConnection : IDisposable
                         break;
                     case PlayerPositionUpdatePacket position:
                         PositionUpdated?.Invoke(position);
+                        break;
+                    case PlayerJoinedPacket joined:
+                        PlayerJoined?.Invoke(joined);
+                        break;
+                    case PlayerLeftPacket left:
+                        PlayerLeft?.Invoke(left);
                         break;
                 }
             }

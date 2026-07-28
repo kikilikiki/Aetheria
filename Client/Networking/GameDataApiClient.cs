@@ -47,6 +47,59 @@ public sealed class GameDataApiClient : IDisposable
         return await response.Content.ReadFromJsonAsync<GuildSummary>(JsonOptions, ct);
     }
 
+    public async Task<PartySummary?> GetMyPartyAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/parties/mine?characterId={characterId}", ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<PartySummary>(JsonOptions, ct);
+    }
+
+    public async Task<PartySummary> CreatePartyAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/parties", new CreatePartyRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return await ReadPartyResultAsync(response, ct);
+    }
+
+    public async Task<PartySummary> JoinPartyAsync(string sessionToken, Guid characterId, Guid partyId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/parties/{partyId}/join", new JoinPartyRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return await ReadPartyResultAsync(response, ct);
+    }
+
+    public async Task LeavePartyAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        await _http.PostAsJsonAsync("/api/parties/leave", new LeavePartyRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+    }
+
+    private static async Task<PartySummary> ReadPartyResultAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        return (await response.Content.ReadFromJsonAsync<PartySummary>(JsonOptions, ct))!;
+    }
+
     public async Task<List<DungeonData>> GetDungeonsAsync(CancellationToken ct = default)
     {
         var result = await _http.GetFromJsonAsync<List<DungeonData>>("/api/dungeons", JsonOptions, ct);

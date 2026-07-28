@@ -181,6 +181,40 @@ de gameplay.
      Windows), persistée dans `%APPDATA%\Aetheria\settings.json`. N'affecte que les libellés
      affichés : les codes de touche Silk.NET/GLFW étant basés sur la position physique, WASD
      fonctionne déjà nativement en ZQSD sur un clavier AZERTY sans remappage.
+10. ✅ Groupes, butin partagé et visibilité globale des joueurs (voir GDD) :
+    - ✅ Groupes (`PartyEntity`/`PartyMemberEntity`, `PartyService`, `POST /api/parties`,
+      `POST /api/parties/{id}/join`, `POST /api/parties/leave`, `GET /api/parties/mine`) : 4
+      joueurs maximum, transfert automatique du rôle de chef si celui-ci quitte, groupe supprimé
+      si le dernier membre part. XP de combat **partagée en plein** entre tous les membres (pas
+      divisée) via `CharacterProgressionService` — voir GDD ("l'xp est partagé entre tout les
+      membres du groupe"). Panneau en jeu (`PanelKind.Party`, touche P) : créer, rejoindre par
+      identifiant (saisi au clavier), quitter, liste des membres avec niveau.
+      **Limite assumée** : pas d'invitation en un clic ni de liste de groupes ouverts à
+      proximité — l'identifiant du groupe doit être communiqué hors jeu pour rejoindre.
+    - ✅ Visibilité globale en temps réel (`WorldSessionRegistry`, `PlayerSession`, packets
+      `PlayerJoined`/`PlayerPositionUpdate`/`PlayerLeft`) : tout joueur connecté voit tous les
+      autres se déplacer en direct, même hors groupe — chaque déplacement est diffusé par le
+      serveur à toutes les sessions TCP connectées, pas seulement à l'émetteur. Rendu client
+      (`RemotePlayer`, `DrawRemotePlayerFigure`) : silhouette bleutée + nom, réutilise le même
+      `DrawFigure` que le joueur local/les PNJ. **Limite assumée** : aucune validation
+      serveur de portée/collision sur les déplacements (voir commentaire dans
+      `PlayerSession.HandlePlayerMove`) — le mode Coopération (plusieurs joueurs dans le même
+      combat) reste à faire, cette diffusion ne couvre que l'exploration du monde partagé.
+    - ✅ Butin de victoire partagé (`LootService`, `LootRoll`, `POST /api/loot/{id}/claim`,
+      `GET /api/loot/{id}`) : 4 objets tirés du catalogue à chaque victoire PvE (pas sur capture
+      réussie — la capture est déjà sa propre récompense), partagés avec le groupe du vainqueur
+      s'il en a un. Résolu dès que chaque personnage éligible a réclamé un objet ; en cas
+      d'égalité sur le même objet, tirage aléatoire parmi les réclamants (`LootRoll.Resolve`,
+      fonction pure). **Limite assumée, documentée honnêtement** : le mode Coopération (plusieurs
+      joueurs humains dans le même combat) n'existe pas encore, donc en pratique un seul
+      réclamant réel existe par combat aujourd'hui — la logique de répartition/tirage aléatoire
+      est déjà celle qui servira une fois ce mode ajouté, mais n'a pu être vérifiée qu'en revue
+      de code (GroupBy + tirage aléatoire sur les réclamants), pas via un vrai scénario à
+      plusieurs joueurs humains disputant le même objet.
+    - ✅ XP de combat (`CharacterProgressionService`, formule identique à `ProfessionService` : XP
+      requise au niveau N = N × 100) : n'existait pas du tout avant cette phase (les personnages
+      ne montaient jamais de niveau par le combat). **Simplification assumée** : montant fixe
+      par victoire PvE plutôt que calculé sur le niveau/la rareté exacte de la créature vaincue.
 
 > **Incident évité en testant :** une première tentative de vérification visuelle du site web
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche
