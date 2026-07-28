@@ -93,6 +93,18 @@ var kingdomValues = Enum.GetValues<KingdomType>();
 
 GameConnection? connection = null;
 CharacterApiClient? characterApi = null;
+GameDataApiClient? gameDataApi = null;
+
+// Panneaux en jeu (voir GDD — boutons Inventaire/Guilde/Boutique) : superposés au monde
+// extérieur comme le dialogue PNJ, ouverts via I/G/B, fermés via Échap.
+var activePanel = PanelKind.None;
+List<InventoryItemSummary> inventoryItems = [];
+GuildSummary? myGuild = null;
+var guildLoaded = false;
+List<ShopItem> shopCatalog = [];
+var shopCursor = 0;
+string? shopMessage = null;
+Task<ShopPurchaseResponse>? shopBuyTask = null;
 
 // Sélection/création de personnage (voir GDD) : ne se fait plus dans le Launcher, mais en jeu,
 // avant la connexion TCP proprement dite. `--characterId` reste accepté pour compatibilité
@@ -107,6 +119,7 @@ if (isConnectedMode)
 {
     starterApi = new StarterApiClient(options.Host);
     characterApi = new CharacterApiClient(options.Host);
+    gameDataApi = new GameDataApiClient(options.Host);
 
     if (chosenCharacterId is null)
     {
@@ -240,6 +253,31 @@ host.Update += deltaTime =>
         }
 
         return; // Le monde se fige pendant un dialogue, comme dans un RPG classique.
+    }
+
+    if (activePanel != PanelKind.None)
+    {
+        UpdatePanel();
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.I))
+    {
+        activePanel = PanelKind.Inventory;
+        _ = LoadInventoryAsync();
+    }
+    else if (keyboard.WasJustPressed(Key.G))
+    {
+        activePanel = PanelKind.Guild;
+        guildLoaded = false;
+        _ = LoadGuildAsync();
+    }
+    else if (keyboard.WasJustPressed(Key.B))
+    {
+        activePanel = PanelKind.Shop;
+        shopCursor = 0;
+        shopMessage = null;
+        _ = LoadShopCatalogAsync();
     }
 
     Vector2 positionBeforeInput;
@@ -458,6 +496,7 @@ host.Run();
 connection?.Dispose();
 starterApi?.Dispose();
 characterApi?.Dispose();
+gameDataApi?.Dispose();
 
 static Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, int Y) to)
 {
@@ -838,6 +877,95 @@ void UpdateCharacterCreate()
 
 static int Wrap(int value, int count) => ((value % count) + count) % count;
 
+async Task LoadInventoryAsync()
+{
+    if (gameDataApi is null || chosenCharacterId is null)
+    {
+        return;
+    }
+
+    try
+    {
+        inventoryItems = await gameDataApi.GetInventoryAsync(chosenCharacterId.Value);
+    }
+    catch (HttpRequestException)
+    {
+        inventoryItems = [];
+    }
+}
+
+async Task LoadGuildAsync()
+{
+    if (gameDataApi is null || chosenCharacterId is null)
+    {
+        guildLoaded = true;
+        return;
+    }
+
+    try
+    {
+        myGuild = await gameDataApi.GetMyGuildAsync(chosenCharacterId.Value);
+    }
+    catch (HttpRequestException)
+    {
+        myGuild = null;
+    }
+
+    guildLoaded = true;
+}
+
+async Task LoadShopCatalogAsync()
+{
+    if (gameDataApi is null)
+    {
+        return;
+    }
+
+    try
+    {
+        shopCatalog = await gameDataApi.GetShopCatalogAsync();
+    }
+    catch (HttpRequestException)
+    {
+        shopCatalog = [];
+    }
+}
+
+void UpdatePanel()
+{
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        shopMessage = null;
+        return;
+    }
+
+    if (activePanel != PanelKind.Shop)
+    {
+        return;
+    }
+
+    if (shopBuyTask is { IsCompleted: true } task)
+    {
+        shopMessage = task.IsFaulted ? "Connexion au serveur impossible." : task.Result.Message;
+        shopBuyTask = null;
+        return;
+    }
+
+    if (shopCatalog.Count == 0 || shopBuyTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) shopCursor = Math.Min(shopCursor + 1, shopCatalog.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) shopCursor = Math.Max(shopCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        shopMessage = null;
+        shopBuyTask = gameDataApi!.BuyItemAsync(options.SessionToken!, chosenCharacterId!.Value, shopCatalog[shopCursor].ItemId);
+    }
+}
+
 void UpdateStarterSelection(float deltaTime)
 {
     starterAnimClock += deltaTime;
@@ -1061,6 +1189,15 @@ void DrawOutdoorHud()
     {
         DrawDialogueBox(w, h);
     }
+    else if (activePanel != PanelKind.None)
+    {
+        switch (activePanel)
+        {
+            case PanelKind.Inventory: DrawInventoryPanel(w, h); break;
+            case PanelKind.Guild: DrawGuildPanel(w, h); break;
+            case PanelKind.Shop: DrawShopPanel(w, h); break;
+        }
+    }
     else if (nearbyInteraction is { } interaction)
     {
         var prompt = interaction.Kind switch
@@ -1077,8 +1214,112 @@ void DrawOutdoorHud()
     // Rappel des touches en bas à gauche (adapte le libellé à la disposition détectée/choisie —
     // voir GDD, les touches elles-mêmes fonctionnent déjà nativement dans les deux cas).
     var moveKeysLabel = isAzerty ? "ZQSD" : "WASD";
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER",
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER - I : INVENTAIRE - G : GUILDE - B : BOUTIQUE",
         new Vector2(12, h - 26f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 0.85f));
+}
+
+void DrawInventoryPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 360f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+
+    if (inventoryItems.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 56f;
+        foreach (var item in inventoryItems)
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{item.Name.ToUpperInvariant()} x{item.Quantity}", new Vector2(topLeft.X + 20f, y), 2f, Vector4.One);
+            y += 28f;
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+void DrawGuildPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 320f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GUILDE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+
+    if (!guildLoaded)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (myGuild is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "VOUS N'APPARTENEZ A", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 20f), 2.2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2.2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    }
+    else
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {myGuild.Level} - {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 88f), 2f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+
+        var y = topLeft.Y + 122f;
+        TextRenderer.Draw(spriteBatch, whiteTexture, "MEMBRES :", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        y += 28f;
+        foreach (var name in myGuild.MemberNames)
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(topLeft.X + 30f, y), 2f, Vector4.One);
+            y += 24f;
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+void DrawShopPanel(int w, int h)
+{
+    const float boxWidth = 520f;
+    const float boxHeight = 400f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BOUTIQUE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+
+    if (shopCatalog.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 56f;
+        for (var i = 0; i < shopCatalog.Count; i++)
+        {
+            var item = shopCatalog[i];
+            var selected = i == shopCursor;
+            var color = selected ? new Vector4(0.9f, 0.75f, 0.35f, 1f) : Vector4.One;
+            var prefix = selected ? "> " : "  ";
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{item.Name.ToUpperInvariant()} - {item.Price} OR", new Vector2(topLeft.X + 20f, y), 2f, color);
+            y += 28f;
+        }
+    }
+
+    if (shopMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, shopMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : ACHETER - ECHAP : FERMER",
+        new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawDialogueBox(int w, int h)
@@ -1456,6 +1697,14 @@ enum InteractionKind
     Building,
     Dungeon,
     Npc,
+}
+
+enum PanelKind
+{
+    None,
+    Inventory,
+    Guild,
+    Shop,
 }
 
 enum StarterStage

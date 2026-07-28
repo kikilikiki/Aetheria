@@ -66,11 +66,20 @@ dotnet build/bin/Aetheria.Server/Debug/net10.0/Aetheria.Server.dll
 build/bin/Aetheria.Launcher/Debug/net10.0-windows/Aetheria.Launcher.exe
 ```
 
-Un compte administrateur est créé automatiquement au premier démarrage du serveur pour
-l'AdminPanel — voir `Server/Persistence/AdminAccountSeeder.cs` (mot de passe à changer avant
-tout déploiement réel).
+### Compte administrateur (AdminPanel)
+
+Le fichier `Server/Persistence/AdminAccountSeeder.cs` crée un compte administrateur au premier
+démarrage du serveur. Il **n'est pas versionné** (voir `.gitignore`) pour ne pas publier
+d'identifiants, même par défaut. Avant de lancer le serveur pour la première fois :
+
+```powershell
+Copy-Item Server/Persistence/AdminAccountSeeder.exemple Server/Persistence/AdminAccountSeeder.cs
+```
+
+Puis modifiez `DefaultUsername`/`DefaultEmail`/`DefaultPassword` dans ce fichier avec vos propres
+identifiants avant de compiler/lancer le serveur.
 
 ## Licence
 
-Projet propriétaire — tous droits réservés (voir les conditions générales sur le site,
-`Sites/conditions-generales.html`). Pas de licence open source pour le moment.
+Code sous licence [MIT](LICENSE). L'utilisation du service en ligne (comptes, serveur hébergé)
+reste soumise à ses propres conditions générales (`Sites/conditions-generales.html`).

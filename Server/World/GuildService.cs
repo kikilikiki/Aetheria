@@ -58,6 +58,13 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
         return await BuildSummaryAsync(guild.Id, ct);
     }
 
+    /// <summary>Guilde du personnage donné, ou <c>null</c> s'il n'en a pas (voir GDD — bouton Guilde en jeu).</summary>
+    public async Task<GuildSummary?> GetForCharacterAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var membership = await db.GuildMembers.FirstOrDefaultAsync(m => m.CharacterId == characterId, ct);
+        return membership is null ? null : await BuildSummaryAsync(membership.GuildId, ct);
+    }
+
     private async Task<CharacterEntity> ResolveOwnedCharacterAsync(string sessionToken, Guid characterId, CancellationToken ct)
     {
         if (!tokenStore.TryValidate(sessionToken, out var userId))

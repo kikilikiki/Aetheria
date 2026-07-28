@@ -42,4 +42,7 @@ public sealed class ItemEntity
 
     public bool IsStackable { get; set; } = true;
     public int MaxStackSize { get; set; } = 99;
+
+    /// <summary>Prix en or à la Boutique (voir GDD) ; 0 = non vendu en boutique.</summary>
+    public int Price { get; set; }
 }

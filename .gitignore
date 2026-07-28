@@ -41,3 +41,6 @@ Thumbs.db
 # Configuration locale des outils (feelsman, etc.)
 .claude/
 .obsidian/
+
+# compte admin
+Server/Persistence/AdminAccountSeeder.cs
