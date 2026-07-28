@@ -47,6 +47,12 @@ public sealed class GameDataApiClient : IDisposable
         return await response.Content.ReadFromJsonAsync<GuildSummary>(JsonOptions, ct);
     }
 
+    public async Task<List<DungeonData>> GetDungeonsAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<DungeonData>>("/api/dungeons", JsonOptions, ct);
+        return result ?? [];
+    }
+
     public async Task<List<ShopItem>> GetShopCatalogAsync(CancellationToken ct = default)
     {
         var result = await _http.GetFromJsonAsync<List<ShopItem>>("/api/shop/catalog", JsonOptions, ct);

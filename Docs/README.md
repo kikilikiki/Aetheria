@@ -185,9 +185,13 @@ de gameplay.
      les projets compilés : première lecture assigne une position, une lecture dans la même
      heure ne change rien, forcer un `PositionHourBucket` périmé déclenche un recalcul, et
      plusieurs seeds de donjon produisent tous des coordonnées dans les limites de la carte.
-     **Non encore fait côté Client** : `Client/World/WorldMap.cs` affiche toujours une entrée de
-     donjon à position fixe et ne lit pas encore `WorldX`/`WorldY` — la rotation horaire de
-     position est pour l'instant un mécanisme serveur seul, sans effet visible en jeu.
+     **Côté Client** : `WorldMap.SetDungeon` applique désormais la position reçue de
+     `GET /api/dungeons` une fois par connexion (voir `RefreshDungeonPositionAsync` dans
+     `Client/Program.cs`), donc le portail apparaît bien à l'endroit tiré par le serveur pour
+     l'heure UTC en cours. **Limites assumées** : pas de rafraîchissement en cours de session
+     (il faut se reconnecter pour voir un changement d'heure survenu pendant que le client
+     tourne), et les chemins de terre tracés à la construction de la carte ne sont pas retracés
+     vers la nouvelle position (seuls le portail et sa zone d'interaction se déplacent).
    - ✅ Métiers et artisanat (`CharacterProfessionEntity`, `RecipeEntity`,
      `ProfessionService`, `GET /api/professions/recipes`, `POST /api/professions/gather`,
      `POST /api/professions/craft`) : chaîne de départ Mineur → Minerai de fer → Forgeron →
