@@ -1,4 +1,6 @@
+using System.Collections.ObjectModel;
 using System.Net.Http;
+using Aetheria.Launcher.Models;
 using Aetheria.Launcher.Services;
 using Aetheria.Shared;
 using Aetheria.Shared.Settings;
@@ -59,11 +61,101 @@ public sealed partial class MainViewModel : ObservableObject
         ? "Détecté sur cette machine : AZERTY"
         : "Détecté sur cette machine : QWERTY";
 
+    [ObservableProperty]
+    private bool _isNewsDetailOpen;
+
+    [ObservableProperty]
+    private bool _isAllNewsOpen;
+
+    [ObservableProperty]
+    private NewsItem? _selectedNews;
+
+    /// <summary>Les trois plus récentes, affichées directement dans le panneau (voir GDD — page "toutes les actualités").</summary>
+    public ObservableCollection<NewsItem> RecentNews { get; } = [];
+
+    public ObservableCollection<NewsItem> AllNews { get; } = [];
+
     public MainViewModel()
     {
         _ = CheckServerStatusAsync();
         _keyboardLayoutPreference = GameSettings.Load().KeyboardLayout;
+        LoadNews();
     }
+
+    /// <summary>Contenu statique de démonstration (voir Docs/README.md) — pas encore de flux géré côté serveur.</summary>
+    private void LoadNews()
+    {
+        var items = new List<NewsItem>
+        {
+            new()
+            {
+                Title = "Le monde d'Aetheria s'agrandit",
+                ShortDescription = "Nouvelle carte, bâtiments visitables, PNJ et donjon de test à explorer dès aujourd'hui.",
+                FullContent = "La carte du monde a été agrandie et redessinée en isométrique 2D. Les bâtiments " +
+                    "(capitale, village, hôtel des ventes, forge, guilde) sont désormais visitables, des PNJ vous " +
+                    "accueillent avec leurs propres dialogues, et un premier donjon de test est accessible via son " +
+                    "portail animé aux abords de la carte.",
+                PublishedAtUtc = new DateTime(2026, 7, 20, 10, 0, 0, DateTimeKind.Utc),
+            },
+            new()
+            {
+                Title = "Choisissez votre premier compagnon",
+                ShortDescription = "Une dizaine de créatures communes vous attendent pour débuter votre collection.",
+                FullContent = "La création de personnage se fait désormais entièrement en jeu : personnalisez " +
+                    "l'apparence de votre personnage, puis rencontrez un vieux gardien qui vous proposera de choisir " +
+                    "votre premier compagnon parmi une dizaine de créatures communes, chacune avec son élément et " +
+                    "son histoire. Ce choix est définitif, alors observez bien avant de valider !",
+                PublishedAtUtc = new DateTime(2026, 7, 24, 14, 30, 0, DateTimeKind.Utc),
+            },
+            new()
+            {
+                Title = "Combat tactique et boutique en jeu",
+                ShortDescription = "Affrontez des monstres sauvages sur une grille tactique et équipez-vous en boutique.",
+                FullContent = "Le système de combat tactique est maintenant jouable : engagez un monstre sauvage " +
+                    "depuis l'entrée d'un donjon, déplacez vos combattants sur une grille 7x7, attaquez, capturez ou " +
+                    "passez votre tour. Une boutique accessible à tout moment (touche B en jeu) vous permet " +
+                    "d'acheter potions, armes et armures de départ contre de l'or.",
+                PublishedAtUtc = new DateTime(2026, 7, 28, 9, 15, 0, DateTimeKind.Utc),
+            },
+            new()
+            {
+                Title = "Guerres de royaumes",
+                ShortDescription = "Rejoignez un royaume et participez aux batailles pour le contrôle des territoires.",
+                FullContent = "Chaque semaine, les royaumes s'affrontent pour le contrôle de mines, villages, forts " +
+                    "et donjons rares. Le royaume qui contrôle un territoire en tire des bonus passifs pour tous ses " +
+                    "citoyens. Choisissez votre camp à la création de votre personnage et faites pencher la balance.",
+                PublishedAtUtc = new DateTime(2026, 7, 15, 18, 0, 0, DateTimeKind.Utc),
+            },
+        };
+
+        foreach (var item in items.OrderByDescending(i => i.PublishedAtUtc))
+        {
+            AllNews.Add(item);
+        }
+
+        foreach (var item in AllNews.Take(3))
+        {
+            RecentNews.Add(item);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenNewsDetail(NewsItem? news)
+    {
+        if (news is null)
+        {
+            return;
+        }
+
+        SelectedNews = news;
+        IsNewsDetailOpen = true;
+    }
+
+    [RelayCommand]
+    private void CloseNewsDetail() => IsNewsDetailOpen = false;
+
+    [RelayCommand]
+    private void ToggleAllNews() => IsAllNewsOpen = !IsAllNewsOpen;
 
     [RelayCommand]
     private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
