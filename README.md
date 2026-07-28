@@ -87,6 +87,28 @@ deux étapes obligatoires :
 
 Sans ce fichier, le projet ne compile pas (`Server/Program.cs` référence `AdminAccountSeeder`).
 
+### Bot Discord d'annonces (optionnel)
+
+Le serveur peut poster automatiquement les mises à jour dans un salon Discord (voir
+`Server/Discord/DiscordAnnouncer.cs`). Optionnel : sans configuration, le serveur démarre
+normalement et journalise simplement que l'annonce est ignorée.
+
+1. **Copiez** `.env.exemple` en `.env` à la racine du dépôt (`.env` est ignoré par git, jamais
+   commité) :
+
+   ```powershell
+   Copy-Item .env.exemple .env
+   ```
+
+2. **Créez une application Discord** sur https://discord.com/developers/applications, ajoutez-lui
+   un Bot, copiez son token dans `.env` (`DISCORD_BOT_TOKEN=...`), puis invitez-le sur votre
+   serveur Discord avec les permissions "Envoyer des messages" et "Intégrer des liens" sur le
+   salon visé (identifiant configurable via `DISCORD_ANNOUNCE_CHANNEL_ID`, sinon un salon par
+   défaut est codé dans `DiscordAnnouncer.cs`).
+
+3. Lancez `Tools/discord-announce.ps1` (avec vos identifiants admin) pour poster une annonce
+   manuellement, ou appelez `POST /api/admin/discord/announce` directement.
+
 ## Licence
 
 Code sous licence [MIT](LICENSE). L'utilisation du service en ligne (comptes, serveur hébergé)
