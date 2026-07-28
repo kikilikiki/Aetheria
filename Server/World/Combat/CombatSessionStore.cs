@@ -4,13 +4,25 @@ namespace Aetheria.Server.World.Combat;
 
 /// <summary>
 /// Combats en cours, conservés en mémoire (comme <see cref="Aetheria.Server.Persistence.SessionTokenStore"/>) :
-/// un combat est un état transitoire, il n'a pas sa place en base de données.
+/// un combat est un état transitoire, il n'a pas sa place en base de données. Un combat terminé
+/// (<see cref="CombatSession.FinishedAtUtc"/> renseigné) n'est plus retiré immédiatement (voir
+/// GDD/demande utilisateur — "le joueur qui n'a pas donné le coup final est bloqué, ça ne
+/// fonctionne pas") : un coéquipier dont le client sonde encore l'état après la fin du combat
+/// (voir <c>CombatService.TryGetState</c>) doit pouvoir le lire comme terminé — pas comme
+/// introuvable — pour afficher son propre butin/écran de fin. Purgé après un court délai
+/// (<see cref="FinishedRetention"/>) plutôt que de garder les sessions terminées indéfiniment.
 /// </summary>
 public sealed class CombatSessionStore
 {
+    private static readonly TimeSpan FinishedRetention = TimeSpan.FromMinutes(3);
+
     private readonly ConcurrentDictionary<Guid, CombatSession> _sessions = new();
 
-    public void Add(CombatSession session) => _sessions[session.Id] = session;
+    public void Add(CombatSession session)
+    {
+        _sessions[session.Id] = session;
+        PruneFinished();
+    }
 
     public bool TryGet(Guid id, out CombatSession session) => _sessions.TryGetValue(id, out session!);
 
@@ -21,5 +33,18 @@ public sealed class CombatSessionStore
     {
         session = _sessions.Values.FirstOrDefault(s => s.PartyId == partyId && !s.IsFinished)!;
         return session is not null;
+    }
+
+    /// <summary>Purge opportuniste (appelée à chaque nouveau combat) des combats terminés depuis plus de <see cref="FinishedRetention"/> — évite une fuite mémoire sans nécessiter de tâche d'arrière-plan dédiée pour un volume aussi faible.</summary>
+    private void PruneFinished()
+    {
+        var cutoff = DateTime.UtcNow - FinishedRetention;
+        foreach (var (id, session) in _sessions)
+        {
+            if (session.FinishedAtUtc is { } finishedAt && finishedAt < cutoff)
+            {
+                _sessions.TryRemove(id, out _);
+            }
+        }
     }
 }
