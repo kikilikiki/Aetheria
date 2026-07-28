@@ -1,11 +1,13 @@
 using System.Numerics;
+using Aetheria.Shared.Enums;
 
 namespace Aetheria.Client.World;
 
 /// <summary>
-/// Génère une carte de démonstration : terrain varié (herbe, chemins, étang), une capitale et
-/// ses bâtiments (voir <c>Docs/GameDesign.md</c> — exemple du Royaume du Nord), et l'entrée
-/// d'un donjon de test. Calculé une seule fois au chargement, pas à chaque frame.
+/// Génère la capitale du royaume du personnage : terrain varié (herbe, chemins, étang), une
+/// capitale et ses bâtiments, et l'entrée d'un donjon de test — voir <see cref="KingdomBiome"/>
+/// pour la palette/les noms propres à chaque royaume (voir GDD — "plusieurs villes distinctes
+/// par royaume/biome"). Calculé une seule fois au chargement, pas à chaque frame.
 /// </summary>
 public sealed class WorldMap
 {
@@ -15,16 +17,16 @@ public sealed class WorldMap
     public IReadOnlyList<Npc> Npcs { get; }
     public (int X, int Y) SpawnPosition { get; }
     public (int X, int Y) DungeonEntrance { get; private set; }
-    public string DungeonName { get; } = "Donjon des Araignées";
+    public string DungeonName { get; }
 
     /// <summary>Identifiant serveur du donjon affiché ici, résolu après coup via <see cref="SetDungeon"/> (voir GET /api/dungeons) — -1 tant qu'inconnu.</summary>
     public int DungeonId { get; private set; } = -1;
 
-    private static readonly Vector4 GrassLight = new(0.35f, 0.55f, 0.28f, 1f);
-    private static readonly Vector4 GrassMid = new(0.30f, 0.48f, 0.24f, 1f);
-    private static readonly Vector4 GrassDark = new(0.25f, 0.42f, 0.20f, 1f);
-    private static readonly Vector4 DirtPath = new(0.55f, 0.44f, 0.30f, 1f);
-    private static readonly Vector4 WaterBlue = new(0.20f, 0.40f, 0.65f, 1f);
+    private readonly Vector4 GrassLight;
+    private readonly Vector4 GrassMid;
+    private readonly Vector4 GrassDark;
+    private readonly Vector4 DirtPath;
+    private readonly Vector4 WaterBlue;
 
     private static readonly Vector4 Gold = new(0.85f, 0.70f, 0.25f, 1f);
     private static readonly Vector4 DarkGold = new(0.55f, 0.44f, 0.14f, 1f);
@@ -50,8 +52,17 @@ public sealed class WorldMap
     private readonly HashSet<(int X, int Y)> _pathTiles;
     private readonly (int X, int Y) _pond;
 
-    public WorldMap(int size)
+    public WorldMap(int size, KingdomType kingdom = KingdomType.Nature)
     {
+        var biome = KingdomBiome.For(kingdom);
+        DungeonName = biome.DungeonName;
+        GrassLight = biome.GrassLight;
+        GrassMid = biome.GrassMid;
+        GrassDark = biome.GrassDark;
+        DirtPath = biome.GroundPath;
+        WaterBlue = biome.Water;
+        var tint = biome.AccentTint;
+
         Size = size;
         TileColors = new Vector4[size, size];
 
@@ -82,13 +93,16 @@ public sealed class WorldMap
             }
         }
 
+        // Bâtiments teintés selon le royaume (AccentTint, voir KingdomBiome) plutôt que des
+        // couleurs entièrement redessinées par royaume — garde la même disposition/lisibilité
+        // tout en rendant chaque capitale visuellement distincte.
         Buildings =
         [
-            new Building("Capitale", capital.X, capital.Y, 2.6f, Gold, DarkGold, Gold * 0.8f),
-            new Building("Village", village.X, village.Y, 1.4f, Tan, Brown, Tan * 0.8f),
-            new Building("Hôtel des ventes", auctionHouse.X, auctionHouse.Y, 1.6f, SteelBlue, DarkBlue, SteelBlue * 0.8f),
-            new Building("Forge", forge.X, forge.Y, 1.5f, Ember, DarkEmber, Ember * 0.8f),
-            new Building("Guilde", guild.X, guild.Y, 1.8f, Purple, DarkPurple, Purple * 0.8f),
+            new Building(biome.CapitalName, capital.X, capital.Y, 2.6f, Gold * tint, DarkGold * tint, Gold * tint * 0.8f),
+            new Building("Village", village.X, village.Y, 1.4f, Tan * tint, Brown * tint, Tan * tint * 0.8f),
+            new Building("Hôtel des ventes", auctionHouse.X, auctionHouse.Y, 1.6f, SteelBlue * tint, DarkBlue * tint, SteelBlue * tint * 0.8f),
+            new Building("Forge", forge.X, forge.Y, 1.5f, Ember * tint, DarkEmber * tint, Ember * tint * 0.8f),
+            new Building("Guilde", guild.X, guild.Y, 1.8f, Purple * tint, DarkPurple * tint, Purple * tint * 0.8f),
         ];
 
         Npcs =
@@ -149,7 +163,7 @@ public sealed class WorldMap
         pathTiles.Add((to.X, to.Y));
     }
 
-    private static Vector4 ComputeTileColor(int x, int y, HashSet<(int X, int Y)> pathTiles, (int X, int Y) pond)
+    private Vector4 ComputeTileColor(int x, int y, HashSet<(int X, int Y)> pathTiles, (int X, int Y) pond)
     {
         if (pathTiles.Contains((x, y)))
         {

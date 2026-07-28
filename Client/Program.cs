@@ -802,6 +802,21 @@ static Vector4 ElementColor(Element element) => element switch
     _ => new Vector4(0.65f, 0.65f, 0.65f, 1f),
 };
 
+/// <summary>
+/// Reconstruit la carte du monde pour le royaume du personnage choisi (voir GDD — "plusieurs
+/// villes distinctes par royaume/biome", <c>KingdomBiome</c>) : appelé une fois le royaume connu
+/// (sélection d'un personnage existant ou fin de création), avant la connexion au serveur.
+/// Réinitialise aussi la position locale sur le nouveau point d'apparition.
+/// </summary>
+void RebuildWorldMapForKingdom(KingdomType kingdom)
+{
+    worldMap = new WorldMap(size: 50, kingdom: kingdom);
+    lock (stateLock)
+    {
+        gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
+    }
+}
+
 void ConnectAndEnterWorld(Guid characterId)
 {
     Console.WriteLine($"Mode connecté : {options.Host}:{options.Port}, personnage {characterId}.");
@@ -1016,6 +1031,7 @@ void UpdateCharacterSelect()
             var chosen = myCharacters[characterCursor];
             chosenCharacterId = chosen.Id;
             sceneMode = SceneMode.Loading;
+            RebuildWorldMapForKingdom(chosen.Kingdom);
             ConnectAndEnterWorld(chosen.Id);
             _ = CheckStarterNeedAsync(chosen.Id);
         }
@@ -1123,6 +1139,7 @@ void UpdateCharacterCreate()
                     {
                         chosenCharacterId = result.Character!.Id;
                         sceneMode = SceneMode.Loading;
+                        RebuildWorldMapForKingdom(result.Character.Kingdom);
                         ConnectAndEnterWorld(chosenCharacterId.Value);
                         _ = CheckStarterNeedAsync(chosenCharacterId.Value);
                     }

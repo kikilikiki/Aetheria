@@ -79,6 +79,7 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
                     Id = c.Id,
                     Name = c.Name,
                     Level = c.Level,
+                    Kingdom = c.Kingdom,
                     SkinColorIndex = c.SkinColorIndex,
                     HairStyleIndex = c.HairStyleIndex,
                     HairColorIndex = c.HairColorIndex,
