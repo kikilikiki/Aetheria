@@ -763,6 +763,21 @@ de gameplay.
       (grade, ban compte/IP, mute, reset profil, renommage). **Simplification assumée** : pas
       d'image de profil réelle (aucun pipeline d'upload/stockage n'existe) — l'"avatar" est une
       pastille de couleur dérivée du pseudo (déterministe) avec son initiale.
+25. ✅ Correctif majeur : combat de groupe désynchronisé ("la synchronisation est comme si elle
+    était inexistante", voir retour utilisateur) — le client ne rafraîchissait `combatState`
+    QUE lorsqu'il soumettait lui-même une action (réponse HTTP de sa propre requête). Dès qu'un
+    combat est partagé entre plusieurs joueurs humains (voir point 23 — combat de groupe), le
+    tour d'un allié ne provenait d'aucune requête de CE client : rien ne le déclenchait jamais,
+    et l'affichage restait figé indéfiniment, y compris une fois redevenu son tour (puisque
+    `combatState.CurrentTurnCombatantId` lui-même était périmé). Corrigé en sondant
+    `GET /api/combat/{id}` toutes les 0,35s pendant tout combat en cours (`UpdateCombat`, voir
+    Client/Program.cs) — déjà exposé côté serveur (utilisé jusqu'ici uniquement pour les
+    appairages d'arène) mais jamais interrogé pendant un combat normal.
+    - Mesuré au passage (voir retour utilisateur sur la latence) : le détour par l'IP publique
+      pour tester en local sur la machine du serveur elle-même (redirection de ports + retour via
+      le routeur, "NAT hairpin") n'ajoute qu'environ 5-10ms par rapport à `localhost` sur cette
+      installation — négligeable, la latence rapportée venait bien du défaut de sondage ci-dessus,
+      pas du réseau.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
