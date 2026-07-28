@@ -109,5 +109,35 @@ public sealed class CombatApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<LootSessionState>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Photographie d'un combat déjà démarré — utilisé après un appairage d'arène (voir GDD) pour récupérer l'état créé par le joueur qui a complété la file d'attente.</summary>
+    public async Task<CombatSessionState?> GetStateAsync(Guid combatId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/combat/{combatId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<CombatSessionState>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>File d'attente d'arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO).</summary>
+    public async Task<bool> QueueForArenaAsync(string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, ArenaFormat format, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/pvp/arena/queue", new QueueForArenaRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            MonsterIds = monsterIds,
+            Format = format,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<ArenaQueueStatus?> GetArenaStatusAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/pvp/arena/status?characterId={characterId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ArenaQueueStatus>(JsonOptions, ct) : null;
+    }
+
+    public Task CancelArenaQueueAsync(Guid characterId, CancellationToken ct = default) =>
+        _http.PostAsync($"/api/pvp/arena/cancel?characterId={characterId}", null, ct);
+
     public void Dispose() => _http.Dispose();
 }

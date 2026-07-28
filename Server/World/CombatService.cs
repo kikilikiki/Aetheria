@@ -207,10 +207,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             throw new AccountOperationException("Ce combat est déjà terminé.");
         }
 
+        // OwnerUserId (par combattant) plutôt que TeamOwnerUserId (par équipe) : plusieurs
+        // joueurs humains peuvent partager la même équipe en arène (2v2/3v3/4v4, voir GDD), donc
+        // seule l'identité du combattant précis dont c'est le tour fait foi.
         var actor = session.CurrentCombatant;
-        if (actor is not { IsPlayerControlled: true }
-            || !session.TeamOwnerUserId.TryGetValue(actor.Team, out var expectedUserId)
-            || expectedUserId != userId)
+        if (actor is not { IsPlayerControlled: true } || actor.OwnerUserId != userId)
         {
             throw new AccountOperationException("Ce n'est pas votre tour.");
         }
@@ -257,7 +258,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         Guid? lootId = null;
         if (session.IsFinished)
         {
-            if (session.IsPvp)
+            if (session.IsArenaMatch)
+            {
+                await ApplyArenaResultAsync(session, ct);
+            }
+            else if (session.IsPvp)
             {
                 await ApplyPvpResultAsync(session, ct);
             }
@@ -318,6 +323,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 Id = character.Id, Name = character.Name, Team = team, X = characterX, Y = 3,
                 MaxHealth = 50, CurrentHealth = 50, Attack = 10, Defense = 8, Speed = 10,
                 MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
+                OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
             },
         };
 
@@ -340,6 +346,119 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 MaxHealth = Math.Max(1, species?.BaseHealth ?? 20), CurrentHealth = Math.Max(1, species?.BaseHealth ?? 20),
                 Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
                 MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
+                OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
+            });
+        }
+
+        return combatants;
+    }
+
+    /// <summary>
+    /// Démarre un match d'arène classée (voir GDD, <c>ArenaQueueService</c>) : les tickets déjà
+    /// appairés (première moitié = équipe 0, seconde moitié = équipe 1) deviennent des
+    /// combattants placés via <see cref="BuildTeamCellQueue"/> (une file de cases libres par
+    /// équipe, remplie au fur et à mesure des joueurs plutôt qu'un calcul de ligne par format —
+    /// robuste même pour le 4v4, le format le plus dense).
+    /// </summary>
+    public async Task<Guid> StartArenaMatchAsync(ArenaFormat format, IReadOnlyList<ArenaTicket> tickets, CancellationToken ct = default)
+    {
+        var playersPerTeam = ArenaFormatRules.PlayersPerTeam(format);
+        var combatants = new List<Combatant>();
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, Combatants = combatants };
+        var teamCellQueues = new Dictionary<int, Queue<(int X, int Y)>>();
+
+        for (var i = 0; i < tickets.Count; i++)
+        {
+            var team = i / playersPerTeam;
+            var indexInTeam = i % playersPerTeam;
+            var ticket = tickets[i];
+
+            var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == ticket.CharacterId, ct);
+            if (character is null)
+            {
+                continue;
+            }
+
+            if (!session.TeamOwnerUserId.ContainsKey(team))
+            {
+                session.TeamOwnerUserId[team] = ticket.UserId;
+                session.TeamCharacterId[team] = ticket.CharacterId;
+            }
+
+            if (!teamCellQueues.TryGetValue(team, out var cellQueue))
+            {
+                cellQueue = BuildTeamCellQueue(leftSide: team == 0);
+                teamCellQueues[team] = cellQueue;
+            }
+
+            var maxMonsters = ArenaFormatRules.UnitsForPlayerIndex(format, indexInTeam);
+            combatants.AddRange(await BuildArenaTeamCombatantsAsync(character, ticket.MonsterIds, team, cellQueue, maxMonsters, ct));
+        }
+
+        CombatEngine.Initialize(session);
+        combatStore.Add(session);
+        return session.Id;
+    }
+
+    /// <summary>File de cases libres pour une équipe (2 colonnes proches du bord × toute la hauteur de la grille = 14 cases), remplie joueur par joueur plutôt qu'un calcul de ligne par format — reste correct même pour le 4v4 (8 combattants max par équipe).</summary>
+    private static Queue<(int X, int Y)> BuildTeamCellQueue(bool leftSide)
+    {
+        int[] xs = leftSide ? [0, 1] : [CombatSession.GridWidth - 1, CombatSession.GridWidth - 2];
+        var cells = new Queue<(int, int)>();
+        for (var y = 0; y < CombatSession.GridHeight; y++)
+        {
+            foreach (var x in xs)
+            {
+                cells.Enqueue((x, y));
+            }
+        }
+
+        return cells;
+    }
+
+    private async Task<List<Combatant>> BuildArenaTeamCombatantsAsync(
+        CharacterEntity character, IReadOnlyList<Guid> monsterIds, int team, Queue<(int X, int Y)> cellQueue, int maxMonsters, CancellationToken ct)
+    {
+        var combatants = new List<Combatant>();
+        if (cellQueue.Count == 0)
+        {
+            return combatants;
+        }
+
+        var (charX, charY) = cellQueue.Dequeue();
+        combatants.Add(new Combatant
+        {
+            Id = character.Id, Name = character.Name, Team = team, X = charX, Y = charY,
+            MaxHealth = 50, CurrentHealth = 50, Attack = 10, Defense = 8, Speed = 10,
+            MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
+            OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
+        });
+
+        var playerMonsters = monsterIds.Count == 0
+            ? []
+            : await db.Monsters
+                .Where(m => monsterIds.Contains(m.Id) && m.OwnerCharacterId == character.Id)
+                .Take(maxMonsters)
+                .ToListAsync(ct);
+
+        foreach (var monster in playerMonsters)
+        {
+            if (cellQueue.Count == 0)
+            {
+                break;
+            }
+
+            var (mx, my) = cellQueue.Dequeue();
+            var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == monster.SpeciesId, ct);
+            var displayName = monster.Nickname.Length > 0 ? monster.Nickname : species?.Name ?? "Créature";
+
+            combatants.Add(new Combatant
+            {
+                Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
+                MaxHealth = Math.Max(1, species?.BaseHealth ?? 20), CurrentHealth = Math.Max(1, species?.BaseHealth ?? 20),
+                Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
+                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
+                OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
             });
         }
 
@@ -394,20 +513,21 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         }
 
         var winnerStats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == winnerCharacterId, ct);
-        if (winnerStats is not null)
+        var loserStats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == loserCharacterId, ct);
+
+        if (winnerStats is not null && loserStats is not null)
         {
+            var winnerRatingBefore = winnerStats.Pvp.CurrentRank;
+            var loserRatingBefore = loserStats.Pvp.CurrentRank;
+
             winnerStats.Pvp.Wins++;
             winnerStats.Pvp.WinStreak++;
-            winnerStats.Pvp.CurrentRank += 10;
+            winnerStats.Pvp.CurrentRank = Math.Max(0, ComputeNewElo(winnerRatingBefore, loserRatingBefore, won: true));
             winnerStats.Pvp.BestRank = Math.Max(winnerStats.Pvp.BestRank, winnerStats.Pvp.CurrentRank);
-        }
 
-        var loserStats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == loserCharacterId, ct);
-        if (loserStats is not null)
-        {
             loserStats.Pvp.Losses++;
             loserStats.Pvp.WinStreak = 0;
-            loserStats.Pvp.CurrentRank = Math.Max(0, loserStats.Pvp.CurrentRank - 5);
+            loserStats.Pvp.CurrentRank = Math.Max(0, ComputeNewElo(loserRatingBefore, winnerRatingBefore, won: false));
         }
 
         await db.SaveChangesAsync(ct);
@@ -417,6 +537,90 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         {
             await new KingdomWarService(db).AwardWarPointsAsync(winnerCharacter.Kingdom, 10, ct);
         }
+    }
+
+    /// <summary>
+    /// Résultat d'un match d'arène classée (voir GDD — équipes de plusieurs joueurs). Généralise
+    /// <see cref="ApplyPvpResultAsync"/> : chaque participant (pas seulement un "représentant"
+    /// par équipe) gagne/perd de l'ELO, calculé contre la note moyenne de l'équipe adverse
+    /// (méthode standard pour l'ELO par équipe).
+    /// </summary>
+    private async Task ApplyArenaResultAsync(CombatSession session, CancellationToken ct)
+    {
+        if (session.WinningTeam is not { } winningTeam)
+        {
+            return;
+        }
+
+        var participants = session.Combatants
+            .Where(c => c.OwnerUserId is not null && c.OwnerCharacterId is not null)
+            .Select(c => (c.Team, CharacterId: c.OwnerCharacterId!.Value))
+            .Distinct()
+            .ToList();
+
+        var statsByCharacter = new Dictionary<Guid, StatisticsEntity>();
+        foreach (var (_, characterId) in participants)
+        {
+            var stats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == characterId, ct);
+            if (stats is not null)
+            {
+                statsByCharacter[characterId] = stats;
+            }
+        }
+
+        var teamAverageRatingBefore = participants
+            .GroupBy(p => p.Team)
+            .ToDictionary(g => g.Key, g => g.Average(p => statsByCharacter.TryGetValue(p.CharacterId, out var s) ? s.Pvp.CurrentRank : 1000));
+
+        foreach (var (team, characterId) in participants)
+        {
+            if (!statsByCharacter.TryGetValue(characterId, out var stats))
+            {
+                continue;
+            }
+
+            var won = team == winningTeam;
+            var opponentTeam = team == 0 ? 1 : 0;
+            var opponentAverageRating = teamAverageRatingBefore.GetValueOrDefault(opponentTeam, 1000);
+
+            stats.Pvp.CurrentRank = Math.Max(0, ComputeNewElo(stats.Pvp.CurrentRank, opponentAverageRating, won));
+            stats.Pvp.BestRank = Math.Max(stats.Pvp.BestRank, stats.Pvp.CurrentRank);
+
+            if (won)
+            {
+                stats.Pvp.Wins++;
+                stats.Pvp.WinStreak++;
+            }
+            else
+            {
+                stats.Pvp.Losses++;
+                stats.Pvp.WinStreak = 0;
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        foreach (var (_, characterId) in participants.Where(p => p.Team == winningTeam))
+        {
+            var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct);
+            if (character is not null)
+            {
+                await new KingdomWarService(db).AwardWarPointsAsync(character.Kingdom, 10, ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Formule ELO standard (K=32) : plus la victoire est "attendue" (adversaire nettement plus
+    /// faible), moins elle rapporte — et une défaite contre un adversaire nettement plus fort
+    /// coûte peu. Voir GDD — "ligues ELO".
+    /// </summary>
+    private static int ComputeNewElo(int rating, double opponentRating, bool won)
+    {
+        const int k = 32;
+        var expectedScore = 1.0 / (1.0 + Math.Pow(10, (opponentRating - rating) / 400.0));
+        var actualScore = won ? 1.0 : 0.0;
+        return (int)Math.Round(rating + k * (actualScore - expectedScore));
     }
 
     private static CombatSessionState ToState(CombatSession session, Guid? lootId = null) => new(

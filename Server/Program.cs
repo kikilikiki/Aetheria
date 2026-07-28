@@ -45,6 +45,7 @@ builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 builder.Services.AddSingleton<SessionTokenStore>();
 builder.Services.AddSingleton<CombatSessionStore>();
 builder.Services.AddSingleton<LootSessionStore>();
+builder.Services.AddSingleton<ArenaQueueService>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
 builder.WebHost.UseUrls($"http://0.0.0.0:{GameInfo.DefaultAccountApiPort}");
 
@@ -695,6 +696,54 @@ app.MapPost("/api/pvp/challenge", async (StartPvpCombatRequest request) =>
     {
         return Results.Conflict(new ApiError { Message = ex.Message });
     }
+});
+
+// Arènes classées (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente en mémoire
+// (ArenaQueueService) plutôt qu'un vrai lobby : POST met en file et forme le combat dès que le
+// format a assez de joueurs distincts, GET permet à chaque joueur déjà en file de savoir s'il a
+// été appairé entre-temps par la requête d'un autre joueur (voir ArenaQueueService.TryConsumeMatch).
+app.MapPost("/api/pvp/arena/queue", async (QueueForArenaRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    var arenaQueue = app.Services.GetRequiredService<ArenaQueueService>();
+    var ticket = new ArenaTicket { UserId = userId, CharacterId = character.Id, MonsterIds = request.MonsterIds };
+    var matched = arenaQueue.EnqueueAndTryMatch(request.Format, ticket);
+
+    if (matched is not null)
+    {
+        var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+        var combatId = await combatService.StartArenaMatchAsync(request.Format, matched);
+        arenaQueue.RecordMatch(matched.Select(t => t.CharacterId), combatId);
+    }
+
+    return Results.Ok(new { queued = true });
+});
+
+app.MapGet("/api/pvp/arena/status", (Guid characterId) =>
+{
+    var arenaQueue = app.Services.GetRequiredService<ArenaQueueService>();
+    return arenaQueue.TryConsumeMatch(characterId, out var combatId)
+        ? Results.Ok(new ArenaQueueStatus { IsMatched = true, CombatId = combatId })
+        : Results.Ok(new ArenaQueueStatus { IsMatched = false, CombatId = null });
+});
+
+app.MapPost("/api/pvp/arena/cancel", (Guid characterId) =>
+{
+    app.Services.GetRequiredService<ArenaQueueService>().Cancel(characterId);
+    return Results.Ok();
 });
 
 app.MapGet("/api/kingdoms", async () =>

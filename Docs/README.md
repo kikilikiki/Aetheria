@@ -321,6 +321,38 @@ de gameplay.
      victoire met à jour `PvpStatistics` (victoires/défaites/série/rang) des deux côtés.
      Vérifié de bout en bout avec deux comptes distincts : tentative hors tour rejetée,
      alternance correcte, combat mené jusqu'au K.O.
+   - ✅ Arènes classées 1v1/2v2/3v3/4v4 + ligues ELO (voir GDD) :
+     - `Combatant.OwnerUserId`/`OwnerCharacterId` remplacent `TeamOwnerUserId`/`TeamCharacterId`
+       pour l'autorisation d'action (`CombatService.SubmitActionAsync`) — plusieurs joueurs
+       humains peuvent désormais partager la même équipe, une équipe n'est plus limitée à un
+       seul compte.
+     - `ArenaFormatRules` : nombre de créatures engagées par joueur selon le format — 1v1 = 4,
+       2v2 = 2, 4v4 = 1, et 3v3 **volontairement asymétrique** (2/1/1, un total de 4 unités ne se
+       divisant pas également entre 3 joueurs, voir GDD).
+     - `ArenaQueueService` (`POST /api/pvp/arena/queue`, `GET /api/pvp/arena/status`,
+       `POST /api/pvp/arena/cancel`) : file d'attente en mémoire, pas un vrai lobby — le combat
+       se forme dès que `PlayersPerTeam × 2` joueurs distincts ont rejoint la file pour un
+       format donné (première moitié = équipe 0, seconde moitié = équipe 1). Le joueur dont la
+       requête complète le seuil déclenche la création du combat ; les autres, déjà en attente,
+       le découvrent en sondant `GET /api/pvp/arena/status` (implémenté côté Client par un
+       sondage toutes les 1.5 s tant que le panneau Arène — touche V — reste ouvert).
+       `CombatService.StartArenaMatchAsync` place les combattants via `BuildTeamCellQueue` (une
+       file de cases libres par équipe remplie joueur par joueur, pas un calcul de ligne par
+       format) pour rester correct même au format le plus dense (4v4 : 8 combattants par équipe).
+     - ELO (`CombatService.ComputeNewElo`, K=32, formule logistique standard) remplace l'ancien
+       ajustement fixe (+10/-5) du 1v1 direct — `PvpStatistics.CurrentRank` sert de note ELO
+       (valeur de départ 1000). `ApplyArenaResultAsync` généralise `ApplyPvpResultAsync` : chaque
+       participant (pas un seul "représentant" par équipe) gagne/perd de l'ELO contre la note
+       moyenne de l'équipe adverse (méthode standard pour l'ELO par équipe).
+     - Vérifié via un harnais console isolé (`ArenaQueueService` référencé directement) :
+       mise en file jusqu'au seuil exact puis appairage (ordre des tickets confirmé), doublon de
+       personnage ignoré, ré-inscription après annulation acceptée, `TryConsumeMatch` ne renvoie
+       le combat qu'une seule fois. **La formule ELO elle-même n'a été vérifiée que par relecture
+       de code** (implémentation manuelle du calcul attendu non refaite dans le harnais).
+     - **Limites assumées** : pas de vrai lobby (impossible d'inviter des amis nommément dans une
+       équipe d'arène, seul l'ordre d'arrivée en file compte), pas de garde-fou empêchant deux
+       comptes du même joueur de s'auto-appairer, pas de saison/classement affiché séparément du
+       leaderboard PvP existant.
    - ✅ Guerres de royaumes (`TerritoryEntity`, `KingdomWarService`,
      `GET /api/territories`, `GET/POST /api/kingdoms/wars/standings|resolve`) : chaque
      victoire PvP crédite le royaume du vainqueur en points de guerre ; la résolution

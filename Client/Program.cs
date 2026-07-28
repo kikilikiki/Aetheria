@@ -151,6 +151,17 @@ var partyJoinInput = string.Empty;
 string? partyMessage = null;
 Task<PartySummary?>? partyActionTask = null;
 
+// Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
+// (ArenaQueueService), sondée régulièrement tant que le joueur attend un appairage.
+var arenaFormats = Enum.GetValues<ArenaFormat>();
+var arenaFormatCursor = 0;
+var arenaQueued = false;
+var arenaPollClock = 0f;
+string? arenaMessage = null;
+Task<bool>? arenaQueueTask = null;
+Task<ArenaQueueStatus?>? arenaPollTask = null;
+Task<CombatSessionState?>? arenaMatchStateTask = null;
+
 // Sélection/création de personnage (voir GDD) : ne se fait plus dans le Launcher, mais en jeu,
 // avant la connexion TCP proprement dite. `--characterId` reste accepté pour compatibilité
 // (anciens raccourcis) : dans ce cas on saute directement l'écran de sélection.
@@ -339,7 +350,7 @@ host.Update += deltaTime =>
 
     if (activePanel != PanelKind.None)
     {
-        UpdatePanel();
+        UpdatePanel(deltaTime);
         return;
     }
 
@@ -369,6 +380,11 @@ host.Update += deltaTime =>
         partyJoinInput = string.Empty;
         partyMessage = null;
         _ = LoadPartyAsync();
+    }
+    else if (keyboard.WasJustPressed(Key.V))
+    {
+        activePanel = PanelKind.Arena;
+        arenaMessage = null;
     }
 
     Vector2 positionBeforeInput;
@@ -1240,11 +1256,131 @@ void UpdatePartyPanel()
     }
 }
 
-void UpdatePanel()
+/// <summary>
+/// Panneau Arène (touche V) : choisir un format (1v1/2v2/3v3/4v4, voir GDD — ligues ELO), rejoindre
+/// la file d'attente, puis sonder régulièrement le serveur jusqu'à l'appairage (voir
+/// <c>ArenaQueueService</c> côté serveur — pas de notification push, un simple sondage toutes les
+/// 1.5 secondes tant que la fenêtre Arène reste ouverte).
+/// </summary>
+void UpdateArenaPanel(float deltaTime)
+{
+    if (arenaMatchStateTask is { IsCompleted: true } stateTask)
+    {
+        var state = stateTask.IsFaulted ? null : stateTask.Result;
+        arenaMatchStateTask = null;
+
+        if (state is not null)
+        {
+            combatState = state;
+            combatSelectedAction = null;
+            combatMessage = null;
+            combatReturnScene = SceneMode.Outdoor;
+            arenaQueued = false;
+            activePanel = PanelKind.None;
+            sceneMode = SceneMode.Combat;
+        }
+        else
+        {
+            arenaMessage = "Impossible de recuperer le combat appaire.";
+        }
+
+        return;
+    }
+
+    if (arenaPollTask is { IsCompleted: true } pollTask)
+    {
+        var status = pollTask.IsFaulted ? null : pollTask.Result;
+        arenaPollTask = null;
+
+        if (status is { IsMatched: true, CombatId: { } combatId })
+        {
+            arenaMatchStateTask = combatApi!.GetStateAsync(combatId);
+        }
+
+        return;
+    }
+
+    if (arenaQueueTask is { IsCompleted: true } queueTask)
+    {
+        arenaQueued = !queueTask.IsFaulted && queueTask.Result;
+        arenaMessage = arenaQueued ? null : "Connexion au serveur impossible.";
+        arenaQueueTask = null;
+        return;
+    }
+
+    if (arenaQueueTask is not null || arenaPollTask is not null || arenaMatchStateTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        if (arenaQueued)
+        {
+            arenaQueued = false;
+            arenaMessage = null;
+            _ = combatApi!.CancelArenaQueueAsync(chosenCharacterId!.Value);
+        }
+        else
+        {
+            activePanel = PanelKind.None;
+        }
+
+        return;
+    }
+
+    if (arenaQueued)
+    {
+        arenaPollClock += deltaTime;
+        if (arenaPollClock >= 1.5f)
+        {
+            arenaPollClock = 0f;
+            arenaPollTask = combatApi!.GetArenaStatusAsync(chosenCharacterId!.Value);
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) arenaFormatCursor = Math.Min(arenaFormatCursor + 1, arenaFormats.Length - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) arenaFormatCursor = Math.Max(arenaFormatCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        arenaMessage = null;
+        arenaPollClock = 0f;
+        arenaQueueTask = QueueForArenaAsync(arenaFormats[arenaFormatCursor]);
+    }
+}
+
+async Task<bool> QueueForArenaAsync(ArenaFormat format)
+{
+    if (combatApi is null || starterApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return false;
+    }
+
+    try
+    {
+        var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
+        var monsterIds = monsters.Select(m => m.Id).ToList();
+        return await combatApi.QueueForArenaAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, format);
+    }
+    catch (HttpRequestException)
+    {
+        return false;
+    }
+}
+
+void UpdatePanel(float deltaTime)
 {
     if (activePanel == PanelKind.Party)
     {
         UpdatePartyPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Arena)
+    {
+        UpdateArenaPanel(deltaTime);
         return;
     }
 
@@ -1732,6 +1868,7 @@ void DrawOutdoorHud()
             case PanelKind.Guild: DrawGuildPanel(w, h); break;
             case PanelKind.Shop: DrawShopPanel(w, h); break;
             case PanelKind.Party: DrawPartyPanel(w, h); break;
+            case PanelKind.Arena: DrawArenaPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -1873,6 +2010,58 @@ void DrawPartyPanel(int w, int h)
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
+
+void DrawArenaPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 320f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.35f, 0.35f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ARENE CLASSEE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
+
+    if (arenaQueued)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EN FILE : {ArenaFormatLabel(arenaFormats[arenaFormatCursor])}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 20f), 2.2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "RECHERCHE D'ADVERSAIRES...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 14f), 1.9f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.9f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 70f;
+        for (var i = 0; i < arenaFormats.Length; i++)
+        {
+            var isSelected = i == arenaFormatCursor;
+            var prefix = isSelected ? "> " : "  ";
+            var color = isSelected ? new Vector4(0.95f, 0.6f, 0.5f, 1f) : Vector4.One;
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{prefix}{ArenaFormatLabel(arenaFormats[i])}", new Vector2(w / 2f, y), 2.2f, color);
+            y += 32f;
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES : CHOISIR - ENTREE : REJOINDRE LA FILE", new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    }
+
+    if (arenaMessage is { Length: > 0 })
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, arenaMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 64f), 1.8f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+    }
+
+    if (!arenaQueued)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+}
+
+static string ArenaFormatLabel(ArenaFormat format) => format switch
+{
+    ArenaFormat.OneVOne => "1V1 (4 CREATURES)",
+    ArenaFormat.TwoVTwo => "2V2 (2 CREATURES/JOUEUR)",
+    ArenaFormat.ThreeVThree => "3V3 (ASYMETRIQUE : 2/1/1)",
+    ArenaFormat.FourVFour => "4V4 (1 CREATURE/JOUEUR)",
+    _ => format.ToString().ToUpperInvariant(),
+};
 
 void DrawShopPanel(int w, int h)
 {
@@ -2478,6 +2667,7 @@ enum PanelKind
     Guild,
     Shop,
     Party,
+    Arena,
 }
 
 /// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe).</summary>
