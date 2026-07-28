@@ -13,4 +13,11 @@ public sealed class DungeonEntity
     public KingdomEntity? Kingdom { get; set; }
     public string Description { get; set; } = string.Empty;
     public int Seed { get; set; }
+
+    // Position dynamique sur la carte du monde (voir GDD — "les donjons n'ont pas toujours un
+    // emplacement fixe", rotation toutes les heures). PositionHourBucket identifie l'heure UTC
+    // (tronquée) pour laquelle WorldX/WorldY ont été calculés — voir DungeonWorldService.
+    public int WorldX { get; set; }
+    public int WorldY { get; set; }
+    public long PositionHourBucket { get; set; } = -1;
 }

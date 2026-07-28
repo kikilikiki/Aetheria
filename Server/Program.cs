@@ -299,6 +299,18 @@ app.MapGet("/api/dungeons", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var dungeons = await db.Dungeons.ToListAsync();
+
+    var anyPositionChanged = false;
+    foreach (var dungeon in dungeons)
+    {
+        anyPositionChanged |= DungeonWorldService.EnsureCurrentPosition(dungeon);
+    }
+
+    if (anyPositionChanged)
+    {
+        await db.SaveChangesAsync();
+    }
+
     return Results.Ok(dungeons.Select(ToDungeonData));
 });
 
@@ -883,4 +895,6 @@ static DungeonData ToDungeonData(DungeonEntity entity) => new()
     KingdomId = entity.KingdomId,
     Description = entity.Description,
     Seed = entity.Seed,
+    WorldX = entity.WorldX,
+    WorldY = entity.WorldY,
 };
