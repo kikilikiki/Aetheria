@@ -73,6 +73,13 @@ int? captureSphereItemId = null;
 Task<CombatResult>? combatStartTask = null;
 Task<CombatResult>? combatActionTask = null;
 
+// Butin de victoire (voir GDD — 4 objets à départager, tirage aléatoire en cas d'égalité) :
+// affiché après un combat gagné, avant de revenir à la scène d'intérieur.
+LootSessionState? activeLoot = null;
+var lootCursor = 0;
+Task<LootSessionState?>? lootTask = null;
+string? lootMessage = null;
+
 // Dialogue PNJ, superposé au monde extérieur (le déplacement se fige tant qu'il est ouvert).
 Npc? activeDialogueNpc = null;
 var dialogueLineIndex = 0;
@@ -1318,13 +1325,7 @@ void UpdateCombat()
 
     if (combatState.IsFinished)
     {
-        if (keyboard.WasJustPressed(Key.Enter) || keyboard.WasJustPressed(Key.Escape))
-        {
-            sceneMode = SceneMode.Interior;
-            combatState = null;
-            combatSelectedAction = null;
-        }
-
+        UpdateLoot();
         return;
     }
 
@@ -1378,6 +1379,65 @@ void UpdateCombat()
         {
             combatSelectedAction = null;
         }
+    }
+}
+
+/// <summary>
+/// Butin de victoire (voir GDD — 4 objets, tirage aléatoire en cas d'égalité) affiché après un
+/// combat gagné, avant de revenir à la scène d'intérieur. Si le combat ne produit pas de butin
+/// (capture, ou catalogue d'objets vide côté serveur) <see cref="activeLoot"/> reste `null` et le
+/// joueur passe directement à l'écran "continuer", comme avant l'ajout de ce système.
+/// </summary>
+void UpdateLoot()
+{
+    if (lootTask is { IsCompleted: true } task)
+    {
+        if (!task.IsFaulted && task.Result is { } result)
+        {
+            activeLoot = result;
+            lootMessage = null;
+        }
+        else
+        {
+            lootMessage = "Connexion au serveur impossible.";
+        }
+
+        lootTask = null;
+        return;
+    }
+
+    if (lootTask is not null)
+    {
+        return;
+    }
+
+    if (activeLoot is null && combatState is { LootId: { } lootId })
+    {
+        lootTask = combatApi!.GetLootAsync(lootId);
+        return;
+    }
+
+    if (activeLoot is null || activeLoot.IsResolved)
+    {
+        if (keyboard.WasJustPressed(Key.Enter) || keyboard.WasJustPressed(Key.Escape))
+        {
+            sceneMode = SceneMode.Interior;
+            combatState = null;
+            combatSelectedAction = null;
+            activeLoot = null;
+            lootMessage = null;
+            lootCursor = 0;
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) lootCursor = Math.Min(lootCursor + 1, activeLoot.Items.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) lootCursor = Math.Max(lootCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        lootMessage = null;
+        lootTask = combatApi!.ClaimLootAsync(options.SessionToken!, activeLoot.LootId, chosenCharacterId!.Value, lootCursor);
     }
 }
 
@@ -1918,12 +1978,24 @@ void DrawCombat()
         var resultColor = combatState.WinningTeam == 0 ? new Vector4(0.4f, 0.9f, 0.4f, 1f) : new Vector4(0.9f, 0.4f, 0.4f, 1f);
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, h - 120f), 4f, resultColor);
 
-        if (combatState.LastMessage is not null)
+        if (activeLoot is { IsResolved: false })
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 80f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawLootClaim(w, h);
         }
+        else
+        {
+            if (combatState.LastMessage is not null)
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 80f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR CONTINUER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            if (activeLoot is { IsResolved: true } resolved)
+            {
+                DrawLootResult(resolved, w, h);
+            }
+
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR CONTINUER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        }
     }
     else
     {
@@ -1958,6 +2030,55 @@ void DrawCombat()
     if (combatMessage is not null)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h - 20f), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+    }
+}
+
+/// <summary>Liste des 4 objets du butin (voir GDD), navigable au clavier — voir <see cref="UpdateLoot"/>.</summary>
+void DrawLootClaim(int w, int h)
+{
+    if (activeLoot is not { } loot)
+    {
+        return;
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BUTIN - CHOISISSEZ UN OBJET", new Vector2(w / 2f, h - 170f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+
+    var y = h - 140f;
+    for (var i = 0; i < loot.Items.Count; i++)
+    {
+        var isSelected = i == lootCursor;
+        var color = isSelected ? new Vector4(0.95f, 0.85f, 0.4f, 1f) : Vector4.One;
+        var prefix = isSelected ? "> " : "  ";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{prefix}{loot.Items[i].Name.ToUpperInvariant()}", new Vector2(w / 2f, y), 2.1f, color);
+        y += 26f;
+    }
+
+    if (lootMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, lootMessage, new Vector2(w / 2f, y + 6f), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES : CHOISIR - ENTREE : RECLAMER", new Vector2(w / 2f, h - 40f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+}
+
+/// <summary>Résultat du tirage de butin, une fois tous les joueurs éligibles passés (voir <see cref="LootRoll"/> côté serveur).</summary>
+void DrawLootResult(LootSessionState resolved, int w, int h)
+{
+    if (resolved.Winners is not { } winners || winners.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN OBJET RECLAME", new Vector2(w / 2f, h - 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        return;
+    }
+
+    var mine = chosenCharacterId;
+    var y = h - 110f;
+    foreach (var (itemIndex, winnerCharacterId) in winners)
+    {
+        var item = resolved.Items[itemIndex];
+        var wonByMe = mine == winnerCharacterId;
+        var label = wonByMe ? $"VOUS REMPORTEZ : {item.Name.ToUpperInvariant()}" : $"{item.Name.ToUpperInvariant()} : ATTRIBUE";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, label, new Vector2(w / 2f, y), 1.9f, wonByMe ? new Vector4(0.5f, 0.9f, 0.5f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        y += 24f;
     }
 }
 
