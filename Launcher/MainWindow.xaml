@@ -452,8 +452,19 @@
                             </DataGrid>
                         </DockPanel>
 
-                        <StackPanel Grid.Column="2">
-                            <ScrollViewer VerticalScrollBarVisibility="Visible">
+                        <!-- Grid (pas StackPanel) : une StackPanel ne borne pas la hauteur de son
+                             contenu, donc le ScrollViewer ci-dessous ne voyait jamais de
+                             dépassement réel et n'affichait aucune barre de défilement utilisable
+                             (voir retour utilisateur — panneau des paramètres du joueur
+                             sélectionné). La ligne "*" borne réellement le ScrollViewer, "Auto"
+                             garde le bouton Fermer à taille fixe sous la zone défilante. -->
+                        <Grid Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Visible">
                                 <StackPanel>
                                     <TextBlock Text="Bannissement" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
                                     <TextBox Text="{Binding AdminBanReason, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,8"
@@ -487,9 +498,9 @@
                                     <TextBlock Text="Chargement..." Foreground="#A0A0B0" Visibility="{Binding AdminIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
                                 </StackPanel>
                             </ScrollViewer>
-                            <Button Content="Fermer" Command="{Binding ToggleAdminPanelCommand}" Style="{StaticResource SecondaryButton}"
+                            <Button Grid.Row="1" Content="Fermer" Command="{Binding ToggleAdminPanelCommand}" Style="{StaticResource SecondaryButton}"
                                     HorizontalAlignment="Center" Margin="0,12,0,0" />
-                        </StackPanel>
+                        </Grid>
                     </Grid>
                 </Border>
             </Border>
