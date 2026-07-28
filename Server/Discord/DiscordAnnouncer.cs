@@ -19,18 +19,25 @@ public sealed class DiscordAnnouncer
     /// <summary>Salon #dev-updates (voir demande utilisateur) — surchargeable via DISCORD_ANNOUNCE_CHANNEL_ID.</summary>
     private const string DefaultChannelId = "1531570097582510141";
 
+    /// <summary>Rôle notifié à chaque annonce (voir demande utilisateur) — surchargeable via DISCORD_ANNOUNCE_ROLE_ID.</summary>
+    private const string DefaultRoleId = "1516429837168934942";
+
     private readonly HttpClient _http;
     private readonly string? _botToken;
     private readonly string _channelId;
+    private readonly string _roleId;
     private readonly ILogger<DiscordAnnouncer> _logger;
 
     public DiscordAnnouncer(ILogger<DiscordAnnouncer> logger)
     {
         _logger = logger;
         _botToken = Environment.GetEnvironmentVariable("DISCORD_BOT_TOKEN");
-        _channelId = Environment.GetEnvironmentVariable("DISCORD_ANNOUNCE_CHANNEL_ID") is { Length: > 0 } custom
-            ? custom
+        _channelId = Environment.GetEnvironmentVariable("DISCORD_ANNOUNCE_CHANNEL_ID") is { Length: > 0 } customChannel
+            ? customChannel
             : DefaultChannelId;
+        _roleId = Environment.GetEnvironmentVariable("DISCORD_ANNOUNCE_ROLE_ID") is { Length: > 0 } customRole
+            ? customRole
+            : DefaultRoleId;
 
         _http = new HttpClient { BaseAddress = new Uri("https://discord.com/api/v10/") };
     }
@@ -61,9 +68,18 @@ public sealed class DiscordAnnouncer
             embed["fields"] = new[] { new { name = "Changements", value } };
         }
 
+        // Le ping de rôle doit être dans "content" (un embed seul ne notifie personne) — voir
+        // demande utilisateur. allowed_mentions.roles liste explicitement le rôle autorisé à être
+        // mentionné : par défaut Discord bloque les mentions de rôle "@everyone-like" venant d'un
+        // bot sauf si elles sont explicitement permises ici.
         using var request = new HttpRequestMessage(HttpMethod.Post, $"channels/{_channelId}/messages")
         {
-            Content = JsonContent.Create(new { embeds = new[] { embed } }),
+            Content = JsonContent.Create(new
+            {
+                content = $"<@&{_roleId}>",
+                embeds = new[] { embed },
+                allowed_mentions = new { roles = new[] { _roleId } },
+            }),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bot", _botToken);
 

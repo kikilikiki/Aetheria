@@ -104,7 +104,9 @@ normalement et journalise simplement que l'annonce est ignorée.
    un Bot, copiez son token dans `.env` (`DISCORD_BOT_TOKEN=...`), puis invitez-le sur votre
    serveur Discord avec les permissions "Envoyer des messages" et "Intégrer des liens" sur le
    salon visé (identifiant configurable via `DISCORD_ANNOUNCE_CHANNEL_ID`, sinon un salon par
-   défaut est codé dans `DiscordAnnouncer.cs`).
+   défaut est codé dans `DiscordAnnouncer.cs`). Chaque annonce notifie aussi (ping) un rôle
+   Discord fixe (configurable via `DISCORD_ANNOUNCE_ROLE_ID`, sinon un rôle par défaut est codé
+   dans `DiscordAnnouncer.cs`).
 
 3. C'est tout : une fois `.env` configuré, chaque démarrage du serveur poste automatiquement un
    embed listant les commits ajoutés depuis la dernière annonce (voir
