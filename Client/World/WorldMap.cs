@@ -14,8 +14,11 @@ public sealed class WorldMap
     public IReadOnlyList<Building> Buildings { get; }
     public IReadOnlyList<Npc> Npcs { get; }
     public (int X, int Y) SpawnPosition { get; }
-    public (int X, int Y) DungeonEntrance { get; }
+    public (int X, int Y) DungeonEntrance { get; private set; }
     public string DungeonName { get; } = "Donjon des Araignées";
+
+    /// <summary>Identifiant serveur du donjon affiché ici, résolu après coup via <see cref="SetDungeon"/> (voir GET /api/dungeons) — -1 tant qu'inconnu.</summary>
+    public int DungeonId { get; private set; } = -1;
 
     private static readonly Vector4 GrassLight = new(0.35f, 0.55f, 0.28f, 1f);
     private static readonly Vector4 GrassMid = new(0.30f, 0.48f, 0.24f, 1f);
@@ -93,6 +96,23 @@ public sealed class WorldMap
     }
 
     public bool IsWithinBounds(int x, int y) => x >= 0 && x < Size && y >= 0 && y < Size;
+
+    /// <summary>
+    /// Applique la position serveur du donjon (voir <c>DungeonWorldService</c> côté serveur — la
+    /// position tourne chaque heure UTC). Appelé une fois après connexion (voir Program.cs) : le
+    /// donjon garde sa position d'origine tant que le client n'est pas encore connecté/n'a pas
+    /// encore reçu la liste des donjons. **Limite assumée** : les chemins de terre tracés à la
+    /// construction (<see cref="MarkPath"/>) ne sont pas retracés vers la nouvelle position —
+    /// seule l'entrée (portail + zone d'interaction) se déplace réellement.
+    /// </summary>
+    public void SetDungeon(int id, int worldX, int worldY)
+    {
+        DungeonId = id;
+        if (IsWithinBounds(worldX, worldY))
+        {
+            DungeonEntrance = (worldX, worldY);
+        }
+    }
 
     private static void MarkPath(HashSet<(int X, int Y)> pathTiles, (int X, int Y) from, (int X, int Y) to)
     {

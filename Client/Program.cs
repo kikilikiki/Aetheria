@@ -679,6 +679,7 @@ void ConnectAndEnterWorld(Guid characterId)
         }
 
         Console.WriteLine($"[Réseau] Entrée dans le monde acceptée en ({packet.PositionX}, {packet.PositionY}).");
+        _ = RefreshDungeonPositionAsync();
     };
     connection.EnterWorldRejected += packet =>
     {
@@ -729,6 +730,35 @@ void ConnectAndEnterWorld(Guid characterId)
         }
 
         connection = null;
+    }
+}
+
+/// <summary>
+/// Récupère la position serveur du donjon (voir DungeonWorldService — tourne chaque heure UTC)
+/// et la reflète sur la carte locale. Appelé une fois après connexion ; pas de rafraîchissement
+/// périodique pour cette première intégration (le joueur doit se reconnecter pour voir un
+/// déplacement de donjon survenu en cours de session) — voir Docs/README.md.
+/// </summary>
+async Task RefreshDungeonPositionAsync()
+{
+    if (gameDataApi is null)
+    {
+        return;
+    }
+
+    try
+    {
+        var dungeons = await gameDataApi.GetDungeonsAsync();
+        var dungeon = dungeons.FirstOrDefault(d => d.Name == worldMap.DungeonName) ?? dungeons.FirstOrDefault();
+        if (dungeon is not null)
+        {
+            worldMap.SetDungeon(dungeon.Id, dungeon.WorldX, dungeon.WorldY);
+            Console.WriteLine($"[Donjon] « {dungeon.Name} » positionné en ({dungeon.WorldX}, {dungeon.WorldY}) pour cette heure.");
+        }
+    }
+    catch (HttpRequestException ex)
+    {
+        Console.WriteLine($"[Donjon] Impossible de récupérer la position du donjon : {ex.Message}");
     }
 }
 
