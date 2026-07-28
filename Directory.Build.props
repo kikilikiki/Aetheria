@@ -25,9 +25,14 @@
     <Authors>Aetheria Studio</Authors>
     <NeutralLanguage>fr</NeutralLanguage>
 
-    <!-- Génère les fichiers exécutables/bibliothèques dans un dossier de sortie prévisible -->
-    <BaseOutputPath>$(MSBuildThisFileDirectory)build\bin\$(MSBuildProjectName)\</BaseOutputPath>
-    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)build\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <!--
+      Génère les fichiers exécutables/bibliothèques dans un dossier de sortie prévisible.
+      Condition sur "== ''" : permet de surcharger ponctuellement via une variable
+      d'environnement BaseOutputPath (ex. build isolé pendant qu'un serveur tourne déjà et
+      verrouille le .dll par défaut), sans rien changer au comportement par défaut.
+    -->
+    <BaseOutputPath Condition="'$(BaseOutputPath)' == ''">$(MSBuildThisFileDirectory)build\bin\$(MSBuildProjectName)\</BaseOutputPath>
+    <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)' == ''">$(MSBuildThisFileDirectory)build\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
 
     <!-- Permet de générer des exécutables Windows autonomes (voir README de déploiement) -->
     <SelfContained>false</SelfContained>

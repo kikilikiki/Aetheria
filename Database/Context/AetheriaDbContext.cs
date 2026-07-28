@@ -31,6 +31,8 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<GuildMemberEntity> GuildMembers => Set<GuildMemberEntity>();
     public DbSet<TerritoryEntity> Territories => Set<TerritoryEntity>();
     public DbSet<SeasonEntity> Seasons => Set<SeasonEntity>();
+    public DbSet<PartyEntity> Parties => Set<PartyEntity>();
+    public DbSet<PartyMemberEntity> PartyMembers => Set<PartyMemberEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -195,6 +197,29 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             member.HasOne(m => m.Guild)
                 .WithMany()
                 .HasForeignKey(m => m.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            member.HasOne(m => m.Character)
+                .WithMany()
+                .HasForeignKey(m => m.CharacterId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PartyEntity>(party =>
+        {
+            party.HasOne(p => p.LeaderCharacter)
+                .WithMany()
+                .HasForeignKey(p => p.LeaderCharacterId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PartyMemberEntity>(member =>
+        {
+            member.HasIndex(m => m.CharacterId).IsUnique();
+
+            member.HasOne(m => m.Party)
+                .WithMany()
+                .HasForeignKey(m => m.PartyId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             member.HasOne(m => m.Character)
