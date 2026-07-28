@@ -110,6 +110,33 @@ public sealed partial class MainViewModel : ObservableObject
 
         _ = CheckServerStatusAsync();
         LoadNews();
+
+        // Voir GDD/demande utilisateur — "après la connexion à un compte, on y reste connecté
+        // jusqu'à ce que l'on s'y déconnecte" : revalide le jeton persisté au démarrage plutôt
+        // que de redemander les identifiants. Échoue silencieusement (retombe sur l'écran de
+        // connexion normal) si le serveur a redémarré depuis (SessionTokenStore en mémoire) ou
+        // si le compte a été banni/supprimé entre-temps.
+        if (!string.IsNullOrWhiteSpace(settings.SessionToken))
+        {
+            _ = TryRestoreSessionAsync(settings.SessionToken);
+        }
+    }
+
+    private async Task TryRestoreSessionAsync(string sessionToken)
+    {
+        var result = await _accountApi.ValidateSessionAsync(sessionToken);
+        if (!result.IsSuccess)
+        {
+            var settings = GameSettings.Load();
+            settings.SessionToken = null;
+            settings.Save();
+            return;
+        }
+
+        SessionToken = sessionToken;
+        IsLoggedIn = true;
+        IsAdminAccount = result.Value!.IsAdmin || result.Value.Rank == UserRank.Fondateur;
+        _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
     }
 
     /// <summary>Contenu statique de démonstration (voir Docs/README.md) — pas encore de flux géré côté serveur.</summary>
@@ -333,6 +360,11 @@ public sealed partial class MainViewModel : ObservableObject
             // Voir GDD/demande utilisateur — panneau "Communauté" réservé aux admin/fondateur.
             IsAdminAccount = result.Value.IsAdmin || result.Value.Rank == UserRank.Fondateur;
             _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
+
+            // Voir GDD/demande utilisateur — "rester connecté jusqu'à la déconnexion".
+            var settings = GameSettings.Load();
+            settings.SessionToken = SessionToken;
+            settings.Save();
         }
         finally
         {
@@ -350,6 +382,12 @@ public sealed partial class MainViewModel : ObservableObject
         IsAdminAccount = false;
         IsAdminPanelOpen = false;
         AdminUsers.Clear();
+
+        // Voir GDD/demande utilisateur — "rester connecté jusqu'à ce que l'on s'y déconnecte" :
+        // seule une déconnexion explicite efface le jeton persisté.
+        var settings = GameSettings.Load();
+        settings.SessionToken = null;
+        settings.Save();
     }
 
     private bool CanPlay() => SessionToken is not null && !IsUpdateAvailable;

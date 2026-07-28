@@ -37,6 +37,9 @@ public sealed class CombatSession
     public int? WinningTeam { get; set; }
     public string? LastMessage { get; set; }
 
+    /// <summary>Renseigné à chaque changement de tour (voir <c>CombatEngine.Initialize</c>/<c>AdvanceTurn</c>) : sert de référence à <see cref="Aetheria.Server.World.CombatService.AutoPassIfTimedOutAsync"/> (voir GDD/demande utilisateur — "timer de 10 secondes entre chaque tour").</summary>
+    public DateTime TurnStartedAtUtc { get; set; } = DateTime.UtcNow;
+
     /// <summary>
     /// Butin de victoire PvE (voir <c>LootSessionState</c>), renseigné une seule fois sur la
     /// session elle-même plutôt que retourné seulement à l'appelant qui a porté le coup final —

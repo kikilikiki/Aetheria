@@ -20,4 +20,7 @@ public sealed class LootSessionState
     /// ils sont 2 ainsi de suite"). Absent des index sans réclamation.
     /// </summary>
     public required IReadOnlyDictionary<int, int> ClaimCountsByItemIndex { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "timer de 10 secondes pour le choix des gains" : le client affiche un compte à rebours à partir de cette valeur (<see cref="Aetheria.Shared.GameInfo.LootChoiceTimeoutSeconds"/>).</summary>
+    public required DateTime CreatedAtUtc { get; init; }
 }

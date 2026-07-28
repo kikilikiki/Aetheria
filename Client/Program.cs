@@ -134,6 +134,11 @@ var lootCursor = 0;
 Task<LootSessionState?>? lootTask = null;
 string? lootMessage = null;
 
+// Sondage périodique de l'état du butin (voir GDD/demande utilisateur — un coéquipier peut
+// réclamer, ou le serveur peut résoudre automatiquement après le délai imparti, voir
+// GameInfo.LootChoiceTimeoutSeconds, sans qu'aucune action de CE client ne le déclenche).
+var lootPollClock = 0f;
+
 // Dialogue PNJ, superposé au monde extérieur (le déplacement se fige tant qu'il est ouvert).
 Npc? activeDialogueNpc = null;
 var dialogueLineIndex = 0;
@@ -2315,7 +2320,7 @@ void UpdateCombat(float deltaTime)
 
     if (combatState.IsFinished)
     {
-        UpdateLoot();
+        UpdateLoot(deltaTime);
         return;
     }
 
@@ -2427,7 +2432,7 @@ void UpdateCombat(float deltaTime)
 /// (capture, ou catalogue d'objets vide côté serveur) <see cref="activeLoot"/> reste `null` et le
 /// joueur passe directement à l'écran "continuer", comme avant l'ajout de ce système.
 /// </summary>
-void UpdateLoot()
+void UpdateLoot(float deltaTime)
 {
     if (lootTask is { IsCompleted: true } task)
     {
@@ -2474,8 +2479,21 @@ void UpdateLoot()
             activeLoot = null;
             lootMessage = null;
             lootCursor = 0;
+            lootPollClock = 0f;
         }
 
+        return;
+    }
+
+    // Sondage périodique (voir GDD/demande utilisateur — "le joueur qui n'a pas donné le dernier
+    // coup ne peut pas choisir d'objet") : sans ça, ce client ne voyait jamais qu'un coéquipier
+    // avait réclamé un objet (ni que le serveur avait résolu le butin après le délai imparti,
+    // voir GameInfo.LootChoiceTimeoutSeconds) tant qu'il ne réclamait pas lui-même.
+    lootPollClock += deltaTime;
+    if (lootPollClock >= CombatPollIntervalSeconds)
+    {
+        lootPollClock = 0f;
+        lootTask = combatApi!.GetLootAsync(activeLoot.LootId);
         return;
     }
 
@@ -3726,6 +3744,14 @@ void DrawCombat()
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 150f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         }
 
+        // Compte à rebours du tour (voir GDD/demande utilisateur — "timer de 10 secondes entre
+        // chaque tour") : approximatif côté client (horloges non synchronisées avec le serveur,
+        // qui fait foi et passe réellement le tour au-delà du délai), mais suffisant pour donner
+        // une idée claire du temps restant.
+        var turnSecondsLeft = Math.Max(0, GameInfo.CombatTurnTimeoutSeconds - (DateTime.UtcNow - combatState.TurnStartedAtUtc).TotalSeconds);
+        var timerColor = turnSecondsLeft <= 3 ? new Vector4(0.95f, 0.4f, 0.35f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{turnSecondsLeft:0}s", new Vector2(w / 2f, h - 175f), 2.2f, timerColor);
+
         var myTurn = combatState.CurrentTurnCombatantId is { } currentId
             && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { Team: 0 };
 
@@ -3828,6 +3854,13 @@ void DrawLootClaim(int w, int h)
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BUTIN - CHOISISSEZ UN OBJET", new Vector2(w / 2f, h - 210f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+
+    // Compte à rebours du choix (voir GDD/demande utilisateur — "timer de 10 secondes pour le
+    // choix des gains") : approximatif côté client, le serveur fait foi et résout réellement le
+    // butin au-delà du délai (voir GameInfo.LootChoiceTimeoutSeconds).
+    var lootSecondsLeft = Math.Max(0, GameInfo.LootChoiceTimeoutSeconds - (DateTime.UtcNow - loot.CreatedAtUtc).TotalSeconds);
+    var lootTimerColor = lootSecondsLeft <= 3 ? new Vector4(0.95f, 0.4f, 0.35f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{lootSecondsLeft:0}s", new Vector2(w / 2f, h - 185f), 2f, lootTimerColor);
 
     const float rowWidth = 440f;
     const float rowHeight = 32f;

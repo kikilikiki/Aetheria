@@ -18,4 +18,11 @@ public sealed record CombatSessionState(
     /// client, plutôt que l'état de scène local du client (qui peut rester périmé après être
     /// retourné à l'extérieur — voir <c>Client/Program.cs</c>, <c>interiorIsDungeon</c>).
     /// </summary>
-    bool IsDungeonCombat = false);
+    bool IsDungeonCombat = false,
+    /// <summary>
+    /// Début du tour courant (UTC) — voir GDD/demande utilisateur : "timer de 10 secondes entre
+    /// chaque tour" (<see cref="Aetheria.Shared.GameInfo.CombatTurnTimeoutSeconds"/>). Le client
+    /// affiche un compte à rebours à partir de cette valeur ; le serveur fait foi et passe le
+    /// tour automatiquement au-delà de ce délai (voir <c>CombatTimeoutScheduler</c>).
+    /// </summary>
+    DateTime TurnStartedAtUtc = default);

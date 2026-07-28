@@ -12,4 +12,7 @@ public sealed class LootSessionStore
     public bool TryGet(Guid id, out LootSession session) => _sessions.TryGetValue(id, out session!);
 
     public void Remove(Guid id) => _sessions.TryRemove(id, out _);
+
+    /// <summary>Tous les butins en cours de répartition — utilisé par <see cref="CombatTimeoutScheduler"/> pour vérifier le délai de choix.</summary>
+    public IReadOnlyCollection<LootSession> All() => _sessions.Values.ToList();
 }

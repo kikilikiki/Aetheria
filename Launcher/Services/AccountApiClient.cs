@@ -85,6 +85,27 @@ public sealed class AccountApiClient : IDisposable
         }
     }
 
+    /// <summary>Revalide un jeton de session persisté (voir GDD/demande utilisateur — "rester connecté jusqu'à la déconnexion"), sans redemander les identifiants.</summary>
+    public async Task<ApiResult<SessionInfoResponse>> ValidateSessionAsync(string sessionToken)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"/api/account/session?sessionToken={Uri.EscapeDataString(sessionToken)}");
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
+                return ApiResult<SessionInfoResponse>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<SessionInfoResponse>(JsonOptions);
+            return ApiResult<SessionInfoResponse>.Success(body!);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ApiResult<SessionInfoResponse>.Failure($"Impossible de contacter le serveur : {ex.Message}");
+        }
+    }
+
     public void Dispose() => _http.Dispose();
 
     private sealed class RegisterOkBody
