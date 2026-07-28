@@ -595,8 +595,20 @@ de gameplay.
     permission. Assignable depuis l'AdminPanel (colonne "Grade" dans le tableau des joueurs +
     sélecteur/bouton "Définir le grade" à côté du bouton de permission admin existant), via
     `POST /api/admin/users/{userId}/set-rank`. **Limite assumée** : le grade n'est pas encore
-    affiché en jeu (tchat, liste des joueurs en ligne) — ce câblage fait l'objet d'un travail
-    séparé en cours.
+    affiché en jeu (tchat, liste des joueurs en ligne) — voir point 19 ci-dessous.
+19. ✅ Tchat global, tchat de guilde et liste des joueurs en ligne avec leur grade (voir
+    GDD/demande utilisateur) : panneau unique ouvert avec T (ou le bouton HUD "TCHAT"), deux
+    onglets cliquables (aussi basculables avec Tab) partageant le même historique en mémoire
+    (borné à 100 lignes, non persisté) filtré par canal. `ChatMessagePacket` (déjà présent dans
+    le framing réseau mais jusqu'ici non câblé côté serveur) porte maintenant un `Channel`
+    (`Global`/`Guild`) et un `Rank` — le serveur ignore le nom/grade envoyés par le client
+    (usurpation impossible) et les renseigne depuis la session (mis en cache à l'entrée dans le
+    monde). Le tchat de guilde résout les membres via `GuildMemberEntity` et ne diffuse qu'aux
+    sessions correspondantes ; un joueur sans guilde recevant un message "Système" l'en informe.
+    La liste des joueurs en ligne réutilise `remotePlayers`/`PlayerJoinedPacket` (déjà en place
+    pour la visibilité globale sur la carte), désormais étendu pour porter le grade de chacun.
+    **Limite assumée** : pas d'historique persisté entre connexions, pas de tchat privé/de
+    groupe séparé (uniquement global et guilde, comme demandé).
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

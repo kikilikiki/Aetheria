@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using Aetheria.Database.Context;
 using Aetheria.Server.Persistence;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +28,8 @@ public sealed class PlayerSession(
 
     public Guid CharacterId { get; private set; }
     public string CharacterName { get; private set; } = string.Empty;
+    public Guid UserId { get; private set; }
+    public UserRank Rank { get; private set; } = UserRank.Joueur;
     public int PositionX { get; private set; }
     public int PositionY { get; private set; }
 
@@ -104,6 +107,10 @@ public sealed class PlayerSession(
                 HandlePlayerMove(move);
                 break;
 
+            case ChatMessagePacket chat:
+                HandleChatMessage(chat);
+                break;
+
             default:
                 logger.LogWarning("Packet {OpCode} reçu mais non géré par PlayerSession.", packet.OpCode);
                 break;
@@ -129,6 +136,8 @@ public sealed class PlayerSession(
 
         CharacterId = character.Id;
         CharacterName = character.Name;
+        UserId = userId;
+        Rank = db.Users.Where(u => u.Id == userId).Select(u => u.Rank).FirstOrDefault();
 
         // Position de départ : la capitale du royaume choisi. Le placement réel dans le
         // monde persistant (royaumes/donjons) arrive avec les systèmes de jeu (Phase G).
@@ -140,6 +149,7 @@ public sealed class PlayerSession(
             CharacterId = character.Id,
             PositionX = PositionX,
             PositionY = PositionY,
+            Rank = Rank,
         });
 
         // Snapshot des joueurs déjà connectés (voir GDD — visibilité globale) : une série de
@@ -153,6 +163,7 @@ public sealed class PlayerSession(
                 Name = other.CharacterName,
                 PositionX = other.PositionX,
                 PositionY = other.PositionY,
+                Rank = other.Rank,
             });
         }
 
@@ -163,6 +174,7 @@ public sealed class PlayerSession(
             Name = CharacterName,
             PositionX = PositionX,
             PositionY = PositionY,
+            Rank = Rank,
         });
 
         logger.LogInformation("{CharacterName} est entré dans le monde.", character.Name);
@@ -185,5 +197,69 @@ public sealed class PlayerSession(
         var update = new PlayerPositionUpdatePacket { CharacterId = CharacterId, PositionX = PositionX, PositionY = PositionY };
         SendPacket(update);
         registry.BroadcastExcept(CharacterId, update);
+    }
+
+    /// <summary>
+    /// Tchat global (tout le monde) ou tchat de guilde (voir GDD/demande utilisateur). Le serveur
+    /// ignore le nom/grade envoyés par le client (usurpation impossible) et renseigne les siens,
+    /// mis en cache sur la session depuis <see cref="HandleEnterWorld"/>.
+    /// </summary>
+    private void HandleChatMessage(ChatMessagePacket chat)
+    {
+        if (!HasEnteredWorld)
+        {
+            return;
+        }
+
+        var trimmed = chat.Message.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        var outgoing = new ChatMessagePacket
+        {
+            SenderName = CharacterName,
+            Message = trimmed,
+            Channel = chat.Channel,
+            Rank = Rank,
+        };
+
+        if (chat.Channel == ChatChannel.Guild)
+        {
+            using var db = dbContextFactory.CreateDbContext();
+            var guildId = db.GuildMembers
+                .Where(m => m.CharacterId == CharacterId)
+                .Select(m => (Guid?)m.GuildId)
+                .FirstOrDefault();
+
+            if (guildId is null)
+            {
+                SendPacket(new ChatMessagePacket
+                {
+                    SenderName = "Système",
+                    Message = "Vous n'êtes dans aucune guilde.",
+                    Channel = ChatChannel.Guild,
+                });
+                return;
+            }
+
+            var guildMemberIds = db.GuildMembers
+                .Where(m => m.GuildId == guildId)
+                .Select(m => m.CharacterId)
+                .ToHashSet();
+
+            foreach (var session in registry.All().Where(s => guildMemberIds.Contains(s.CharacterId)))
+            {
+                session.SendPacket(outgoing);
+            }
+        }
+        else
+        {
+            foreach (var session in registry.All())
+            {
+                session.SendPacket(outgoing);
+            }
+        }
     }
 }
