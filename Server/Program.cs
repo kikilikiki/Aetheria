@@ -44,6 +44,7 @@ builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 
 builder.Services.AddSingleton<SessionTokenStore>();
 builder.Services.AddSingleton<CombatSessionStore>();
+builder.Services.AddSingleton<LootSessionStore>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
 builder.WebHost.UseUrls($"http://0.0.0.0:{GameInfo.DefaultAccountApiPort}");
 
@@ -461,6 +462,61 @@ app.MapGet("/api/guilds/mine", async (Guid characterId) =>
     return guild is null ? Results.NoContent() : Results.Ok(guild);
 });
 
+// Groupes (voir GDD — visibilité globale des joueurs, XP partagée en groupe).
+app.MapPost("/api/parties", async (CreatePartyRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var partyService = new PartyService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await partyService.CreateAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/parties/{partyId:guid}/join", async (Guid partyId, JoinPartyRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var partyService = new PartyService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await partyService.JoinAsync(partyId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/parties/leave", async (LeavePartyRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var partyService = new PartyService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        await partyService.LeaveAsync(request);
+        return Results.Ok();
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/parties/mine", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var partyService = new PartyService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    var party = await partyService.GetForCharacterAsync(characterId);
+    return party is null ? Results.NoContent() : Results.Ok(party);
+});
+
 // Boutique (voir GDD — bouton Boutique en jeu).
 app.MapGet("/api/shop/catalog", async () =>
 {
@@ -526,7 +582,7 @@ app.MapGet("/api/leaderboard/{category}", async (LeaderboardCategory category, i
 app.MapPost("/api/combat/start", async (StartCombatRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
 
     try
     {
@@ -541,7 +597,7 @@ app.MapPost("/api/combat/start", async (StartCombatRequest request) =>
 app.MapPost("/api/combat/{combatId:guid}/action", async (Guid combatId, CombatActionRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
 
     try
     {
@@ -561,7 +617,7 @@ app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomI
     async (int dungeonId, int floorNumber, int roomIndex, StartDungeonCombatRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
 
     try
     {
@@ -576,16 +632,44 @@ app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomI
 app.MapGet("/api/combat/{combatId:guid}", async (Guid combatId) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
     return combatService.TryGetState(combatId, out var state)
         ? Results.Ok(state)
         : Results.NotFound(new ApiError { Message = "Combat introuvable ou terminé." });
 });
 
+// Butin de victoire (voir GDD — 4 objets à départager, tirage aléatoire en cas d'égalité).
+app.MapPost("/api/loot/{lootId:guid}/claim", async (Guid lootId, LootClaimRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var lootService = new Aetheria.Server.World.Combat.LootService(
+        db, app.Services.GetRequiredService<LootSessionStore>(), new PartyService(db, app.Services.GetRequiredService<SessionTokenStore>()));
+
+    try
+    {
+        return Results.Ok(await lootService.ClaimAsync(lootId, request, app.Services.GetRequiredService<SessionTokenStore>()));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/loot/{lootId:guid}", async (Guid lootId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var lootService = new Aetheria.Server.World.Combat.LootService(
+        db, app.Services.GetRequiredService<LootSessionStore>(), new PartyService(db, app.Services.GetRequiredService<SessionTokenStore>()));
+
+    return lootService.TryGetState(lootId, out var state)
+        ? Results.Ok(state)
+        : Results.NotFound(new ApiError { Message = "Butin introuvable ou déjà réparti." });
+});
+
 app.MapPost("/api/pvp/challenge", async (StartPvpCombatRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>());
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
 
     try
     {

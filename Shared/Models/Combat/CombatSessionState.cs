@@ -9,4 +9,6 @@ public sealed record CombatSessionState(
     Guid? CurrentTurnCombatantId,
     bool IsFinished,
     int? WinningTeam,
-    string? LastMessage);
+    string? LastMessage,
+    /// <summary>Renseigné uniquement à la victoire en PvE (voir GDD — butin de 4 objets) — voir <c>LootSessionState</c>.</summary>
+    Guid? LootId = null);
