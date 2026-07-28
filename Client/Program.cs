@@ -169,6 +169,16 @@ List<InventoryItemSummary> inventoryItems = [];
 GuildSummary? myGuild = null;
 var guildLoaded = false;
 
+// Tchat global/guilde et grade du joueur (voir GDD/demande utilisateur — "un tchat global, un
+// tchat de guilde, une liste des joueurs en ligne avec leur grade"). Historique borné en mémoire
+// uniquement (pas de persistance des messages), reçu/renseigné par le serveur via
+// ChatMessagePacket (voir PlayerSession.HandleChatMessage côté serveur).
+var myRank = UserRank.Joueur;
+var chatChannel = ChatChannel.Global;
+var chatTextInput = string.Empty;
+var chatMessages = new List<ChatLine>();
+const int MaxChatLines = 100;
+
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
 var guildTextInput = string.Empty;
@@ -416,6 +426,7 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.P)) OpenPanel(PanelKind.Party);
     else if (keyboard.WasJustPressed(Key.V)) OpenPanel(PanelKind.Arena);
     else if (keyboard.WasJustPressed(Key.M)) OpenPanel(PanelKind.Monsters);
+    else if (keyboard.WasJustPressed(Key.T)) OpenPanel(PanelKind.Chat);
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -974,6 +985,7 @@ void ConnectAndEnterWorld(Guid characterId)
             gridPosition = new Vector2(packet.PositionX, packet.PositionY);
             serverConfirmedPosition = gridPosition;
             statusMessage = "Connecté au monde.";
+            myRank = packet.Rank;
         }
 
         Console.WriteLine($"[Réseau] Entrée dans le monde acceptée en ({packet.PositionX}, {packet.PositionY}).");
@@ -1034,7 +1046,7 @@ void ConnectAndEnterWorld(Guid characterId)
 
         lock (stateLock)
         {
-            remotePlayers[packet.CharacterId] = new RemotePlayer(packet.Name, new Vector2(packet.PositionX, packet.PositionY));
+            remotePlayers[packet.CharacterId] = new RemotePlayer(packet.Name, new Vector2(packet.PositionX, packet.PositionY), packet.Rank);
         }
     };
     connection.PlayerLeft += packet =>
@@ -1042,6 +1054,17 @@ void ConnectAndEnterWorld(Guid characterId)
         lock (stateLock)
         {
             remotePlayers.Remove(packet.CharacterId);
+        }
+    };
+    connection.ChatMessageReceived += packet =>
+    {
+        lock (stateLock)
+        {
+            chatMessages.Add(new ChatLine(packet.Channel, packet.SenderName, packet.Rank, packet.Message));
+            if (chatMessages.Count > MaxChatLines)
+            {
+                chatMessages.RemoveAt(0);
+            }
         }
     };
     connection.Disconnected += () =>
@@ -1444,6 +1467,9 @@ void OpenPanel(PanelKind kind)
             monsterMessage = null;
             _ = LoadMonstersAsync();
             _ = LoadInventoryAsync();
+            break;
+        case PanelKind.Chat:
+            chatTextInput = string.Empty;
             break;
     }
 }
@@ -1901,6 +1927,51 @@ async Task<bool> QueueForArenaAsync(ArenaFormat format)
     }
 }
 
+/// <summary>
+/// Panneau Tchat (touche T) : Tab bascule entre canal global et canal de guilde, Entrée envoie
+/// (rien ne se passe si le champ est vide — pas de message vide sur le réseau), Échap vide le
+/// champ de saisie puis ferme le panneau au second appui, comme les autres panneaux avec saisie
+/// (voir <see cref="UpdateGuildPanel"/>). La liste des joueurs en ligne (voir GDD — "avec leur
+/// grade") est affichée à côté du tchat par <see cref="DrawChatPanel"/>, pas de touche dédiée.
+/// </summary>
+void UpdateChatPanel()
+{
+    if (keyboard.WasJustPressed(Key.Tab))
+    {
+        chatChannel = chatChannel == ChatChannel.Global ? ChatChannel.Guild : ChatChannel.Global;
+        return;
+    }
+
+    foreach (var typed in keyboard.DrainTypedChars())
+    {
+        if (chatTextInput.Length < 200 && !char.IsControl(typed))
+        {
+            chatTextInput += typed;
+        }
+    }
+
+    if (keyboard.WasJustPressed(Key.Backspace) && chatTextInput.Length > 0)
+    {
+        chatTextInput = chatTextInput[..^1];
+    }
+    else if (keyboard.WasJustPressed(Key.Escape))
+    {
+        if (chatTextInput.Length > 0)
+        {
+            chatTextInput = string.Empty;
+        }
+        else
+        {
+            activePanel = PanelKind.None;
+        }
+    }
+    else if (keyboard.WasJustPressed(Key.Enter) && chatTextInput.Trim().Length > 0)
+    {
+        connection?.SendChatMessage(chatTextInput.Trim(), chatChannel);
+        chatTextInput = string.Empty;
+    }
+}
+
 void UpdatePanel(float deltaTime)
 {
     if (activePanel == PanelKind.Party)
@@ -1924,6 +1995,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Guild)
     {
         UpdateGuildPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Chat)
+    {
+        UpdateChatPanel();
         return;
     }
 
@@ -2588,6 +2665,7 @@ void DrawOutdoorHud()
             case PanelKind.Party: DrawPartyPanel(w, h); break;
             case PanelKind.Arena: DrawArenaPanel(w, h); break;
             case PanelKind.Monsters: DrawMonstersPanel(w, h); break;
+            case PanelKind.Chat: DrawChatPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -2631,6 +2709,7 @@ void DrawOutdoorHudButtons(int w, int h)
         ("GUILDE (G)", PanelKind.Guild),
         ("BOUTIQUE (B)", PanelKind.Shop),
         ("ARENE (V)", PanelKind.Arena),
+        ("TCHAT (T)", PanelKind.Chat),
     ];
 
     const float pixelSize = 1.7f;
@@ -2971,6 +3050,100 @@ void DrawArenaPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 }
+
+/// <summary>
+/// Panneau Tchat (touche T, voir GDD/demande utilisateur — "un tchat global, un tchat de guilde,
+/// une liste des joueurs en ligne avec leur grade") : deux onglets cliquables (aussi
+/// basculables avec Tab, voir <see cref="UpdateChatPanel"/>) partageant le même historique en
+/// mémoire filtré par canal, plus la liste des joueurs actuellement connectés
+/// (<see cref="remotePlayers"/>, déjà utilisé pour la visibilité globale sur la carte) avec leur
+/// grade affiché en préfixe.
+/// </summary>
+void DrawChatPanel(int w, int h)
+{
+    const float boxWidth = 640f;
+    const float boxHeight = 420f;
+    const float listWidth = 190f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+    var chatWidth = boxWidth - listWidth - 20f;
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.8f, 0.6f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TCHAT", new Vector2(topLeft.X + chatWidth / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.6f, 0.9f, 0.7f, 1f));
+
+    var globalColor = chatChannel == ChatChannel.Global ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.6f, 0.6f, 0.65f, 1f);
+    var guildColor = chatChannel == ChatChannel.Guild ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.6f, 0.6f, 0.65f, 1f);
+
+    if (DrawClickableCentered("GLOBAL", new Vector2(topLeft.X + chatWidth / 2f - 60f, topLeft.Y + 54f), 1.9f, globalColor))
+    {
+        chatChannel = ChatChannel.Global;
+    }
+
+    if (DrawClickableCentered("GUILDE", new Vector2(topLeft.X + chatWidth / 2f + 60f, topLeft.Y + 54f), 1.9f, guildColor))
+    {
+        chatChannel = ChatChannel.Guild;
+    }
+
+    var messagesTop = topLeft.Y + 80f;
+    var messagesBottom = topLeft.Y + boxHeight - 60f;
+    List<ChatLine> visible;
+    lock (stateLock)
+    {
+        visible = chatMessages.Where(m => m.Channel == chatChannel).TakeLast(12).ToList();
+    }
+
+    var y = messagesBottom - 20f;
+    for (var i = visible.Count - 1; i >= 0; i--)
+    {
+        var line = visible[i];
+        var text = $"{ChatRankTag(line.Rank)}{line.SenderName} : {line.Message}";
+        TextRenderer.Draw(spriteBatch, whiteTexture, text, new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+        y -= 20f;
+        if (y < messagesTop)
+        {
+            break;
+        }
+    }
+
+    DrawPanel(new Vector2(topLeft.X + 16f, messagesBottom + 4f), new Vector2(chatWidth - 16f, 30f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, chatTextInput + "_", new Vector2(topLeft.X + 24f, messagesBottom + 11f), 1.7f, Vector4.One);
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TAB : CANAL - ENTREE : ENVOYER - ECHAP : FERMER",
+        new Vector2(topLeft.X + chatWidth / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+    var listLeft = topLeft.X + chatWidth + 20f;
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "EN LIGNE", new Vector2(listLeft + (listWidth - 10f) / 2f, topLeft.Y + 62f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+    List<KeyValuePair<Guid, RemotePlayer>> others;
+    lock (stateLock)
+    {
+        others = remotePlayers.ToList();
+    }
+
+    var listY = topLeft.Y + 90f;
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(myRank)}Vous", new Vector2(listLeft, listY), 1.5f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    listY += 20f;
+
+    foreach (var (_, remote) in others.OrderBy(kv => kv.Value.Name))
+    {
+        if (listY > topLeft.Y + boxHeight - 30f)
+        {
+            break;
+        }
+
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(remote.Rank)}{remote.Name}", new Vector2(listLeft, listY), 1.5f, Vector4.One);
+        listY += 20f;
+    }
+}
+
+static string ChatRankTag(UserRank rank) => rank switch
+{
+    UserRank.Veteran => "[Vet] ",
+    UserRank.Moderateur => "[Mod] ",
+    UserRank.Administrateur => "[Admin] ",
+    _ => "",
+};
 
 static string ArenaFormatLabel(ArenaFormat format) => format switch
 {
@@ -3862,6 +4035,7 @@ enum PanelKind
     Party,
     Arena,
     Monsters,
+    Chat,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
@@ -3872,8 +4046,11 @@ enum GuildPanelMode
     Search,
 }
 
-/// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe).</summary>
-record RemotePlayer(string Name, Vector2 Position);
+/// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe). Porte son grade pour la liste des joueurs en ligne.</summary>
+record RemotePlayer(string Name, Vector2 Position, UserRank Rank = UserRank.Joueur);
+
+/// <summary>Un message affiché dans le panneau Tchat (voir GDD — tchat global/tchat de guilde).</summary>
+record ChatLine(ChatChannel Channel, string SenderName, UserRank Rank, string Message);
 
 enum StarterStage
 {

@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
 
@@ -21,6 +22,7 @@ public sealed class GameConnection : IDisposable
     public event Action<PlayerPositionUpdatePacket>? PositionUpdated;
     public event Action<PlayerJoinedPacket>? PlayerJoined;
     public event Action<PlayerLeftPacket>? PlayerLeft;
+    public event Action<ChatMessagePacket>? ChatMessageReceived;
     public event Action? Disconnected;
 
     public void Connect(string host, int port)
@@ -57,6 +59,21 @@ public sealed class GameConnection : IDisposable
         PacketFraming.WritePacket(_stream, new PlayerMovePacket { TargetX = targetX, TargetY = targetY });
     }
 
+    public void SendChatMessage(string message, ChatChannel channel)
+    {
+        if (_stream is null)
+        {
+            return;
+        }
+
+        PacketFraming.WritePacket(_stream, new ChatMessagePacket
+        {
+            SenderName = string.Empty,
+            Message = message,
+            Channel = channel,
+        });
+    }
+
     private void ReceiveLoop()
     {
         try
@@ -85,6 +102,9 @@ public sealed class GameConnection : IDisposable
                         break;
                     case PlayerLeftPacket left:
                         PlayerLeft?.Invoke(left);
+                        break;
+                    case ChatMessagePacket chat:
+                        ChatMessageReceived?.Invoke(chat);
                         break;
                 }
             }
