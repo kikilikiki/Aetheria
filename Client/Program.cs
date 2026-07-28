@@ -63,6 +63,11 @@ var interiorBodyLines = Array.Empty<string>();
 var interiorAccent = new Vector4(0.5f, 0.5f, 0.5f, 1f);
 var interiorIsDungeon = false;
 
+// Meubles/PNJ d'un intérieur de bâtiment (voir GDD — intérieurs enrichis, BuildingInteriors).
+// Vide pour l'intérieur du donjon (qui reste un écran de flavor text, voir #60).
+List<InteriorFurniture> interiorFurniture = [];
+List<InteriorNpc> interiorNpcs = [];
+
 // Combat tactique (voir Server/World/CombatService.cs) : déclenché depuis l'intérieur du
 // donjon (Entrée pour affronter un monstre sauvage) — voir GDD section Combats. Grille 7x7,
 // actions Move/Attack/Pass/Capture, IA gérée côté serveur entre deux tours joueur.
@@ -306,6 +311,11 @@ host.Update += deltaTime =>
 
     if (sceneMode == SceneMode.Interior)
     {
+        if (UpdateActiveDialogueIfAny())
+        {
+            return;
+        }
+
         if (keyboard.WasJustPressed(Key.Escape))
         {
             sceneMode = SceneMode.Outdoor;
@@ -315,6 +325,12 @@ host.Update += deltaTime =>
             combatMessage = null;
             combatReturnScene = SceneMode.Interior;
             combatStartTask = StartWildCombatAsync();
+        }
+        else if (!interiorIsDungeon && interiorNpcs.Count > 0 && keyboard.WasJustPressed(Key.E))
+        {
+            var npc = interiorNpcs[0];
+            activeDialogueNpc = new Npc(npc.Name, 0, 0, npc.BodyColor, npc.HeadColor, 0f);
+            dialogueLineIndex = 0;
         }
 
         return;
@@ -327,24 +343,8 @@ host.Update += deltaTime =>
     }
 
     // À partir d'ici, sceneMode == SceneMode.Outdoor.
-    if (activeDialogueNpc is not null)
+    if (UpdateActiveDialogueIfAny())
     {
-        if (keyboard.WasJustPressed(Key.E) || keyboard.WasJustPressed(Key.Enter))
-        {
-            var lines = NpcDialogues.Lines.GetValueOrDefault(activeDialogueNpc.Name, ["..."]);
-            dialogueLineIndex++;
-            if (dialogueLineIndex >= lines.Length)
-            {
-                activeDialogueNpc = null;
-                dialogueLineIndex = 0;
-            }
-        }
-        else if (keyboard.WasJustPressed(Key.Escape))
-        {
-            activeDialogueNpc = null;
-            dialogueLineIndex = 0;
-        }
-
         return; // Le monde se fige pendant un dialogue, comme dans un RPG classique.
     }
 
@@ -504,6 +504,9 @@ host.Update += deltaTime =>
                 interiorBodyLines = BuildingFlavor(interaction.Building.Name);
                 interiorAccent = interaction.Building.RoofColor;
                 interiorIsDungeon = false;
+                var layout = BuildingInteriors.ForBuilding(interaction.Building.Name);
+                interiorFurniture = [.. layout.Furniture];
+                interiorNpcs = [.. layout.Npcs];
                 break;
             case InteractionKind.Dungeon:
                 sceneMode = SceneMode.Interior;
@@ -511,6 +514,8 @@ host.Update += deltaTime =>
                 interiorBodyLines = DungeonFlavor();
                 interiorAccent = WorldMap.PortalMidColorBright;
                 interiorIsDungeon = true;
+                interiorFurniture = [];
+                interiorNpcs = [];
                 break;
         }
     }
@@ -677,6 +682,38 @@ NearbyInteraction? ComputeNearbyInteraction(Vector2 position)
     }
 
     return best;
+}
+
+/// <summary>
+/// Avance/ferme le dialogue PNJ actif (voir <see cref="DrawDialogueBox"/>) — partagé entre le
+/// monde extérieur et l'intérieur d'un bâtiment (voir GDD — PNJ à l'intérieur des bâtiments)
+/// plutôt que dupliqué. Retourne vrai si un dialogue était actif (le monde/la scène doit se
+/// figer pendant qu'il est affiché, comme dans un RPG classique).
+/// </summary>
+bool UpdateActiveDialogueIfAny()
+{
+    if (activeDialogueNpc is null)
+    {
+        return false;
+    }
+
+    if (keyboard.WasJustPressed(Key.E) || keyboard.WasJustPressed(Key.Enter))
+    {
+        var lines = NpcDialogues.Lines.GetValueOrDefault(activeDialogueNpc.Name, ["..."]);
+        dialogueLineIndex++;
+        if (dialogueLineIndex >= lines.Length)
+        {
+            activeDialogueNpc = null;
+            dialogueLineIndex = 0;
+        }
+    }
+    else if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activeDialogueNpc = null;
+        dialogueLineIndex = 0;
+    }
+
+    return true;
 }
 
 static string[] BuildingFlavor(string name) => name switch
@@ -2138,18 +2175,44 @@ void DrawInteriorScene()
         lineY += TextRenderer.LineHeight(2.6f) + 6f;
     }
 
-    if (interiorIsDungeon)
+    // Meubles (voir GDD — intérieurs enrichis) : rectangles positionnés en repère écran relatif
+    // (voir BuildingInteriors), dessinés avant le PNJ pour rester visuellement "derrière" lui.
+    foreach (var item in interiorFurniture)
     {
-        var prompt = combatStartTask is not null ? "..." : "APPUYEZ SUR ENTREE POUR AFFRONTER UN MONSTRE SAUVAGE";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h * 0.80f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-
-        if (combatMessage is not null)
-        {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
-        }
+        var topLeft = new Vector2(item.RelativeX * w, item.RelativeY * h);
+        var size = new Vector2(item.RelativeWidth * w, item.RelativeHeight * h);
+        DrawPanel(topLeft, size, item.Color);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, item.Label.ToUpperInvariant(), topLeft + new Vector2(size.X / 2f, -14f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
+    if (activeDialogueNpc is not null)
+    {
+        DrawDialogueBox(w, h);
+    }
+    else
+    {
+        if (interiorNpcs.Count > 0)
+        {
+            var npc = interiorNpcs[0];
+            var npcCenter = new Vector2(w * 0.5f, h * 0.72f);
+            DrawStarterPortrait(npcCenter, 46f, npc.BodyColor);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, npc.Name.ToUpperInvariant(), npcCenter + new Vector2(0, 60f), 1.8f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR E POUR PARLER", npcCenter + new Vector2(0, 84f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        }
+
+        if (interiorIsDungeon)
+        {
+            var prompt = combatStartTask is not null ? "..." : "APPUYEZ SUR ENTREE POUR AFFRONTER UN MONSTRE SAUVAGE";
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h * 0.80f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+
+            if (combatMessage is not null)
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+            }
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
+    }
 }
 
 void DrawCombat()

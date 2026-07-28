@@ -230,6 +230,20 @@ de gameplay.
       plutôt que dépendante du biome/terrain ; paliers de niveau fixes plutôt qu'une formule
       continue ; pas d'exclusion de zone autour des bâtiments (silhouettes sans vraie emprise au
       sol, voir plus haut).
+11. ✅ Intérieurs de bâtiment enrichis (voir GDD) : `Client/World/BuildingInterior.cs`
+    (`BuildingInteriors.ForBuilding`) associe à chaque bâtiment nommé (Capitale, Village, Hôtel
+    des ventes, Forge, Guilde) 1-2 meubles décoratifs et un PNJ propre, avec ses répliques dans
+    `NpcDialogues` (Chambellan, Aubergiste, Commis, Apprenti forgeron, Archiviste). Remplace
+    l'écran de simple texte de présentation par une vraie scène avec décor + un PNJ qu'on peut
+    interroger (touche E), en réutilisant `DrawDialogueBox`/`NpcDialogues` déjà en place pour les
+    PNJ extérieurs (`UpdateActiveDialogueIfAny` a été factorisé pour être partagé entre les deux
+    contextes plutôt que dupliqué). **Limites assumées** : les meubles sont des rectangles en
+    repère écran relatif (pas de vraie scène isométrique/3D pour l'intérieur, cohérent avec le
+    style écran-plat déjà utilisé par cette scène), un seul PNJ affiché même si plusieurs étaient
+    définis pour un bâtiment (pas de curseur de sélection), et l'intérieur du donjon reste un
+    écran de texte de présentation sans meubles/PNJ (voir la rencontre sauvage hors donjon
+    ci-dessus et la génération de donjon plus haut pour ce qui est réellement fonctionnel côté
+    donjon — l'exploration en couloir reste à faire).
 
 > **Incident évité en testant :** une première tentative de vérification visuelle du site web
 > (capture plein écran) a accidentellement capturé une fenêtre sans rapport avec la tâche

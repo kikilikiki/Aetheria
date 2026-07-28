@@ -31,5 +31,33 @@ public static class NpcDialogues
             "La vie au village est paisible.",
             "On raconte que le donjon cache un tresor...",
         ],
+
+        // PNJ d'intérieur (voir GDD — intérieurs de bâtiment enrichis), un par bâtiment,
+        // voir BuildingInteriors.ForBuilding.
+        ["Chambellan"] =
+        [
+            "Bienvenue au château, voyageur.",
+            "Sa Majesté ne reçoit personne aujourd'hui.",
+        ],
+        ["Aubergiste"] =
+        [
+            "Assieds-toi, la soupe est chaude.",
+            "Les chambres sont à l'étage, si le cœur t'en dit.",
+        ],
+        ["Commis"] =
+        [
+            "L'Hôtel des ventes n'a jamais été aussi actif.",
+            "Reviens voir le catalogue régulièrement.",
+        ],
+        ["Apprenti forgeron"] =
+        [
+            "Le maître forgeron est occupé avec l'enclume.",
+            "Reviens plus tard, il te fera peut-être une arme.",
+        ],
+        ["Archiviste"] =
+        [
+            "Toutes les guildes du royaume sont répertoriées ici.",
+            "Fonde la tienne, et ton nom y figurera aussi.",
+        ],
     };
 }
