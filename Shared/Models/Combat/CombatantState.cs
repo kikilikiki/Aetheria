@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Shared.Models.Combat;
 
 /// <summary>
@@ -15,4 +17,8 @@ public sealed record CombatantState(
     bool IsAlive,
     /// <summary>Voir GDD — affichage des cases de déplacement/attaque possibles avant de valider une action.</summary>
     int MovementRange = 0,
-    int AttackRange = 0);
+    int AttackRange = 0,
+    /// <summary>Voir GDD — couleur en combat selon le type (soigneur/guerrier/archer).</summary>
+    MonsterType Type = MonsterType.Guerrier,
+    /// <summary>Voir GDD — avantages/faiblesses de type.</summary>
+    Element Element = Element.Neutre);

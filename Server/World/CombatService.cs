@@ -20,7 +20,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 {
     /// <summary>XP de base accordée à la victoire PvE (voir GDD — partagée en groupe via <see cref="PartyService"/>). Simplification assumée : montant fixe plutôt que calculé sur le niveau/rareté exacte de la créature vaincue.</summary>
     private const long PveVictoryExperience = 30;
-    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default)
+    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false)
     {
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
         {
@@ -35,15 +35,25 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         var combatants = await BuildPlayerCombatantsAsync(character, request.MonsterIds, team: 0, leftSide: true, ct);
 
-        combatants.Add(new Combatant
+        // 4 ennemis plutôt qu'un seul (voir GDD/demande utilisateur — "les ennemis sont 4 et pas
+        // 1") : même espèce tirée, en formation sur le côté droit de la grille, chacun avec son
+        // propre total de PV (pas de mise à l'échelle des stats — un combat 4 contre jusqu'à 4
+        // reste équilibré par le nombre plutôt que par des ennemis individuellement plus forts).
+        (int X, int Y)[] enemyPositions = [(CombatSession.GridWidth - 1, 1), (CombatSession.GridWidth - 1, 3), (CombatSession.GridWidth - 1, 5), (CombatSession.GridWidth - 2, 3)];
+        for (var i = 0; i < enemyPositions.Length; i++)
         {
-            Id = Guid.NewGuid(), Name = wildSpecies.Name, Team = 1, X = CombatSession.GridWidth - 1, Y = 3,
-            MaxHealth = Math.Max(1, wildSpecies.BaseHealth), CurrentHealth = Math.Max(1, wildSpecies.BaseHealth),
-            Attack = wildSpecies.BaseAttack, Defense = wildSpecies.BaseDefense, Speed = wildSpecies.BaseSpeed,
-            MovementRange = 2, AttackRange = 1, IsPlayerControlled = false,
-        });
+            var (x, y) = enemyPositions[i];
+            combatants.Add(new Combatant
+            {
+                Id = Guid.NewGuid(), Name = $"{wildSpecies.Name} {i + 1}", Team = 1, X = x, Y = y,
+                MaxHealth = Math.Max(1, wildSpecies.BaseHealth), CurrentHealth = Math.Max(1, wildSpecies.BaseHealth),
+                Attack = wildSpecies.BaseAttack, Defense = wildSpecies.BaseDefense, Speed = wildSpecies.BaseSpeed,
+                MovementRange = 2, AttackRange = 1, IsPlayerControlled = false,
+                Type = wildSpecies.Type, Element = wildSpecies.Element,
+            });
+        }
 
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat };
         session.TeamOwnerUserId[0] = userId;
         session.TeamCharacterId[0] = character.Id;
 
@@ -154,6 +164,37 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     public async Task<CombatSessionState> StartFromDungeonAsync(
         int dungeonId, int floorNumber, int roomIndex, StartDungeonCombatRequest request, CancellationToken ct = default)
     {
+        var species = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
+
+        return await StartAsync(new StartCombatRequest
+        {
+            SessionToken = request.SessionToken,
+            CharacterId = request.CharacterId,
+            MonsterIds = request.MonsterIds,
+            WildSpeciesId = species.Id,
+        }, ct, isDungeonCombat: true);
+    }
+
+    /// <summary>
+    /// Aperçu de la créature qui sera affrontée dans une salle, sans démarrer de combat (voir
+    /// GDD/demande utilisateur — "faire en sorte que l'on voie les ennemis avant de les
+    /// combattre, comme Pokémon Épée") : même tirage exact que <see cref="StartFromDungeonAsync"/>
+    /// (graine stable identique, voir <see cref="DungeonFloorGenerator.StableSeed"/>), donc ce
+    /// qui est prévisualisé est toujours ce qui sera réellement affronté.
+    /// </summary>
+    public async Task<MonsterSpeciesData> GetDungeonEncounterPreviewAsync(int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
+    {
+        var species = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
+        return new MonsterSpeciesData
+        {
+            Id = species.Id, Name = species.Name, Element = species.Element, Type = species.Type,
+            BaseRarity = species.BaseRarity, Habitat = species.Habitat, Lore = species.Lore,
+            BaseStats = species.BaseStats, EvolvesIntoSpeciesId = species.EvolvesIntoSpeciesId, EvolutionLevel = species.EvolutionLevel,
+        };
+    }
+
+    private async Task<MonsterSpeciesEntity> ResolveDungeonEncounterSpeciesAsync(int dungeonId, int floorNumber, int roomIndex, CancellationToken ct)
+    {
         var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId, ct)
             ?? throw new AccountOperationException("Donjon introuvable.");
 
@@ -179,15 +220,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         }
 
         var random = new Random(DungeonFloorGenerator.StableSeed(dungeon.Seed, floorNumber, roomIndex));
-        var species = candidates[random.Next(candidates.Count)];
-
-        return await StartAsync(new StartCombatRequest
-        {
-            SessionToken = request.SessionToken,
-            CharacterId = request.CharacterId,
-            MonsterIds = request.MonsterIds,
-            WildSpeciesId = species.Id,
-        }, ct);
+        return candidates[random.Next(candidates.Count)];
     }
 
     public async Task<CombatSessionState> SubmitActionAsync(Guid combatId, CombatActionRequest request, CancellationToken ct = default)
@@ -244,6 +277,26 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 }
 
                 await ResolveCaptureAsync(session, actor, request, ct);
+                break;
+
+            case CombatActionType.SpecialAbility:
+                CombatEngine.ResolveSpecialAbility(session, actor, request.TargetX, request.TargetY);
+                if (!session.IsFinished)
+                {
+                    CombatEngine.AdvanceTurn(session);
+                }
+
+                break;
+
+            case CombatActionType.Flee:
+                if (session.IsDungeonCombat)
+                {
+                    throw new AccountOperationException("Impossible de fuir un combat de donjon.");
+                }
+
+                session.LastMessage = $"{actor.Name} prend la fuite.";
+                session.IsFinished = true;
+                session.WinningTeam = null;
                 break;
 
             default:
@@ -369,6 +422,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
                 MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
+                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre,
             });
         }
 
@@ -481,6 +535,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
                 MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
+                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre,
             });
         }
 
@@ -650,7 +705,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         CombatSession.GridWidth,
         CombatSession.GridHeight,
         session.Combatants
-            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange))
+            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element))
             .ToList(),
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,

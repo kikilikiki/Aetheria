@@ -22,79 +22,79 @@ public static class MonsterCatalogSeeder
             {
                 new MonsterSpeciesEntity
                 {
-                    Name = "Braisillon", Element = Element.Feu, BaseRarity = Rarity.Commun,
+                    Name = "Braisillon", Element = Element.Feu, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
                     Habitat = "Royaume du Feu", Lore = "Petite salamandre qui couve des braises sous ses écailles.",
                     BaseStats = new StatBlock(30, 12, 8, 10, 6, 6),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Racinelle", Element = Element.Nature, BaseRarity = Rarity.Commun,
+                    Name = "Racinelle", Element = Element.Nature, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun,
                     Habitat = "Royaume de la Nature", Lore = "Esprit végétal né des vieilles forêts.",
                     BaseStats = new StatBlock(34, 8, 12, 6, 8, 10),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Aquapouss", Element = Element.Eau, BaseRarity = Rarity.Commun,
+                    Name = "Aquapouss", Element = Element.Eau, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
                     Habitat = "Rives et étangs", Lore = "Petite créature gélatineuse qui ne quitte jamais l'eau bien longtemps.",
                     BaseStats = new StatBlock(32, 9, 11, 9, 7, 9),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Fulgurin", Element = Element.Foudre, BaseRarity = Rarity.Commun,
+                    Name = "Fulgurin", Element = Element.Foudre, Type = MonsterType.Archer, BaseRarity = Rarity.Commun,
                     Habitat = "Plaines orageuses", Lore = "Sa crinière crépite au moindre orage.",
                     BaseStats = new StatBlock(28, 12, 7, 13, 7, 6),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Rocaillon", Element = Element.Terre, BaseRarity = Rarity.Commun,
+                    Name = "Rocaillon", Element = Element.Terre, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
                     Habitat = "Collines rocheuses", Lore = "Une carapace de pierre qui durcit avec l'âge.",
                     BaseStats = new StatBlock(36, 9, 15, 5, 6, 8),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Zéphyrin", Element = Element.Air, BaseRarity = Rarity.Commun,
+                    Name = "Zéphyrin", Element = Element.Air, Type = MonsterType.Archer, BaseRarity = Rarity.Commun,
                     Habitat = "Falaises et courants ascendants", Lore = "Plane des heures entières sans un battement d'aile.",
                     BaseStats = new StatBlock(26, 10, 7, 15, 8, 7),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Lumignon", Element = Element.Lumiere, BaseRarity = Rarity.Commun,
+                    Name = "Lumignon", Element = Element.Lumiere, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun,
                     Habitat = "Clairières ensoleillées", Lore = "Diffuse une lueur douce et rassurante la nuit venue.",
                     BaseStats = new StatBlock(30, 8, 9, 8, 12, 9),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Pénombrelle", Element = Element.Ombre, BaseRarity = Rarity.Commun,
+                    Name = "Pénombrelle", Element = Element.Ombre, Type = MonsterType.Archer, BaseRarity = Rarity.Commun,
                     Habitat = "Sous-bois et greniers", Lore = "Se glisse entre les ombres sans jamais faire de bruit.",
                     BaseStats = new StatBlock(29, 11, 8, 11, 9, 7),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Bouboule", Element = Element.Neutre, BaseRarity = Rarity.Commun,
+                    Name = "Bouboule", Element = Element.Neutre, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
                     Habitat = "Un peu partout", Lore = "Compagnon passe-partout, apprécié des débutants pour son caractère facile.",
                     BaseStats = new StatBlock(33, 10, 10, 10, 8, 8),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Frimousse", Element = Element.Glace, BaseRarity = Rarity.Commun,
+                    Name = "Frimousse", Element = Element.Glace, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun,
                     Habitat = "Sommets tempérés", Lore = "Boule de poils qui adore rouler dans la neige fraîche.",
                     BaseStats = new StatBlock(31, 8, 12, 7, 9, 10),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Glacillon", Element = Element.Glace, BaseRarity = Rarity.PeuCommun,
+                    Name = "Glacillon", Element = Element.Glace, Type = MonsterType.Guerrier, BaseRarity = Rarity.PeuCommun,
                     Habitat = "Royaume des Glaces", Lore = "Créature cristalline qui hiberne dans les congères.",
                     BaseStats = new StatBlock(28, 10, 14, 8, 10, 8),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Ombrelune", Element = Element.Ombre, BaseRarity = Rarity.Rare,
+                    Name = "Ombrelune", Element = Element.Ombre, Type = MonsterType.Archer, BaseRarity = Rarity.Rare,
                     Habitat = "Royaume des Ombres", Lore = "N'apparaît qu'aux heures les plus sombres de la nuit.",
                     BaseStats = new StatBlock(26, 14, 8, 14, 12, 6),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Dracaelith", Element = Element.Feu, BaseRarity = Rarity.Legendaire,
+                    Name = "Dracaelith", Element = Element.Feu, Type = MonsterType.Guerrier, BaseRarity = Rarity.Legendaire,
                     Habitat = "Donjon du Dragon", Lore = "Descendant présumé des dragons ancestraux.",
                     BaseStats = new StatBlock(60, 24, 20, 14, 18, 16),
                 },

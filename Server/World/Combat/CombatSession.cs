@@ -14,6 +14,9 @@ public sealed class CombatSession
     /// <summary>Vrai pour un match d'arène classée (2+ joueurs par équipe, voir <c>ArenaQueueService</c>) — change le calcul de fin de combat (ELO par équipe plutôt que le défi 1v1 direct).</summary>
     public bool IsArenaMatch { get; init; }
 
+    /// <summary>Vrai pour un combat déclenché dans un donjon (voir GDD/demande utilisateur — "on ne peut pas fuir un combat en donjon, on peut en dehors") : bloque <see cref="Aetheria.Shared.Enums.CombatActionType.Flee"/>.</summary>
+    public bool IsDungeonCombat { get; init; }
+
     /// <summary>Compte propriétaire de chaque équipe jouable (les monstres sauvages, contrôlés par l'IA, n'y figurent pas).</summary>
     public Dictionary<int, Guid> TeamOwnerUserId { get; init; } = [];
 

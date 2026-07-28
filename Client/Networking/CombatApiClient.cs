@@ -28,11 +28,11 @@ public sealed class CombatApiClient : IDisposable
 
     private readonly HttpClient _http;
 
-    public CombatApiClient(string host)
+    public CombatApiClient(string apiBaseUrl)
     {
         _http = new HttpClient
         {
-            BaseAddress = new Uri($"http://{host}:{GameInfo.DefaultAccountApiPort}"),
+            BaseAddress = new Uri(apiBaseUrl),
             Timeout = TimeSpan.FromSeconds(10),
         };
     }

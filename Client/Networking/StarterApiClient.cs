@@ -29,11 +29,11 @@ public sealed class StarterApiClient : IDisposable
 
     private readonly HttpClient _http;
 
-    public StarterApiClient(string host)
+    public StarterApiClient(string apiBaseUrl)
     {
         _http = new HttpClient
         {
-            BaseAddress = new Uri($"http://{host}:{GameInfo.DefaultAccountApiPort}"),
+            BaseAddress = new Uri(apiBaseUrl),
             Timeout = TimeSpan.FromSeconds(10),
         };
     }

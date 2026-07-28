@@ -27,6 +27,21 @@ public sealed class GameSettings
     /// </summary>
     public string ServerHost { get; set; } = "localhost";
 
+    /// <summary>
+    /// Base URL complète (avec schéma, ex. "https://xxxx.ngrok-free.dev") pour l'API de compte
+    /// (port 7778), à utiliser à la place de <c>http://{ServerHost}:7778</c> quand elle est
+    /// renseignée — voir GDD/demande utilisateur : "pour se connecter le port ip etc sera
+    /// prérempli et utilise ngrok". <see cref="ServerHost"/> reste utilisé tel quel pour la
+    /// connexion TCP de jeu (port 7777, redirection de ports classique côté routeur — les
+    /// tunnels ngrok TCP exigent une carte bancaire vérifiée sur le compte, non activée ici).
+    /// Vide par défaut : aucun changement de comportement tant que ce champ n'est pas renseigné.
+    /// </summary>
+    public string? AccountApiBaseUrl { get; set; }
+
+    /// <summary>Résout l'adresse effective de l'API de compte (voir <see cref="AccountApiBaseUrl"/>).</summary>
+    public string ResolveAccountApiBaseUrl(int defaultPort) =>
+        string.IsNullOrWhiteSpace(AccountApiBaseUrl) ? $"http://{ServerHost}:{defaultPort}" : AccountApiBaseUrl.TrimEnd('/');
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Aetheria", "settings.json");
 

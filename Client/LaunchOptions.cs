@@ -7,14 +7,19 @@ namespace Aetheria.Client;
 /// Sans <see cref="SessionToken"/>, le Client tourne en mode démo hors-ligne (utile pour
 /// développer le moteur sans lancer le Launcher/Server).
 /// </summary>
-public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, string Host, int Port)
+public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, string Host, int Port, string? ApiBaseUrl)
 {
+    /// <summary>Base URL effective de l'API de compte : <see cref="ApiBaseUrl"/> (ex. tunnel ngrok) si renseigné, sinon <c>http://{Host}:{apiPort}</c>.</summary>
+    public string ResolveApiBaseUrl(int apiPort) =>
+        string.IsNullOrWhiteSpace(ApiBaseUrl) ? $"http://{Host}:{apiPort}" : ApiBaseUrl.TrimEnd('/');
+
     public static LaunchOptions Parse(string[] args)
     {
         string? token = null;
         Guid? characterId = null;
         var host = "localhost";
         var port = GameInfo.DefaultGamePort;
+        string? apiBaseUrl = null;
 
         foreach (var arg in args)
         {
@@ -38,9 +43,12 @@ public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, stri
                 case "--port":
                     port = int.Parse(parts[1]);
                     break;
+                case "--apiUrl":
+                    apiBaseUrl = parts[1].Trim('"');
+                    break;
             }
         }
 
-        return new LaunchOptions(token, characterId, host, port);
+        return new LaunchOptions(token, characterId, host, port, apiBaseUrl);
     }
 }
