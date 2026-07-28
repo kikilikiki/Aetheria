@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Net.Http;
+using System.Net.Http.Json;
 using Aetheria.Launcher.Models;
 using Aetheria.Launcher.Services;
 using Aetheria.Shared;
@@ -48,6 +49,17 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private string _serverStatusText = "Vérification du serveur...";
+
+    /// <summary>Vrai si le serveur tourne une version différente de ce Launcher (voir GDD/demande utilisateur — afficher "Mettre à jour" à la place de "Jouer").</summary>
+    [ObservableProperty]
+    private bool _isUpdateAvailable;
+
+    [ObservableProperty]
+    private string? _serverVersion;
+
+    /// <summary>Le gros bouton du bas est soit JOUER, soit METTRE À JOUR — jamais les deux (voir GDD).</summary>
+    public bool ShowPlayButton => IsLoggedIn && !IsUpdateAvailable;
+    public bool ShowUpdateButton => IsLoggedIn && IsUpdateAvailable;
 
     [ObservableProperty]
     private bool _isSettingsOpen;
@@ -206,15 +218,33 @@ public sealed partial class MainViewModel : ObservableObject
             var response = await http.GetAsync($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}/api/health");
             IsServerOnline = response.IsSuccessStatusCode;
             ServerStatusText = IsServerOnline ? "Serveur en ligne" : "Serveur hors ligne";
+
+            if (IsServerOnline)
+            {
+                // Voir GDD/demande utilisateur — bloquer "Jouer" (afficher "Mettre à jour" à la
+                // place) si le serveur tourne une version différente de ce Launcher. Pas de vrai
+                // mécanisme de téléchargement/mise à jour automatique pour cette version (voir
+                // Docs/README.md) : juste la détection et le blocage, l'utilisateur doit
+                // retélécharger le Launcher manuellement.
+                var health = await response.Content.ReadFromJsonAsync<HealthResponse>();
+                ServerVersion = health?.Version;
+                IsUpdateAvailable = ServerVersion is { Length: > 0 } && ServerVersion != GameInfo.Version;
+            }
+            else
+            {
+                IsUpdateAvailable = false;
+            }
         }
         catch (HttpRequestException)
         {
             IsServerOnline = false;
+            IsUpdateAvailable = false;
             ServerStatusText = "Serveur hors ligne";
         }
         catch (TaskCanceledException)
         {
             IsServerOnline = false;
+            IsUpdateAvailable = false;
             ServerStatusText = "Serveur hors ligne";
         }
     }
@@ -298,7 +328,7 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = null;
     }
 
-    private bool CanPlay() => SessionToken is not null;
+    private bool CanPlay() => SessionToken is not null && !IsUpdateAvailable;
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
     private void Play()
@@ -315,4 +345,24 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     partial void OnSessionTokenChanged(string? value) => PlayCommand.NotifyCanExecuteChanged();
+
+    /// <summary>Revérifie si le Launcher peut jouer dès que la disponibilité d'une mise à jour change (voir GDD — bloquer "Jouer" tant qu'une mise à jour est disponible).</summary>
+    partial void OnIsUpdateAvailableChanged(bool value)
+    {
+        PlayCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(ShowPlayButton));
+        OnPropertyChanged(nameof(ShowUpdateButton));
+    }
+
+    partial void OnIsLoggedInChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowPlayButton));
+        OnPropertyChanged(nameof(ShowUpdateButton));
+    }
+
+    private sealed class HealthResponse
+    {
+        public string? Status { get; init; }
+        public string? Version { get; init; }
+    }
 }

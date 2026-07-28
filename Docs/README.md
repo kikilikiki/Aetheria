@@ -569,6 +569,17 @@ de gameplay.
     manuelle hors de portée du code — le serveur écoute déjà sur `0.0.0.0` (toutes les
     interfaces), donc aucune configuration serveur supplémentaire n'est nécessaire au-delà de
     cette redirection.
+16. ✅ Détection de mise à jour dans le Launcher (voir GDD/demande utilisateur — "affiche dans le
+    launcher quand il y a une mise à jour au lieu du bouton jouer, pour que la personne le fasse
+    puis aille jouer") : le ping `/api/health` existant (`{status, version}`, déjà exposé par le
+    serveur) est maintenant lu côté Launcher — si `GameInfo.Version` du serveur diffère de celui
+    compilé dans ce Launcher, le bouton JOUER est remplacé par un bouton METTRE À JOUR désactivé
+    (`ShowPlayButton`/`ShowUpdateButton`, `CanPlay` bloque aussi la commande) plutôt que de
+    laisser jouer un client potentiellement incompatible avec le serveur. **Limite assumée,
+    documentée honnêtement** : pas de vrai mécanisme de téléchargement/mise à jour automatique
+    (il n'existe toujours pas de serveur de distribution de contenu, voir point 5 plus haut) — le
+    bouton informe seulement qu'une nouvelle version tourne côté serveur et invite à
+    retélécharger le Launcher manuellement, il ne fait rien d'automatique.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
