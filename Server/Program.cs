@@ -646,6 +646,24 @@ app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomI
     }
 });
 
+// Salle Coffre (voir GDD — exploration en couloir linéaire, "loot au fil du chemin").
+app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/loot-chest",
+    async (int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var roomService = new DungeonRoomService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        var goldGained = await roomService.OpenChestAsync(dungeonId, floorNumber, roomIndex, request);
+        return Results.Ok(new { goldGained });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 app.MapGet("/api/combat/{combatId:guid}", async (Guid combatId) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
