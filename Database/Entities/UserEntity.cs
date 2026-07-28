@@ -15,5 +15,15 @@ public sealed class UserEntity
     public bool IsBanned { get; set; }
     public string? BanReason { get; set; }
 
+    /// <summary>Compte administrateur (voir AdminPanel) — peut supprimer/modifier les comptes joueurs.</summary>
+    public bool IsAdmin { get; set; }
+
+    /// <summary>
+    /// Suppression douce : le compte est masqué (connexion refusée) mais conservé en base pour
+    /// permettre une restauration réelle par un administrateur (voir <c>Docs/GameDesign.md</c> —
+    /// "restaurer un compte").
+    /// </summary>
+    public bool IsDeleted { get; set; }
+
     public List<CharacterEntity> Characters { get; set; } = new();
 }

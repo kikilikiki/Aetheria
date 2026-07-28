@@ -3,15 +3,29 @@ build/
 bin/
 obj/
 
-# Visual Studio / Rider
+# Visual Studio / Rider / VS Code
 .vs/
 .idea/
+.vscode/
 *.user
 *.suo
+
+# Résultats de tests / crash dumps
+TestResults/
+*.log
+*.dmp
 
 # Fichiers de publication
 publish/
 *.pubxml.user
+
+# Paquet d'installation : seul le zip final est versionné (voir Sites/README.md), pas les
+# fichiers extraits/loose qui servent uniquement à le reconstruire.
+Sites/downloads/Payload/
+Sites/downloads/AetheriaInstaller.*
+Sites/downloads/Aetheria.Shared.dll
+Sites/downloads/Aetheria.Shared.pdb
+Sites/downloads/CommunityToolkit.Mvvm.dll
 
 # Base de données locale / secrets
 *.db

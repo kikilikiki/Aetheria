@@ -226,3 +226,34 @@ Créer un MMORPG complet où chaque joueur peut explorer, capturer, combattre, f
 commercer, rejoindre une guilde, participer aux guerres, compléter son bestiaire, obtenir des
 succès, laisser son nom dans les classements. Aetheria doit être un monde vivant avec une
 progression permanente.
+
+## Addendum (2026-07-28) — précisions apportées par le porteur de projet
+
+Ces points précisent/étendent les sections ci-dessus suite à des échanges ultérieurs ; en cas de
+divergence, cet addendum fait foi sur les sections précédentes.
+
+- **Création de personnage** : entièrement en jeu (pas dans le Launcher), scène animée avec
+  caméra dynamique, personnalisation (visage, cheveux, couleurs, vêtements, accessoires),
+  aperçu temps réel.
+- **Visibilité globale** : tous les joueurs connectés sont visibles en temps réel dans le monde
+  ouvert, pas seulement les membres du groupe.
+- **Groupe (party)** : jusqu'à 4 joueurs, XP partagée entre tous les membres.
+- **Butin de groupe** : 4 objets générés par combat/donjon, les joueurs cliquent pour réclamer ;
+  en cas de choix identique entre plusieurs joueurs, attribution aléatoire parmi eux.
+- **UI en jeu** : boutons Inventaire, Guilde, Boutique (Shop), Party — accessibles à tout moment.
+- **Donjons dynamiques** : apparition aléatoire sur la carte, rotation toutes les heures
+  (disparition/réapparition ailleurs). Exploration en couloir (ligne droite + embranchements),
+  pas en monde ouvert libre.
+- **Monstres sauvages hors donjon** : niveau calé sur le chef de groupe (pas la moyenne du groupe).
+- **Villes** : plusieurs villes distinctes par royaume/emplacement (identité visuelle liée au
+  lieu, pas au joueur), bâtiments visitables avec PNJ + meubles/décorations.
+- **PvP Arènes classées** (nouveau) : matchmaking instancié, répartition des unités contrôlées
+  selon la taille d'équipe — 1v1 : 1 joueur contrôle 4 unités ; 2v2 : 2 unités chacun ;
+  3v3 : asymétrique (un joueur 2 unités, les deux autres 1 unité chacun) ; 4v4 : 1 unité chacun.
+  Classement en ligues (Bronze/Argent/Or/...) basé sur un score ELO. Récompenses : titres,
+  cosmétiques, monnaie spéciale PvP.
+- **Guerre de royaumes** : sièges/escarmouches hebdomadaires pour mines/villages/forts/donjons
+  rares ; le royaume contrôlant un territoire donne des bonus passifs à ses citoyens (récolte,
+  créatures exclusives, taxes HDV locales).
+- **PvP sauvage** : zones à risque hors des arènes instanciées, ressources/monstres rares,
+  système de réputation/grade militaire pour les joueurs qui y combattent pour leur royaume.

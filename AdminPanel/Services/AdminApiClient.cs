@@ -1,6 +1,8 @@
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Aetheria.Shared;
+using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
 
 namespace Aetheria.AdminPanel.Services;
@@ -60,6 +62,42 @@ public sealed class AdminApiClient : IDisposable
     public async Task<ApiResult<bool>> UnbanAsync(Guid userId)
         => await PostAsync<object?>($"/api/admin/users/{userId}/unban", null);
 
+    public async Task<ApiResult<LoginResponse>> LoginAsync(string usernameOrEmail, string password)
+    {
+        try
+        {
+            var response = await _http.PostAsJsonAsync("/api/account/login",
+                new LoginRequest { UsernameOrEmail = usernameOrEmail, Password = password });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiError>();
+                return ApiResult<LoginResponse>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
+            return ApiResult<LoginResponse>.Success(body!);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ApiResult<LoginResponse>.Failure($"Impossible de contacter le serveur : {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResult<bool>> DeleteUserAsync(Guid userId, string sessionToken)
+        => await PostAsync($"/api/admin/users/{userId}/delete", new AdminSessionRequest { SessionToken = sessionToken });
+
+    public async Task<ApiResult<bool>> RestoreUserAsync(Guid userId, string sessionToken)
+        => await PostAsync($"/api/admin/users/{userId}/restore", new AdminSessionRequest { SessionToken = sessionToken });
+
+    public async Task<ApiResult<bool>> ModifyUserAsync(Guid userId, string sessionToken, string? newUsername, string? newEmail)
+        => await PostAsync($"/api/admin/users/{userId}/modify",
+            new AdminModifyUserRequest { SessionToken = sessionToken, NewUsername = newUsername, NewEmail = newEmail });
+
+    public async Task<ApiResult<bool>> SetAdminAsync(Guid userId, string sessionToken, bool isAdmin)
+        => await PostAsync($"/api/admin/users/{userId}/set-admin",
+            new AdminSetPermissionRequest { SessionToken = sessionToken, IsAdmin = isAdmin });
+
     private async Task<ApiResult<bool>> PostAsync<T>(string url, T body)
     {
         try
@@ -68,9 +106,13 @@ public sealed class AdminApiClient : IDisposable
                 ? await _http.PostAsync(url, null)
                 : await _http.PostAsJsonAsync(url, body);
 
-            return response.IsSuccessStatusCode
-                ? ApiResult<bool>.Success(true)
-                : ApiResult<bool>.Failure($"Erreur serveur ({(int)response.StatusCode}).");
+            if (response.IsSuccessStatusCode)
+            {
+                return ApiResult<bool>.Success(true);
+            }
+
+            var error = await response.Content.ReadFromJsonAsync<ApiError>();
+            return ApiResult<bool>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
         }
         catch (HttpRequestException ex)
         {

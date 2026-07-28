@@ -14,6 +14,11 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
 {
     public async Task<Guid> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
     {
+        if (!IsValidEmail(request.Email))
+        {
+            throw new AccountOperationException("L'email doit être au format exemple@domaine.com.");
+        }
+
         var usernameTaken = await db.Users.AnyAsync(u => u.Username == request.Username, ct);
         if (usernameTaken)
         {
@@ -52,6 +57,11 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
             throw new AccountOperationException("Identifiants invalides.");
         }
 
+        if (user.IsDeleted)
+        {
+            throw new AccountOperationException("Ce compte a été supprimé.");
+        }
+
         if (user.IsBanned)
         {
             throw new AccountOperationException($"Compte banni : {user.BanReason ?? "aucune raison fournie"}.");
@@ -64,8 +74,31 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
             SessionToken = token,
             UserId = user.Id,
             Characters = user.Characters
-                .Select(c => new CharacterSummary { Id = c.Id, Name = c.Name, Level = c.Level })
+                .Select(c => new CharacterSummary
+                {
+                    Id = c.Id,
+                    Name = c.Name,
+                    Level = c.Level,
+                    SkinColorIndex = c.SkinColorIndex,
+                    HairStyleIndex = c.HairStyleIndex,
+                    HairColorIndex = c.HairColorIndex,
+                    ClothesColorIndex = c.ClothesColorIndex,
+                    AccessoryIndex = c.AccessoryIndex,
+                })
                 .ToList(),
         };
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        try
+        {
+            var address = new System.Net.Mail.MailAddress(email);
+            return address.Address == email && email.Contains('@');
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 }

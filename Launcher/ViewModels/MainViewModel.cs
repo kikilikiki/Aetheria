@@ -1,17 +1,16 @@
-using System.Collections.ObjectModel;
+using System.Net.Http;
 using Aetheria.Launcher.Services;
 using Aetheria.Shared;
-using Aetheria.Shared.Enums;
-using Aetheria.Shared.Models.Account;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace Aetheria.Launcher.ViewModels;
 
 /// <summary>
-/// État et logique de l'écran unique du Launcher : formulaire de connexion/inscription,
-/// puis sélection du personnage et lancement du Client (voir <c>Docs/GameDesign.md</c> —
-/// section Launcher).
+/// État et logique de l'écran unique du Launcher : formulaire de connexion/inscription, puis
+/// lancement du Client (voir <c>Docs/GameDesign.md</c> — section Launcher). La sélection et la
+/// création de personnage se font désormais EN JEU (voir Client/Program.cs — SceneMode.CharacterSelect
+/// / CharacterCreate), pas ici : le Launcher se contente de fournir un jeton de session au Client.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
@@ -42,26 +41,64 @@ public sealed partial class MainViewModel : ObservableObject
     private string? _sessionToken;
 
     [ObservableProperty]
-    private CharacterSummary? _selectedCharacter;
+    private bool _isServerOnline;
 
     [ObservableProperty]
-    private string _newCharacterName = string.Empty;
+    private string _serverStatusText = "Vérification du serveur...";
 
-    [ObservableProperty]
-    private CharacterClass _selectedClass = CharacterClass.Guerrier;
+    public MainViewModel()
+    {
+        _ = CheckServerStatusAsync();
+    }
 
-    [ObservableProperty]
-    private KingdomType _selectedKingdom = KingdomType.Feu;
+    /// <summary>
+    /// Ping léger de /api/health pour le petit indicateur "Serveur en ligne/hors ligne" façon
+    /// launcher Ankama — pas de retry ni de polling périodique dans cette première version,
+    /// juste un état constaté au lancement (voir Docs/README.md).
+    /// </summary>
+    private async Task CheckServerStatusAsync()
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+            var response = await http.GetAsync($"http://localhost:{GameInfo.DefaultAccountApiPort}/api/health");
+            IsServerOnline = response.IsSuccessStatusCode;
+            ServerStatusText = IsServerOnline ? "Serveur en ligne" : "Serveur hors ligne";
+        }
+        catch (HttpRequestException)
+        {
+            IsServerOnline = false;
+            ServerStatusText = "Serveur hors ligne";
+        }
+        catch (TaskCanceledException)
+        {
+            IsServerOnline = false;
+            ServerStatusText = "Serveur hors ligne";
+        }
+    }
 
-    public ObservableCollection<CharacterSummary> Characters { get; } = new();
-
-    public IReadOnlyList<CharacterClass> AvailableClasses { get; } = Enum.GetValues<CharacterClass>();
-
-    public IReadOnlyList<KingdomType> AvailableKingdoms { get; } = Enum.GetValues<KingdomType>();
+    private static bool IsValidEmail(string email)
+    {
+        try
+        {
+            var address = new System.Net.Mail.MailAddress(email);
+            return address.Address == email && email.Contains('@');
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
 
     [RelayCommand]
     private async Task Register()
     {
+        if (!IsValidEmail(Email))
+        {
+            StatusMessage = "L'email doit être au format exemple@domaine.com.";
+            return;
+        }
+
         IsBusy = true;
         StatusMessage = null;
         try
@@ -91,19 +128,9 @@ public sealed partial class MainViewModel : ObservableObject
                 return;
             }
 
-            var response = result.Value!;
-            SessionToken = response.SessionToken;
-            Characters.Clear();
-            foreach (var character in response.Characters)
-            {
-                Characters.Add(character);
-            }
-
-            SelectedCharacter = Characters.FirstOrDefault();
+            SessionToken = result.Value!.SessionToken;
             IsLoggedIn = true;
-            StatusMessage = Characters.Count == 0
-                ? "Connecté. Créez votre premier personnage ci-dessous."
-                : null;
+            StatusMessage = null;
         }
         finally
         {
@@ -116,66 +143,25 @@ public sealed partial class MainViewModel : ObservableObject
     {
         IsLoggedIn = false;
         SessionToken = null;
-        Characters.Clear();
-        SelectedCharacter = null;
         Password = string.Empty;
         StatusMessage = null;
     }
 
-    private bool CanCreateCharacter() => SessionToken is not null && NewCharacterName.Trim().Length >= 3;
+    private bool CanPlay() => SessionToken is not null;
 
-    [RelayCommand(CanExecute = nameof(CanCreateCharacter))]
-    private async Task CreateCharacter()
+    [RelayCommand(CanExecute = nameof(CanPlay))]
+    private void Play()
     {
         if (SessionToken is null)
         {
             return;
         }
 
-        IsBusy = true;
-        StatusMessage = null;
-        try
-        {
-            var result = await _accountApi.CreateCharacterAsync(SessionToken, NewCharacterName.Trim(), SelectedClass, SelectedKingdom);
-            if (!result.IsSuccess)
-            {
-                StatusMessage = result.Error;
-                return;
-            }
-
-            Characters.Add(result.Value!);
-            SelectedCharacter = result.Value;
-            NewCharacterName = string.Empty;
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    partial void OnNewCharacterNameChanged(string value) => CreateCharacterCommand.NotifyCanExecuteChanged();
-
-    private bool CanPlay() => SelectedCharacter is not null && SessionToken is not null;
-
-    [RelayCommand(CanExecute = nameof(CanPlay))]
-    private void Play()
-    {
-        if (SessionToken is null || SelectedCharacter is null)
-        {
-            return;
-        }
-
-        if (!ClientLauncher.TryLaunch(SessionToken, SelectedCharacter.Id, out var error))
+        if (!ClientLauncher.TryLaunch(SessionToken, out var error))
         {
             StatusMessage = error;
         }
     }
 
-    partial void OnSelectedCharacterChanged(CharacterSummary? value) => PlayCommand.NotifyCanExecuteChanged();
-
-    partial void OnSessionTokenChanged(string? value)
-    {
-        PlayCommand.NotifyCanExecuteChanged();
-        CreateCharacterCommand.NotifyCanExecuteChanged();
-    }
+    partial void OnSessionTokenChanged(string? value) => PlayCommand.NotifyCanExecuteChanged();
 }

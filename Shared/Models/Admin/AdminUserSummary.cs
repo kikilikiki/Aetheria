@@ -8,6 +8,8 @@ public sealed class AdminUserSummary
     public required string Email { get; init; }
     public required bool IsBanned { get; init; }
     public string? BanReason { get; init; }
+    public required bool IsAdmin { get; init; }
+    public required bool IsDeleted { get; init; }
     public required DateTime CreatedAtUtc { get; init; }
     public required int CharacterCount { get; init; }
 }

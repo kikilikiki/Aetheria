@@ -78,6 +78,7 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     }
 
     await DatabaseSeeder.SeedAsync(db);
+    await AdminAccountSeeder.SeedAsync(db);
     await MonsterCatalogSeeder.SeedAsync(db);
     await DungeonSeeder.SeedAsync(db);
     await ProfessionCatalogSeeder.SeedAsync(db);
@@ -112,6 +113,24 @@ app.MapPost("/api/account/login", async (LoginRequest request) =>
     {
         var response = await accountService.LoginAsync(request);
         return Results.Ok(response);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+});
+
+// Liste des personnages du compte authentifié — utilisé par le Client pour l'écran de
+// sélection/création en jeu (voir GDD : la création ne se fait plus dans le Launcher).
+app.MapGet("/api/characters/mine", async (string sessionToken) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var characterService = new CharacterService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        var characters = await characterService.GetMineAsync(sessionToken);
+        return Results.Ok(characters);
     }
     catch (AccountOperationException ex)
     {
@@ -211,6 +230,43 @@ app.MapPost("/api/monsters/capture", async (CaptureAttemptRequest request) =>
     try
     {
         var result = await captureService.AttemptCaptureAsync(request);
+        return Results.Ok(result);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Espèces communes proposées comme premier compagnon (voir GDD — scène d'introduction du
+// starter). Filtré côté serveur pour que le client n'ait pas à connaître la règle de rareté.
+app.MapGet("/api/monsters/species/starters", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var species = await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun).OrderBy(s => s.Id).ToListAsync();
+    return Results.Ok(species.Select(ToSpeciesData));
+});
+
+app.MapGet("/api/characters/{id:guid}/monsters", async (Guid id) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var monsters = await db.Monsters.Where(m => m.OwnerCharacterId == id).ToListAsync();
+    return Results.Ok(monsters.Select(ToMonsterInstanceData));
+});
+
+app.MapPost("/api/characters/{id:guid}/starter", async (Guid id, StarterChoiceRequest request) =>
+{
+    if (id != request.CharacterId)
+    {
+        return Results.BadRequest(new ApiError { Message = "Identifiant de personnage incohérent." });
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var starterService = new StarterService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        var result = await starterService.ChooseStarterAsync(request);
         return Results.Ok(result);
     }
     catch (AccountOperationException ex)
@@ -552,9 +608,122 @@ app.MapGet("/api/admin/users", async (string? search) =>
         Email = u.Email,
         IsBanned = u.IsBanned,
         BanReason = u.BanReason,
+        IsAdmin = u.IsAdmin,
+        IsDeleted = u.IsDeleted,
         CreatedAtUtc = u.CreatedAtUtc,
         CharacterCount = u.Characters.Count,
     }));
+});
+
+// Suppression/restauration/modification/permissions de compte : actions destructives, réservées
+// aux comptes IsAdmin (voir AdminAuthService) — contrairement au ban/unban ci-dessus qui datent
+// d'avant l'ajout du rôle admin et restent ouverts (voir Docs/README.md pour cette incohérence
+// assumée). Suppression en "soft delete" (IsDeleted) plutôt qu'un retrait réel de la ligne, pour
+// permettre une restauration (voir GDD — "restaurer un compte").
+app.MapPost("/api/admin/users/{userId:guid}/delete", async (Guid userId, AdminSessionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    if (user.IsAdmin)
+    {
+        return Results.Conflict(new ApiError { Message = "Impossible de supprimer un compte administrateur." });
+    }
+
+    user.IsDeleted = true;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+app.MapPost("/api/admin/users/{userId:guid}/restore", async (Guid userId, AdminSessionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    user.IsDeleted = false;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+app.MapPost("/api/admin/users/{userId:guid}/set-admin", async (Guid userId, AdminSetPermissionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    user.IsAdmin = request.IsAdmin;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+app.MapPost("/api/admin/users/{userId:guid}/modify", async (Guid userId, AdminModifyUserRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    if (!string.IsNullOrWhiteSpace(request.NewUsername))
+    {
+        user.Username = request.NewUsername.Trim();
+    }
+
+    if (!string.IsNullOrWhiteSpace(request.NewEmail))
+    {
+        user.Email = request.NewEmail.Trim();
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok();
 });
 
 app.MapPost("/api/admin/users/{userId:guid}/ban", async (Guid userId, BanUserRequest request) =>
@@ -639,6 +808,21 @@ static MonsterSpeciesData ToSpeciesData(MonsterSpeciesEntity entity) => new()
     BaseStats = entity.BaseStats,
     EvolvesIntoSpeciesId = entity.EvolvesIntoSpeciesId,
     EvolutionLevel = entity.EvolutionLevel,
+};
+
+static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity) => new()
+{
+    Id = entity.Id,
+    SpeciesId = entity.SpeciesId,
+    OwnerCharacterId = entity.OwnerCharacterId,
+    Variant = entity.Variant,
+    Nickname = entity.Nickname,
+    Level = entity.Level,
+    Experience = entity.Experience,
+    Personality = entity.Personality,
+    PassiveTalent = entity.PassiveTalent,
+    IsInActiveTeam = entity.IsInActiveTeam,
+    CapturedAtUtc = entity.CapturedAtUtc,
 };
 
 static DungeonData ToDungeonData(DungeonEntity entity) => new()
