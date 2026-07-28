@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
+using Aetheria.Server.Discord;
 using Aetheria.Server.Networking;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World;
@@ -22,6 +23,8 @@ using Microsoft.Extensions.Logging;
 
 Console.OutputEncoding = Encoding.UTF8;
 
+DotEnv.LoadIfPresent();
+
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = Environment.GetEnvironmentVariable("AETHERIA_DB_CONNECTION");
@@ -41,6 +44,7 @@ builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 
 builder.Services.AddSingleton<SessionTokenStore>();
 builder.Services.AddSingleton<CombatSessionStore>();
+builder.Services.AddSingleton<DiscordAnnouncer>();
 builder.WebHost.UseUrls($"http://0.0.0.0:{GameInfo.DefaultAccountApiPort}");
 
 // Enums échangés en toutes lettres ("Guerrier", "Feu", ...) plutôt qu'en entiers opaques :
@@ -817,6 +821,25 @@ app.MapPost("/api/admin/users/{userId:guid}/unban", async (Guid userId) =>
     user.BanReason = null;
     await db.SaveChangesAsync();
     return Results.Ok();
+});
+
+// Annonce de mise à jour dans le salon Discord du projet (voir DiscordAnnouncer). Réservé aux
+// comptes IsAdmin comme les autres actions sensibles ci-dessus.
+app.MapPost("/api/admin/discord/announce", async (DiscordAnnounceRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var announcer = app.Services.GetRequiredService<DiscordAnnouncer>();
+    var posted = await announcer.PostUpdateAsync(request.Title, request.Description, request.Changes);
+    return Results.Ok(new { posted });
 });
 
 app.MapGet("/api/admin/stats", async () =>

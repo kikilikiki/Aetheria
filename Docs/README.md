@@ -289,6 +289,20 @@ de gameplay.
      `AetheriaInstaller.exe` relancé depuis l'extraction (le paquet fonctionne réellement).
      Limite assumée : paquet reconstruit et commité manuellement, pas de CI de publication ;
      build "framework-dependent" (nécessite le runtime .NET 10 Desktop sur la machine cible).
+   - ✅ Annonces Discord (`Server/Discord/DiscordAnnouncer.cs`,
+     `POST /api/admin/discord/announce`) : poste un embed dans un salon Discord fixe à chaque
+     mise à jour notable, via l'API REST des bots (`Authorization: Bot <token>`) plutôt qu'une
+     connexion gateway complète — pas besoin de recevoir d'évènements Discord pour de simples
+     annonces sortantes. "Hébergé" par le processus `Aetheria.Server` existant : pas de bot
+     séparé à faire tourner. Le jeton (`DISCORD_BOT_TOKEN`) et l'identifiant de salon optionnel
+     (`DISCORD_ANNOUNCE_CHANNEL_ID`) se configurent via un fichier `.env` à la racine (voir
+     `.env.exemple` — copier en `.env`, jamais commité), chargé par `DotEnv.LoadIfPresent()` au
+     démarrage. Réservé aux comptes admin (`AdminAuthService`, comme les autres actions
+     sensibles). `Tools/discord-announce.ps1` automatise l'appel (connexion admin + annonce) en
+     une seule commande. **Non vérifié de bout en bout avec un vrai jeton/salon Discord** (aucun
+     jeton disponible dans cet environnement de développement) — seule la sérialisation de la
+     requête et la compilation ont été vérifiées ; sans jeton configuré, l'appel est journalisé
+     et ignoré proprement (`IsConfigured == false`) plutôt que de faire planter le serveur.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une
