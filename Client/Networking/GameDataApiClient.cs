@@ -21,11 +21,11 @@ public sealed class GameDataApiClient : IDisposable
 
     private readonly HttpClient _http;
 
-    public GameDataApiClient(string host)
+    public GameDataApiClient(string apiBaseUrl)
     {
         _http = new HttpClient
         {
-            BaseAddress = new Uri($"http://{host}:{GameInfo.DefaultAccountApiPort}"),
+            BaseAddress = new Uri(apiBaseUrl),
             Timeout = TimeSpan.FromSeconds(10),
         };
     }
@@ -160,6 +160,13 @@ public sealed class GameDataApiClient : IDisposable
     {
         var response = await _http.GetAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}", ct);
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<DungeonFloor>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Aperçu de la créature d'une salle avant de l'affronter (voir GDD/demande utilisateur — "voir les ennemis avant de les combattre"), ou <c>null</c> si la salle ne contient pas de monstre.</summary>
+    public async Task<MonsterSpeciesData?> GetDungeonEncounterPreviewAsync(int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}/rooms/{roomIndex}/encounter-preview", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterSpeciesData>(JsonOptions, ct) : null;
     }
 
     /// <summary>Ouvre une salle Coffre (voir GDD — "loot au fil du chemin") ; retourne l'or gagné, ou <c>null</c> en cas d'échec.</summary>

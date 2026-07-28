@@ -153,6 +153,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
         modelBuilder.Entity<MonsterSpeciesEntity>(species =>
         {
             species.Property(s => s.Element).HasConversion<string>();
+            species.Property(s => s.Type).HasConversion<string>();
             species.Property(s => s.BaseRarity).HasConversion<string>();
         });
 

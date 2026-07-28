@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Server.World.Combat;
 
 /// <summary>
@@ -57,14 +59,129 @@ internal static class CombatEngine
         // MonsterCatalogSeeder), une soustraction complète plafonnait presque tous les coups à 1
         // dégât — un combat contre un monstre de 26-36 PV prenait alors 20-30+ tours. Corrigé
         // suite à un retour utilisateur ("les monstres ont beaucoup trop de vie").
-        var damage = Math.Max(2, actor.Attack - target.Defense / 2);
+        var multiplier = ElementalMultiplier(actor.Element, target.Element);
+        var damage = Math.Max(2, (int)((actor.Attack - target.Defense / 2) * multiplier));
         target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
+        var suffix = ElementalSuffix(multiplier);
         session.LastMessage = target.IsAlive
-            ? $"{actor.Name} inflige {damage} dégâts à {target.Name}."
-            : $"{actor.Name} inflige {damage} dégâts à {target.Name} et le met K.O. !";
+            ? $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix}."
+            : $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix} et le met K.O. !";
 
         CheckEndCondition(session);
     }
+
+    /// <summary>
+    /// Capacité spéciale selon le type du combattant (voir GDD/demande utilisateur — "ajoute des
+    /// capacités spéciales") : Soigneur soigne l'allié le plus affaibli (aucune cible à viser),
+    /// Archer transperce en ignorant la défense (portée +1), Guerrier (et tout autre type)
+    /// déclenche un coup puissant à dégâts majorés. Un seul palier de capacités par type pour
+    /// cette première version — pas d'arbre de compétences ni de coût de ressource dédié.
+    /// </summary>
+    public static void ResolveSpecialAbility(CombatSession session, Combatant actor, int targetX, int targetY)
+    {
+        if (actor.Type == MonsterType.Soigneur)
+        {
+            var lowest = session.Combatants
+                .Where(c => c.IsAlive && c.Team == actor.Team)
+                .OrderBy(c => (float)c.CurrentHealth / c.MaxHealth)
+                .FirstOrDefault();
+
+            if (lowest is null || lowest.CurrentHealth >= lowest.MaxHealth)
+            {
+                session.LastMessage = $"{actor.Name} ne trouve personne à soigner.";
+                return;
+            }
+
+            var healAmount = Math.Max(1, lowest.MaxHealth * 3 / 10);
+            lowest.CurrentHealth = Math.Min(lowest.MaxHealth, lowest.CurrentHealth + healAmount);
+            session.LastMessage = $"{actor.Name} soigne {lowest.Name} de {healAmount} PV.";
+            return;
+        }
+
+        var target = session.Combatants.FirstOrDefault(c => c.IsAlive && c.X == targetX && c.Y == targetY)
+            ?? throw new InvalidOperationException("Aucune cible sur cette case.");
+
+        if (target.Team == actor.Team)
+        {
+            throw new InvalidOperationException("Impossible d'attaquer un allié.");
+        }
+
+        var range = actor.Type == MonsterType.Archer ? actor.AttackRange + 1 : actor.AttackRange;
+        if (Distance(actor.X, actor.Y, targetX, targetY) > range)
+        {
+            throw new InvalidOperationException("Cible hors de portée.");
+        }
+
+        var multiplier = ElementalMultiplier(actor.Element, target.Element);
+        int damage;
+        string verb;
+        if (actor.Type == MonsterType.Archer)
+        {
+            // Tir perçant : ignore entièrement la Défense (contrepartie de la portée +1).
+            damage = Math.Max(2, (int)(actor.Attack * multiplier));
+            verb = "transperce";
+        }
+        else
+        {
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
+            verb = "frappe (coup puissant)";
+        }
+
+        target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
+        var suffix = ElementalSuffix(multiplier);
+        session.LastMessage = target.IsAlive
+            ? $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix}."
+            : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !";
+
+        CheckEndCondition(session);
+    }
+
+    /// <summary>
+    /// Avantages/faiblesses de type (voir GDD/demande utilisateur — "avantage/faiblesse de
+    /// type"), inspirés d'un triangle façon jeu de rôle plutôt que d'un tableau exhaustif :
+    /// chaque élément est fort contre 1-2 autres (dégâts x1.5), et réciproquement faible contre
+    /// l'élément qui le contre (dégâts x0.67). Neutre n'a ni avantage ni faiblesse.
+    /// </summary>
+    private static readonly Dictionary<Element, Element[]> StrongAgainst = new()
+    {
+        [Element.Feu] = [Element.Nature, Element.Glace],
+        [Element.Eau] = [Element.Feu, Element.Terre],
+        [Element.Nature] = [Element.Eau, Element.Terre],
+        [Element.Glace] = [Element.Nature, Element.Air],
+        [Element.Foudre] = [Element.Eau, Element.Air],
+        [Element.Terre] = [Element.Foudre, Element.Feu],
+        [Element.Air] = [Element.Terre, Element.Nature],
+        [Element.Lumiere] = [Element.Ombre],
+        [Element.Ombre] = [Element.Lumiere],
+        [Element.Neutre] = [],
+    };
+
+    private static float ElementalMultiplier(Element attacker, Element defender)
+    {
+        if (attacker == Element.Neutre || defender == Element.Neutre)
+        {
+            return 1f;
+        }
+
+        if (StrongAgainst.TryGetValue(attacker, out var strongList) && strongList.Contains(defender))
+        {
+            return 1.5f;
+        }
+
+        if (StrongAgainst.TryGetValue(defender, out var defenderStrongList) && defenderStrongList.Contains(attacker))
+        {
+            return 0.67f;
+        }
+
+        return 1f;
+    }
+
+    private static string ElementalSuffix(float multiplier) => multiplier switch
+    {
+        > 1f => " (efficace !)",
+        < 1f => " (peu efficace...)",
+        _ => "",
+    };
 
     public static void AdvanceTurn(CombatSession session)
     {
@@ -96,6 +213,15 @@ internal static class CombatEngine
 
     private static void RunAiTurn(CombatSession session, Combatant actor)
     {
+        // IA Soigneur (voir GDD — types de monstres) : priorité à soigner un allié blessé plutôt
+        // qu'attaquer, tant qu'il y en a un — sinon se rabat sur le comportement standard.
+        if (actor.Type == MonsterType.Soigneur
+            && session.Combatants.Any(c => c.IsAlive && c.Team == actor.Team && c.CurrentHealth < c.MaxHealth))
+        {
+            ResolveSpecialAbility(session, actor, actor.X, actor.Y);
+            return;
+        }
+
         var target = session.Combatants.Where(c => c.IsAlive && c.Team != actor.Team)
             .OrderBy(c => Distance(actor.X, actor.Y, c.X, c.Y))
             .FirstOrDefault();
@@ -105,9 +231,27 @@ internal static class CombatEngine
             return;
         }
 
-        if (Distance(actor.X, actor.Y, target.X, target.Y) <= actor.AttackRange)
+        var distance = Distance(actor.X, actor.Y, target.X, target.Y);
+        var specialRange = actor.Type == MonsterType.Archer ? actor.AttackRange + 1 : actor.AttackRange;
+
+        if (distance <= specialRange)
         {
-            ResolveAttack(session, actor, target.X, target.Y);
+            // Hors de la portée d'attaque normale mais dans la portée étendue de l'Archer : la
+            // capacité spéciale est alors la SEULE option valide (ResolveAttack refuserait cette
+            // distance). Sinon, l'IA l'utilise aussi environ un tour sur trois pour ne pas rendre
+            // l'attaque de base totalement obsolète.
+            var mustUseSpecial = distance > actor.AttackRange;
+            var wantsSpecial = actor.Type != MonsterType.Soigneur && Random.Shared.NextDouble() < 0.35;
+
+            if (mustUseSpecial || wantsSpecial)
+            {
+                ResolveSpecialAbility(session, actor, target.X, target.Y);
+            }
+            else
+            {
+                ResolveAttack(session, actor, target.X, target.Y);
+            }
+
             return;
         }
 

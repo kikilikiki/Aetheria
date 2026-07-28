@@ -93,6 +93,13 @@ Task<int?>? dungeonChestTask = null;
 var dungeonChestOpened = false;
 string? dungeonRoomMessage = null;
 
+// Aperçu du monstre d'une salle avant de l'affronter (voir GDD/demande utilisateur — "voir les
+// ennemis avant de les combattre, comme Pokémon Épée") : chargé paresseusement à l'arrivée dans
+// une salle à monstre, indexé par salle pour ne jamais afficher l'aperçu d'une autre salle.
+MonsterSpeciesData? dungeonEncounterPreview = null;
+Task<MonsterSpeciesData?>? dungeonEncounterPreviewTask = null;
+var dungeonEncounterPreviewRoomIndex = -1;
+
 // Combat tactique (voir Server/World/CombatService.cs) : déclenché depuis l'intérieur du
 // donjon (Entrée pour affronter un monstre sauvage) — voir GDD section Combats. Grille 7x7,
 // actions Move/Attack/Pass/Capture, IA gérée côté serveur entre deux tours joueur.
@@ -233,10 +240,14 @@ var isConnectedMode = options.SessionToken is not null;
 
 if (isConnectedMode)
 {
-    starterApi = new StarterApiClient(options.Host);
-    characterApi = new CharacterApiClient(options.Host);
-    gameDataApi = new GameDataApiClient(options.Host);
-    combatApi = new CombatApiClient(options.Host);
+    // Le tunnel ngrok éventuel (voir GDD/demande utilisateur — "utilise ngrok") ne couvre que
+    // l'API HTTP de compte : la connexion TCP de jeu (ConnectAndEnterWorld) continue de cibler
+    // options.Host/options.Port (redirection de ports classique côté routeur).
+    var apiBaseUrl = options.ResolveApiBaseUrl(GameInfo.DefaultAccountApiPort);
+    starterApi = new StarterApiClient(apiBaseUrl);
+    characterApi = new CharacterApiClient(apiBaseUrl);
+    gameDataApi = new GameDataApiClient(apiBaseUrl);
+    combatApi = new CombatApiClient(apiBaseUrl);
 
     if (chosenCharacterId is null)
     {
@@ -597,6 +608,9 @@ host.Update += deltaTime =>
                 dungeonFloor = null;
                 dungeonChestOpened = false;
                 dungeonRoomMessage = null;
+                dungeonEncounterPreview = null;
+                dungeonEncounterPreviewTask = null;
+                dungeonEncounterPreviewRoomIndex = -1;
                 if (worldMap.DungeonId >= 0 && gameDataApi is not null)
                 {
                     dungeonFloorTask = gameDataApi.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
@@ -2104,6 +2118,28 @@ void UpdateDungeonCorridor()
         return;
     }
 
+    if (dungeonEncounterPreviewTask is { IsCompleted: true } previewTask)
+    {
+        dungeonEncounterPreview = previewTask.IsFaulted ? null : previewTask.Result;
+        dungeonEncounterPreviewTask = null;
+    }
+
+    // Charge l'aperçu de la créature dès l'arrivée dans une salle à monstre (voir GDD/demande
+    // utilisateur — "voir les ennemis avant de les combattre, comme Pokémon Épée"), avant même
+    // que le joueur n'appuie sur Entrée pour engager le combat.
+    if (dungeonRoomIndex < dungeonFloor.Rooms.Count)
+    {
+        var currentRoom = dungeonFloor.Rooms[dungeonRoomIndex];
+        var isMonsterRoom = currentRoom.EncounterType is DungeonEncounterType.Monstre or DungeonEncounterType.MiniBoss
+            or DungeonEncounterType.Boss or DungeonEncounterType.BossLegendaire;
+
+        if (isMonsterRoom && dungeonEncounterPreviewRoomIndex != dungeonRoomIndex && dungeonEncounterPreviewTask is null)
+        {
+            dungeonEncounterPreviewRoomIndex = dungeonRoomIndex;
+            dungeonEncounterPreviewTask = gameDataApi!.GetDungeonEncounterPreviewAsync(worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
+        }
+    }
+
     if (keyboard.WasJustPressed(Key.Escape))
     {
         sceneMode = SceneMode.Outdoor;
@@ -2119,6 +2155,9 @@ void UpdateDungeonCorridor()
             dungeonFloor = null;
             dungeonChestOpened = false;
             dungeonRoomMessage = null;
+            dungeonEncounterPreview = null;
+            dungeonEncounterPreviewTask = null;
+            dungeonEncounterPreviewRoomIndex = -1;
             dungeonFloorTask = gameDataApi!.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
         }
 
@@ -2157,6 +2196,9 @@ void AdvanceDungeonRoom()
     dungeonRoomIndex++;
     dungeonChestOpened = false;
     dungeonRoomMessage = null;
+    dungeonEncounterPreview = null;
+    dungeonEncounterPreviewTask = null;
+    dungeonEncounterPreviewRoomIndex = -1;
 }
 
 async Task<CombatResult> StartDungeonRoomCombatAsync(int floorNumber, int roomIndex)
@@ -2262,6 +2304,7 @@ void UpdateCombat()
     if (combatSelectedAction is null)
     {
         var current = combatState.Combatants.First(c => c.Id == combatState.CurrentTurnCombatantId);
+        var isImmediateAbility = current.Type == MonsterType.Soigneur;
 
         if (keyboard.WasJustPressed(Key.Number1))
         {
@@ -2279,11 +2322,34 @@ void UpdateCombat()
         {
             SendCombatAction(CombatActionType.Pass, 0, 0);
         }
-        else if (keyboard.WasJustPressed(Key.Number4) && captureSphereItemId is not null)
+        else if (keyboard.WasJustPressed(Key.Number4))
+        {
+            // Le Soigneur cible automatiquement l'allié le plus affaibli côté serveur (voir
+            // CombatEngine.ResolveSpecialAbility) : pas de visée nécessaire, contrairement aux
+            // autres types dont la capacité s'utilise comme une attaque ciblée.
+            if (isImmediateAbility)
+            {
+                SendCombatAction(CombatActionType.SpecialAbility, 0, 0);
+            }
+            else
+            {
+                combatSelectedAction = CombatActionType.SpecialAbility;
+                combatCursorX = current.PositionX;
+                combatCursorY = current.PositionY;
+            }
+        }
+        else if (keyboard.WasJustPressed(Key.Number5) && captureSphereItemId is not null)
         {
             combatSelectedAction = CombatActionType.Capture;
             combatCursorX = current.PositionX;
             combatCursorY = current.PositionY;
+        }
+        else if (keyboard.WasJustPressed(Key.Number6) && !interiorIsDungeon)
+        {
+            // Fuite (voir GDD/demande utilisateur — "un bouton pour fuir les combats, impossible
+            // en donjon") : le serveur refuse aussi via IsDungeonCombat, cette condition cliente
+            // n'est qu'un confort d'affichage (bouton absent plutôt qu'un refus après coup).
+            SendCombatAction(CombatActionType.Flee, 0, 0);
         }
     }
     else
@@ -3328,6 +3394,19 @@ void DrawDungeonCorridor(int w, int h)
         var room = dungeonFloor.Rooms[dungeonRoomIndex];
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, DungeonRoomFlavor(room.EncounterType, dungeonChestOpened), new Vector2(w / 2f, h * 0.62f), 2.1f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
 
+        // Voir GDD/demande utilisateur — "voir les ennemis avant de les combattre, comme Pokémon
+        // Épée" : portrait + nom + élément affichés avant même d'engager le combat, dès que
+        // l'aperçu (même tirage exact que le combat réel, voir GetDungeonEncounterPreviewAsync)
+        // est chargé pour CETTE salle précise.
+        if (dungeonEncounterPreview is { } preview && dungeonEncounterPreviewRoomIndex == dungeonRoomIndex)
+        {
+            var previewCenter = new Vector2(w / 2f, h * 0.5f);
+            DrawStarterPortrait(previewCenter, 34f, new Vector4(0.95f, 0.25f, 0.25f, 1f));
+            DrawStarterPortrait(previewCenter, 30f, CombatTypeColor(preview.Type));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{preview.Name.ToUpperInvariant()} ({preview.Element})",
+                previewCenter + new Vector2(0, 46f), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        }
+
         if (combatStartTask is not null)
         {
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.82f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
@@ -3336,6 +3415,14 @@ void DrawDungeonCorridor(int w, int h)
         {
             DrawPromptBanner(DungeonRoomPrompt(room.EncounterType, dungeonChestOpened), new Vector2(w / 2f, h * 0.82f));
         }
+    }
+
+    if (combatStartTask is null)
+    {
+        // Voir GDD/demande utilisateur — "ajoute une touche pour quitter le donjon hors des
+        // combats" : Échap le fait déjà (voir UpdateDungeonCorridor) mais ce n'était affiché
+        // nulle part hors de l'écran d'erreur — juste un rappel manquant, pas une touche à ajouter.
+        TextRenderer.Draw(spriteBatch, whiteTexture, "ECHAP : QUITTER LE DONJON", new Vector2(16f, h - 30f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
     }
 
     if (dungeonRoomMessage is not null)
@@ -3442,8 +3529,10 @@ static string DungeonRoomPrompt(DungeonEncounterType type, bool chestOpened) => 
 /// <summary>Cases atteignables par l'action en cours (Déplacement/Attaque) — voir retour utilisateur ("on doit pouvoir voir jusqu'où on peut se déplacer/attaquer").</summary>
 IEnumerable<(int X, int Y)> CombatReachableCells(CombatantState actor, CombatActionType action)
 {
-    var targetsEnemy = action is CombatActionType.Attack or CombatActionType.Capture;
-    var range = targetsEnemy ? actor.AttackRange : actor.MovementRange;
+    var targetsEnemy = action is CombatActionType.Attack or CombatActionType.Capture or CombatActionType.SpecialAbility;
+    var range = targetsEnemy
+        ? (action == CombatActionType.SpecialAbility && actor.Type == MonsterType.Archer ? actor.AttackRange + 1 : actor.AttackRange)
+        : actor.MovementRange;
 
     for (var y = 0; y < combatState!.GridHeight; y++)
     {
@@ -3520,14 +3609,21 @@ void DrawCombat()
         }
 
         var center = new Vector2(originX + combatant.PositionX * cellSize + cellSize / 2f, originY + combatant.PositionY * cellSize + cellSize / 2f);
-        var color = combatant.Team == 0 ? new Vector4(0.35f, 0.55f, 0.85f, 1f) : new Vector4(0.8f, 0.3f, 0.3f, 1f);
 
         if (combatant.Id == combatState.CurrentTurnCombatantId)
         {
             DrawPanel(center - new Vector2(cellSize / 2f - 2, cellSize / 2f - 2), new Vector2(cellSize - 4, cellSize - 4), new Vector4(1f, 1f, 1f, 0.15f));
         }
 
-        DrawStarterPortrait(center, cellSize * 0.32f, color);
+        // Couleur selon le type (voir GDD/demande utilisateur — "les couleurs des personnages
+        // doivent être en fonction de leur type") avec un contour bleu (allié) / rouge (ennemi) —
+        // simulé par un losange légèrement plus grand dessiné juste derrière, DrawStarterPortrait
+        // n'ayant pas de paramètre de contour propre (réutilisé tel quel ailleurs, ex. sélection
+        // du starter, où aucun contour n'est voulu).
+        var typeColor = CombatTypeColor(combatant.Type);
+        var outlineColor = combatant.Team == 0 ? new Vector4(0.3f, 0.55f, 0.95f, 1f) : new Vector4(0.95f, 0.25f, 0.25f, 1f);
+        DrawStarterPortrait(center, cellSize * 0.32f + 4f, outlineColor);
+        DrawStarterPortrait(center, cellSize * 0.32f, typeColor);
 
         var hpRatio = Math.Clamp((float)combatant.CurrentHealth / combatant.MaxHealth, 0f, 1f);
         var barWidth = cellSize * 0.8f;
@@ -3577,22 +3673,34 @@ void DrawCombat()
         {
             if (combatSelectedAction is null)
             {
+                var current = combatState.Combatants.First(c => c.Id == combatState.CurrentTurnCombatantId);
+                var isImmediateAbility = current.Type == MonsterType.Soigneur;
+
                 // Boutons cliquables (voir retour utilisateur — "on doit pouvoir cliquer pour
-                // faire les actions") en plus des raccourcis clavier 1/2/3/4, toujours actifs.
+                // faire les actions") en plus des raccourcis clavier 1-6, toujours actifs.
                 List<(string Label, CombatActionType Action)> actionButtons =
                 [
                     ("1:DEPLACER", CombatActionType.Move),
                     ("2:ATTAQUER", CombatActionType.Attack),
                     ("3:PASSER", CombatActionType.Pass),
+                    ("4:CAPACITE", CombatActionType.SpecialAbility),
                 ];
 
                 if (captureSphereItemId is not null)
                 {
-                    actionButtons.Add(("4:CAPTURER", CombatActionType.Capture));
+                    actionButtons.Add(("5:CAPTURER", CombatActionType.Capture));
+                }
+
+                if (!interiorIsDungeon)
+                {
+                    // Voir GDD/demande utilisateur — "ajoute un bouton pour fuir les combats, on
+                    // ne peut pas en donjon mais en dehors on peut" : absent plutôt que désactivé,
+                    // cohérent avec CombatSession.IsDungeonCombat côté serveur.
+                    actionButtons.Add(("6:FUIR", CombatActionType.Flee));
                 }
 
                 const float buttonPixelSize = 2f;
-                const float buttonGap = 28f;
+                const float buttonGap = 24f;
                 var widths = actionButtons.Select(b => TextRenderer.MeasureWidth(b.Label, buttonPixelSize)).ToList();
                 var totalWidth = widths.Sum() + buttonGap * (actionButtons.Count - 1);
                 var buttonX = w / 2f - totalWidth / 2f;
@@ -3602,13 +3710,16 @@ void DrawCombat()
                     var center = new Vector2(buttonX + widths[i] / 2f, h - 70f);
                     if (DrawClickableCentered(actionButtons[i].Label, center, buttonPixelSize, new Vector4(0.9f, 0.75f, 0.35f, 1f)))
                     {
-                        if (actionButtons[i].Action == CombatActionType.Pass)
+                        var isImmediateAction = actionButtons[i].Action == CombatActionType.Pass
+                            || actionButtons[i].Action == CombatActionType.Flee
+                            || (actionButtons[i].Action == CombatActionType.SpecialAbility && isImmediateAbility);
+
+                        if (isImmediateAction)
                         {
-                            SendCombatAction(CombatActionType.Pass, 0, 0);
+                            SendCombatAction(actionButtons[i].Action, 0, 0);
                         }
                         else
                         {
-                            var current = combatState.Combatants.First(c => c.Id == combatState.CurrentTurnCombatantId);
                             combatSelectedAction = actionButtons[i].Action;
                             combatCursorX = current.PositionX;
                             combatCursorY = current.PositionY;
@@ -3640,6 +3751,14 @@ void DrawCombat()
 }
 
 /// <summary>Liste des 4 objets du butin (voir GDD), navigable au clavier — voir <see cref="UpdateLoot"/>.</summary>
+/// <summary>
+/// Voir retour utilisateur — "le choix de l'objet ne se voit pas bien après un combat" : chaque
+/// objet a désormais sa propre rangée avec fond et bordure de sélection (au lieu d'un simple
+/// préfixe "&gt; " sur du texte), cliquable directement (voir <see cref="DrawClickableCentered"/>
+/// ailleurs dans le fichier pour le même principe), et un badge affiche le nombre de joueurs
+/// l'ayant actuellement choisi (voir GDD/demande utilisateur — "afficher une petite icône pour
+/// dire choisi par un joueur, ajouter en 2 si ils sont 2 ainsi de suite").
+/// </summary>
 void DrawLootClaim(int w, int h)
 {
     if (activeLoot is not { } loot)
@@ -3647,24 +3766,53 @@ void DrawLootClaim(int w, int h)
         return;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BUTIN - CHOISISSEZ UN OBJET", new Vector2(w / 2f, h - 170f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BUTIN - CHOISISSEZ UN OBJET", new Vector2(w / 2f, h - 210f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
 
-    var y = h - 140f;
+    const float rowWidth = 440f;
+    const float rowHeight = 32f;
+    const float rowGap = 8f;
+    var top = h - 180f;
+
     for (var i = 0; i < loot.Items.Count; i++)
     {
         var isSelected = i == lootCursor;
-        var color = isSelected ? new Vector4(0.95f, 0.85f, 0.4f, 1f) : Vector4.One;
-        var prefix = isSelected ? "> " : "  ";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{prefix}{loot.Items[i].Name.ToUpperInvariant()}", new Vector2(w / 2f, y), 2.1f, color);
-        y += 26f;
+        var rowTopLeft = new Vector2(w / 2f - rowWidth / 2f, top + i * (rowHeight + rowGap));
+
+        DrawPanel(rowTopLeft, new Vector2(rowWidth, rowHeight), isSelected ? new Vector4(0.95f, 0.8f, 0.3f, 0.3f) : new Vector4(0.08f, 0.08f, 0.11f, 0.85f));
+        if (isSelected)
+        {
+            DrawPanel(rowTopLeft, new Vector2(4f, rowHeight), new Vector4(0.95f, 0.8f, 0.3f, 1f));
+        }
+
+        var textColor = isSelected ? new Vector4(0.98f, 0.9f, 0.5f, 1f) : Vector4.One;
+        TextRenderer.Draw(spriteBatch, whiteTexture, loot.Items[i].Name.ToUpperInvariant(), rowTopLeft + new Vector2(16f, 8f), 1.9f, textColor);
+
+        if (loot.ClaimCountsByItemIndex.TryGetValue(i, out var claimCount) && claimCount > 0)
+        {
+            var badgeSize = new Vector2(28f, 24f);
+            var badgeTopLeft = rowTopLeft + new Vector2(rowWidth - badgeSize.X - 8f, (rowHeight - badgeSize.Y) / 2f);
+            DrawPanel(badgeTopLeft, badgeSize, new Vector4(0.25f, 0.6f, 0.9f, 0.95f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, claimCount.ToString(), badgeTopLeft + badgeSize / 2f, 1.8f, Vector4.One);
+        }
+
+        if (mouse.WasButtonJustPressed(MouseButton.Left)
+            && mouse.Position.X >= rowTopLeft.X && mouse.Position.X <= rowTopLeft.X + rowWidth
+            && mouse.Position.Y >= rowTopLeft.Y && mouse.Position.Y <= rowTopLeft.Y + rowHeight)
+        {
+            lootCursor = i;
+            lootMessage = null;
+            lootTask = combatApi!.ClaimLootAsync(options.SessionToken!, loot.LootId, chosenCharacterId!.Value, lootCursor);
+        }
     }
 
+    var messageY = top + loot.Items.Count * (rowHeight + rowGap) + 14f;
     if (lootMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, lootMessage, new Vector2(w / 2f, y + 6f), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, lootMessage, new Vector2(w / 2f, messageY), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        messageY += 24f;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES : CHOISIR - ENTREE : RECLAMER", new Vector2(w / 2f, h - 40f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES OU CLIC : CHOISIR - ENTREE : RECLAMER", new Vector2(w / 2f, messageY + 6f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 }
 
 /// <summary>Résultat du tirage de butin, une fois tous les joueurs éligibles passés (voir <see cref="LootRoll"/> côté serveur).</summary>
@@ -3893,6 +4041,15 @@ void DrawCharacterCreate()
             break;
     }
 }
+
+/// <summary>Couleur de remplissage en combat selon le type de monstre (voir GDD/demande utilisateur).</summary>
+static Vector4 CombatTypeColor(MonsterType type) => type switch
+{
+    MonsterType.Guerrier => new Vector4(0.82f, 0.4f, 0.22f, 1f),
+    MonsterType.Archer => new Vector4(0.38f, 0.72f, 0.36f, 1f),
+    MonsterType.Soigneur => new Vector4(0.92f, 0.84f, 0.4f, 1f),
+    _ => new Vector4(0.7f, 0.7f, 0.75f, 1f),
+};
 
 void DrawStarterPortrait(Vector2 center, float radius, Vector4 color)
 {

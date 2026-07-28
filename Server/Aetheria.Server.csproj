@@ -17,6 +17,11 @@
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.4" />
+    <!-- Bases dev/prod fichier (voir Tools/start-server-dev.bat, Tools/start-server-prod.bat) :
+         zéro installation, en attendant un serveur PostgreSQL réel sur la machine hébergeant le
+         serveur (voir GDD/demande utilisateur — "crée une base de donné prod et une base de
+         donné dev"). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.4" />
     <!-- Requis par les outils EF Core (génération de migrations avec ce projet comme projet de
          démarrage) pour découvrir le DbContext au design-time — pas utilisé à l'exécution. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4">

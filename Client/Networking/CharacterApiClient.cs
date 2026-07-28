@@ -24,11 +24,11 @@ public sealed class CharacterApiClient : IDisposable
 
     private readonly HttpClient _http;
 
-    public CharacterApiClient(string host)
+    public CharacterApiClient(string apiBaseUrl)
     {
         _http = new HttpClient
         {
-            BaseAddress = new Uri($"http://{host}:{GameInfo.DefaultAccountApiPort}"),
+            BaseAddress = new Uri(apiBaseUrl),
             Timeout = TimeSpan.FromSeconds(10),
         };
     }

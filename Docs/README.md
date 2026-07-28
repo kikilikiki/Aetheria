@@ -609,6 +609,52 @@ de gameplay.
     pour la visibilité globale sur la carte), désormais étendu pour porter le grade de chacun.
     **Limite assumée** : pas d'historique persisté entre connexions, pas de tchat privé/de
     groupe séparé (uniquement global et guilde, comme demandé).
+20. ✅ Accès distant via ngrok, bases dev/prod et gros lot de retours de combat (voir GDD/demande
+    utilisateur) :
+    - **Ngrok** : `GameSettings.AccountApiBaseUrl` (nouveau champ, réglable dans les Paramètres du
+      Launcher) permet de faire pointer l'API de compte (port 7778) vers un tunnel ngrok
+      (`https://xxxx.ngrok-free.dev`) plutôt que `http://ServerHost:7778` — transmis au Client via
+      `--apiUrl=`, distinct de `--host=` qui reste la connexion TCP de jeu (port 7777, toujours
+      via redirection de ports classique côté routeur : les tunnels TCP ngrok exigent une carte
+      bancaire vérifiée sur le compte, non activée ici sur décision de l'utilisateur).
+    - **Bases dev/prod** : `AETHERIA_DB_CONNECTION` reconnaît maintenant aussi une chaîne SQLite
+      (préfixe `Data Source=`), en plus de PostgreSQL (Npgsql) — choisi comme base fichier
+      zéro-installation en l'absence de serveur PostgreSQL sur la machine hébergeant le serveur.
+      `start-server-dev.bat`/`start-server-prod.bat` (racine du dépôt) lancent le serveur avec
+      respectivement `aetheria-dev.db`/`aetheria-prod.db` (non versionnés, créés/migrés
+      automatiquement au premier lancement) ; `start-launcher.bat` lance le Launcher. **Piège
+      rencontré et corrigé** : le fournisseur SQLite déclenchait un faux
+      `PendingModelChangesWarning` bloquant au démarrage (annotations de génération de valeur
+      Npgsql absentes du modèle SQLite, alors qu'aucune migration ne manque réellement) — ignoré
+      spécifiquement pour SQLite dans `Server/Program.cs`, pas pour Npgsql.
+    - **Fuite de combat** (`CombatActionType.Flee`) : bouton/touche 6, absent plutôt que désactivé
+      quand `CombatSession.IsDungeonCombat` (impossible de fuir un combat de donjon, possible en
+      dehors), refusé aussi côté serveur si contourné.
+    - **Types de monstres** (`MonsterType` : Guerrier/Archer/Soigneur, voir
+      `MonsterCatalogSeeder`) déterminent une capacité spéciale (`CombatActionType.SpecialAbility`,
+      touche 4) — Soigneur soigne l'allié le plus affaibli sans viser, Archer transperce en
+      ignorant la Défense (portée +1), Guerrier déclenche un coup à dégâts majorés — utilisées
+      aussi par l'IA adverse (un tour sur trois environ). Couleur en combat selon le type, avec un
+      contour bleu (allié)/rouge (ennemi) simulé par un losange légèrement plus grand derrière le
+      portrait.
+    - **Avantages/faiblesses de type** : `Element` (déjà présent mais jamais branché) influence
+      maintenant les dégâts (×1.5 en avantage, ×0.67 en désavantage) via un triangle de forces
+      simplifié (`CombatEngine.StrongAgainst`), avec un message "(efficace !)"/"(peu efficace...)".
+    - **4 ennemis plutôt qu'1** en combat PvE (rencontre sauvage et donjon), même espèce tirée,
+      formation fixe sur la grille — pas de mise à l'échelle individuelle des stats.
+    - **Aperçu de l'ennemi avant le combat** (voir GDD/demande utilisateur — "comme Pokémon
+      Épée") : `GET .../rooms/{roomIndex}/encounter-preview`, même tirage exact (graine stable)
+      que le combat réel, affiché (portrait + nom + élément) dès l'arrivée dans une salle à
+      monstre, avant d'appuyer sur Entrée pour engager.
+    - **Butin plus lisible** (voir retour utilisateur — "le choix d'objet ne se voit pas bien") :
+      chaque objet a sa propre rangée cliquable avec fond/bordure de sélection, plus un badge
+      indiquant combien de joueurs l'ont actuellement choisi (`LootSessionState.ClaimCountsByItemIndex`).
+    - **Touche pour quitter le donjon hors combat** : Échap le faisait déjà, seul un rappel à
+      l'écran manquait — ajouté, aucune nouvelle touche nécessaire.
+    - **Limites assumées** : un seul palier de capacité spéciale par type (pas d'arbre de
+      compétences), le personnage joueur est toujours de type Guerrier (pas de choix), et le
+      MonsterEditor ne permet pas encore d'éditer le type d'une espèce depuis son interface
+      (toujours modifiable via l'API/le seeder).
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

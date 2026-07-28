@@ -328,7 +328,7 @@
             <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
                     Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}">
                 <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="420" Height="340"
+                        BorderThickness="1" CornerRadius="10" Width="420" Height="420"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
                     <StackPanel>
                         <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,18" />
@@ -341,6 +341,11 @@
                         <TextBlock Text="Adresse du serveur" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
                         <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,6" />
                         <TextBlock Text="IP publique ou nom de domaine du serveur (laisser &quot;localhost&quot; en développement)."
+                                   Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,18" />
+
+                        <TextBlock Text="Tunnel ngrok (API de compte, optionnel)" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                        <TextBox Text="{Binding AccountApiBaseUrl, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,6" />
+                        <TextBlock Text="URL complète (ex. https://xxxx.ngrok-free.dev) — laisser vide pour utiliser l'adresse du serveur ci-dessus sur le port habituel."
                                    Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,22" />
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />

@@ -16,6 +16,9 @@ public sealed class MonsterSpeciesEntity
     public int Id { get; set; }
     public required string Name { get; set; }
     public Element Element { get; set; } = Element.Neutre;
+
+    /// <summary>Rôle de combat (voir GDD/demande utilisateur — "ajoute des type (soigneur, guerrier, archer etc) aux monstres").</summary>
+    public MonsterType Type { get; set; } = MonsterType.Guerrier;
     public Rarity BaseRarity { get; set; } = Rarity.Commun;
     public string Habitat { get; set; } = string.Empty;
     public string Lore { get; set; } = string.Empty;

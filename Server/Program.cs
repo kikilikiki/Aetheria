@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -27,14 +28,33 @@ DotEnv.LoadIfPresent();
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Voir GDD/demande utilisateur — "crée une base de donné prod et une base de donné dev" :
+// AETHERIA_DB_CONNECTION accepte soit une chaîne Npgsql classique (PostgreSQL, déploiement réel),
+// soit une chaîne SQLite ("Data Source=..."), reconnue au préfixe — SQLite choisi ici comme base
+// fichier zéro-installation pour dev/prod (voir Tools/start-server-dev.bat et
+// Tools/start-server-prod.bat, chacun pointant vers un fichier .db distinct) tant qu'aucun
+// serveur PostgreSQL n'est disponible sur la machine hébergeant le serveur.
 var connectionString = Environment.GetEnvironmentVariable("AETHERIA_DB_CONNECTION");
 var usingInMemoryDatabase = string.IsNullOrWhiteSpace(connectionString);
+var usingSqlite = !usingInMemoryDatabase && connectionString!.TrimStart().StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase);
 
 builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 {
     if (usingInMemoryDatabase)
     {
         options.UseInMemoryDatabase("aetheria-dev");
+    }
+    else if (usingSqlite)
+    {
+        options.UseSqlite(connectionString);
+
+        // Les migrations sont générées avec le fournisseur Npgsql par défaut (voir outillage EF
+        // Core Design) : leurs annotations de génération de valeur (identité PostgreSQL)
+        // diffèrent de ce que le fournisseur SQLite attend, ce qui déclenche un faux positif
+        // "PendingModelChangesWarning" au démarrage alors qu'aucune migration ne manque
+        // réellement (vérifié : le schéma appliqué correspond bien au modèle). Ignoré
+        // uniquement pour SQLite — pas pour Npgsql, où ce warning reste un vrai signal utile.
+        options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
     }
     else
     {
@@ -69,6 +89,10 @@ if (usingInMemoryDatabase)
     app.Logger.LogWarning(
         "AETHERIA_DB_CONNECTION non défini : utilisation d'une base PostgreSQL en mémoire, " +
         "réservée au développement local. Les données seront perdues à l'arrêt du serveur.");
+}
+else if (usingSqlite)
+{
+    app.Logger.LogInformation("Base SQLite : {ConnectionString}", connectionString);
 }
 
 var dbFactory = app.Services.GetRequiredService<IDbContextFactory<AetheriaDbContext>>();
@@ -186,6 +210,7 @@ app.MapPost("/api/monsters/species", async (MonsterSpeciesData species) =>
     {
         Name = species.Name,
         Element = species.Element,
+        Type = species.Type,
         BaseRarity = species.BaseRarity,
         Habitat = species.Habitat,
         Lore = species.Lore,
@@ -210,6 +235,7 @@ app.MapPut("/api/monsters/species/{id:int}", async (int id, MonsterSpeciesData u
 
     existing.Name = updated.Name;
     existing.Element = updated.Element;
+    existing.Type = updated.Type;
     existing.BaseRarity = updated.BaseRarity;
     existing.Habitat = updated.Habitat;
     existing.Lore = updated.Lore;
@@ -682,6 +708,25 @@ app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomI
     }
 });
 
+// Voir GDD/demande utilisateur — "faire en sorte que l'on voie les ennemis avant de les
+// combattre, comme Pokémon Épée" : lecture seule, même tirage que /engage (graine stable), pour
+// afficher la créature qui sera affrontée avant que le joueur n'engage le combat.
+app.MapGet("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/encounter-preview",
+    async (int dungeonId, int floorNumber, int roomIndex) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+
+    try
+    {
+        return Results.Ok(await combatService.GetDungeonEncounterPreviewAsync(dungeonId, floorNumber, roomIndex));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Salle Coffre (voir GDD — exploration en couloir linéaire, "loot au fil du chemin").
 app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/loot-chest",
     async (int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request) =>
@@ -1123,6 +1168,7 @@ static MonsterSpeciesData ToSpeciesData(MonsterSpeciesEntity entity) => new()
     Id = entity.Id,
     Name = entity.Name,
     Element = entity.Element,
+    Type = entity.Type,
     BaseRarity = entity.BaseRarity,
     Habitat = entity.Habitat,
     Lore = entity.Lore,

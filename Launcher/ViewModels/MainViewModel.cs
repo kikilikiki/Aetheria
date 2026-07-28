@@ -71,6 +71,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _serverHost = "localhost";
 
+    /// <summary>Tunnel ngrok éventuel pour l'API de compte (voir GDD/demande utilisateur — "utilise ngrok"), vide = pas de tunnel, on utilise ServerHost:7778 comme avant.</summary>
+    [ObservableProperty]
+    private string _accountApiBaseUrl = string.Empty;
+
     public IReadOnlyList<KeyboardLayoutPreference> AvailableKeyboardLayouts { get; } = Enum.GetValues<KeyboardLayoutPreference>();
 
     public string DetectedLayoutText => KeyboardLayoutResolver.IsAzertyDetected()
@@ -96,7 +100,8 @@ public sealed partial class MainViewModel : ObservableObject
         var settings = GameSettings.Load();
         _keyboardLayoutPreference = settings.KeyboardLayout;
         _serverHost = settings.ServerHost;
-        _accountApi = new AccountApiClient($"http://{_serverHost}:{GameInfo.DefaultAccountApiPort}");
+        _accountApiBaseUrl = settings.AccountApiBaseUrl ?? string.Empty;
+        _accountApi = new AccountApiClient(settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort));
 
         _ = CheckServerStatusAsync();
         LoadNews();
@@ -201,7 +206,24 @@ public sealed partial class MainViewModel : ObservableObject
         settings.Save();
 
         _accountApi.Dispose();
-        _accountApi = new AccountApiClient($"http://{value}:{GameInfo.DefaultAccountApiPort}");
+        _accountApi = new AccountApiClient(settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort));
+        _ = CheckServerStatusAsync();
+    }
+
+    /// <summary>
+    /// Persiste le tunnel ngrok éventuel et reconstruit le client HTTP en conséquence (même
+    /// logique que <see cref="OnServerHostChanged"/>) — voir GDD/demande utilisateur : "utilise
+    /// ngrok" pour l'API de compte, ServerHost restant utilisé tel quel pour la connexion TCP de
+    /// jeu (transmis au Client via --host, distinct de --apiUrl).
+    /// </summary>
+    partial void OnAccountApiBaseUrlChanged(string value)
+    {
+        var settings = GameSettings.Load();
+        settings.AccountApiBaseUrl = value;
+        settings.Save();
+
+        _accountApi.Dispose();
+        _accountApi = new AccountApiClient(settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort));
         _ = CheckServerStatusAsync();
     }
 
@@ -214,8 +236,9 @@ public sealed partial class MainViewModel : ObservableObject
     {
         try
         {
+            var settings = GameSettings.Load();
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
-            var response = await http.GetAsync($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}/api/health");
+            var response = await http.GetAsync($"{settings.ResolveAccountApiBaseUrl(GameInfo.DefaultAccountApiPort)}/api/health");
             IsServerOnline = response.IsSuccessStatusCode;
             ServerStatusText = IsServerOnline ? "Serveur en ligne" : "Serveur hors ligne";
 
@@ -338,7 +361,7 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (!ClientLauncher.TryLaunch(SessionToken, ServerHost, out var error))
+        if (!ClientLauncher.TryLaunch(SessionToken, ServerHost, AccountApiBaseUrl, out var error))
         {
             StatusMessage = error;
         }

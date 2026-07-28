@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Server.World.Combat;
 
 /// <summary>
@@ -19,6 +21,12 @@ public sealed class Combatant
     public required int MovementRange { get; init; }
     public required int AttackRange { get; init; }
     public bool IsPlayerControlled { get; init; }
+
+    /// <summary>Rôle de combat (voir GDD — types de monstres) : détermine la capacité spéciale et la couleur affichée côté client.</summary>
+    public MonsterType Type { get; init; } = MonsterType.Guerrier;
+
+    /// <summary>Élément (voir GDD — avantages/faiblesses de type) : Neutre pour le personnage joueur.</summary>
+    public Element Element { get; init; } = Element.Neutre;
 
     /// <summary>
     /// Joueur propriétaire de ce combattant précis — <c>null</c> pour les monstres sauvages

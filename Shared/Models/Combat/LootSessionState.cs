@@ -12,4 +12,12 @@ public sealed class LootSessionState
     public required IReadOnlyList<Guid> ClaimedCharacterIds { get; init; }
     public required bool IsResolved { get; init; }
     public IReadOnlyDictionary<int, Guid>? Winners { get; init; }
+
+    /// <summary>
+    /// Nombre de joueurs ayant actuellement choisi chaque objet (index de l'objet -> nombre de
+    /// réclamations), pour l'afficher clairement pendant la répartition (voir GDD/demande
+    /// utilisateur — "afficher une petite icône pour dire choisi par un joueur, ajouter en 2 si
+    /// ils sont 2 ainsi de suite"). Absent des index sans réclamation.
+    /// </summary>
+    public required IReadOnlyDictionary<int, int> ClaimCountsByItemIndex { get; init; }
 }

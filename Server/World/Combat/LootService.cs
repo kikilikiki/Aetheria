@@ -134,5 +134,6 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
         ClaimedCharacterIds = session.Claims.Keys.ToList(),
         IsResolved = session.IsResolved,
         Winners = session.Winners,
+        ClaimCountsByItemIndex = session.Claims.Values.GroupBy(i => i).ToDictionary(g => g.Key, g => g.Count()),
     };
 }
