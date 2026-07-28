@@ -307,7 +307,20 @@
 
                     <Button Content="JOUER" Command="{Binding PlayCommand}" Style="{StaticResource PrimaryActionButton}"
                             HorizontalAlignment="Right" VerticalAlignment="Center" Width="180" Height="56"
-                            Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}" />
+                            Visibility="{Binding ShowPlayButton, Converter={StaticResource BoolToVis}}" />
+
+                    <!-- Le serveur tourne une version differente de ce Launcher (voir GDD/demande
+                         utilisateur) : bloque JOUER, invite a retelecharger plutot qu'une vraie
+                         mise a jour automatique (pas de serveur de distribution pour l'instant,
+                         voir Docs/README.md). -->
+                    <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Visibility="{Binding ShowUpdateButton, Converter={StaticResource BoolToVis}}">
+                        <Button Content="METTRE A JOUR" Style="{StaticResource PrimaryActionButton}"
+                                Width="220" Height="56" IsEnabled="False" />
+                        <TextBlock Text="{Binding ServerVersion, StringFormat='Version {0} disponible - retelechargez le Launcher'}"
+                                   Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap"
+                                   MaxWidth="220" TextAlignment="Center" Margin="0,6,0,0" />
+                    </StackPanel>
                 </Grid>
             </Border>
 
