@@ -21,6 +21,10 @@ public static class PacketRegistry
         [OpCode.PlayerLeft] = PlayerLeftPacket.Read,
         [OpCode.ChatMessage] = ChatMessagePacket.Read,
         [OpCode.AdminEffect] = AdminEffectPacket.Read,
+        [OpCode.DuelInvite] = DuelInvitePacket.Read,
+        [OpCode.DuelResponse] = DuelResponsePacket.Read,
+        [OpCode.DuelAccepted] = DuelAcceptedPacket.Read,
+        [OpCode.DuelStarted] = DuelStartedPacket.Read,
     };
 
     public static IPacket Read(OpCode opCode, BinaryReader reader)

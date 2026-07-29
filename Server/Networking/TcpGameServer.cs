@@ -12,7 +12,8 @@ public sealed class TcpGameServer(
     SessionTokenStore tokenStore,
     IDbContextFactory<AetheriaDbContext> dbContextFactory,
     ILoggerFactory loggerFactory,
-    WorldSessionRegistry registry)
+    WorldSessionRegistry registry,
+    DuelInviteService duelInvites)
 {
     private readonly ILogger<TcpGameServer> _logger = loggerFactory.CreateLogger<TcpGameServer>();
 
@@ -37,7 +38,7 @@ public sealed class TcpGameServer(
                 var client = await listener.AcceptTcpClientAsync(ct);
                 _logger.LogInformation("Connexion entrante : {Endpoint}", client.Client.RemoteEndPoint);
 
-                var session = new PlayerSession(client, tokenStore, dbContextFactory, _registry, loggerFactory.CreateLogger<PlayerSession>());
+                var session = new PlayerSession(client, tokenStore, dbContextFactory, _registry, duelInvites, loggerFactory.CreateLogger<PlayerSession>());
                 _ = Task.Run(() => session.Run(ct), ct);
             }
         }
