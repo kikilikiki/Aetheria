@@ -359,6 +359,11 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "TRANSFORMER EN PANNEAU (nom du personnage)",
         "DONNER UN MONSTRE (perso;espece)",
         "NIVEAU MAX EQUIPE (nom du personnage)",
+        "DONNER DE L'ARGENT (perso;montant)",
+        "DONNER DE L'XP (perso;montant)",
+        "DEFINIR NIVEAU (perso;niveau)",
+        "DEBANNIR (nom du personnage)",
+        "DONNER DES GEMMES (perso;montant)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
     ]
     :
@@ -371,6 +376,10 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "TRANSFORMER EN PANNEAU (nom du personnage)",
         "DONNER UN MONSTRE (perso;espece)",
         "NIVEAU MAX EQUIPE (nom du personnage)",
+        "DONNER DE L'ARGENT (perso;montant)",
+        "DONNER DE L'XP (perso;montant)",
+        "DEFINIR NIVEAU (perso;niveau)",
+        "DEBANNIR (nom du personnage)",
     ];
 
 // Voir GDD/demande utilisateur — "ajouter les amis (online/offline, discussion privée, niveau,
@@ -2044,7 +2053,9 @@ void DrawBattlePassPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {status.Level}", new Vector2(w / 2f, topLeft.Y + 70f), 2.2f, Vector4.One);
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{status.Experience} / {status.ExperienceForNextLevel} XP", new Vector2(w / 2f, topLeft.Y + 104f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
-        var premiumLabel = status.HasPremium ? "PASS PREMIUM ACTIF" : "Pass gratuit — récompenses de base à chaque niveau.";
+        // Voir demande utilisateur — "renomme le pass gratuit et le pass premium : pass aventure =
+        // pass gratuit, pass premium [inchangé]".
+        var premiumLabel = status.HasPremium ? "PASS PREMIUM ACTIF" : "Pass Aventure — récompenses de base à chaque niveau.";
         var premiumColor = status.HasPremium ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.7f, 0.7f, 0.75f, 1f);
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, premiumLabel, new Vector2(w / 2f, topLeft.Y + 140f), 1.7f, premiumColor);
 
@@ -2190,6 +2201,67 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             adminPanelActionTask = gameDataApi!.MaxLevelTeamAsync(options.SessionToken!, input);
             break;
         case 8:
+        {
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && long.TryParse(parts[1], out var moneyAmount))
+            {
+                adminPanelActionTask = gameDataApi!.GiveMoneyAsync(options.SessionToken!, parts[0], moneyAmount);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;montant";
+            }
+
+            break;
+        }
+        case 9:
+        {
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && long.TryParse(parts[1], out var xpAmount))
+            {
+                adminPanelActionTask = gameDataApi!.GiveXpAsync(options.SessionToken!, parts[0], xpAmount);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;montant";
+            }
+
+            break;
+        }
+        case 10:
+        {
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var newLevel))
+            {
+                adminPanelActionTask = gameDataApi!.SetLevelAsync(options.SessionToken!, parts[0], newLevel);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;niveau";
+            }
+
+            break;
+        }
+        case 11:
+            adminPanelActionTask = gameDataApi!.UnbanCharacterAsync(options.SessionToken!, input);
+            break;
+        case 12:
+        {
+            // Voir GDD/demande utilisateur — "/givegems" exclusif au Fondateur ; le serveur
+            // revérifie de toute façon le grade de l'appelant (voir /api/admin/game/give-gems).
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && long.TryParse(parts[1], out var gemsAmount))
+            {
+                adminPanelActionTask = gameDataApi!.GiveGemsAsync(options.SessionToken!, parts[0], gemsAmount);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;montant";
+            }
+
+            break;
+        }
+        case 13:
             // Voir GDD/demande utilisateur — bouton exclusif au Fondateur ; le serveur revérifie
             // de toute façon le grade de l'appelant (voir /api/admin/game/toggle-admin).
             adminPanelActionTask = gameDataApi!.ToggleAdminAsync(options.SessionToken!, input);
@@ -5435,11 +5507,19 @@ void DrawBuilding(Building building)
     var postTop = postBase - new Vector2(0, postHeight);
     spriteBatch.Draw(whiteTexture, new Vector2(postBase.X - postWidth / 2f, postTop.Y), new Vector2(postWidth, postHeight), WorldMap.SignpostColor);
 
-    var plaqueSize = new Vector2(IsoMath.TileWidth * 0.46f, IsoMath.TileHeight * 0.42f);
+    // Voir retour utilisateur — "le champ de braise le texte deborde de l'ui" : la plaque avait
+    // une largeur fixe (0.46 tuile, ~29px) pensée pour un mot court, mais building.Name porte le
+    // nom complet du territoire ("Champ de Braise", "Citadelle de Braise", ...) qui dépassait
+    // largement à l'échelle 1.1. La plaque s'adapte désormais à la largeur mesurée du texte
+    // (avec une largeur minimale pour ne pas rétrécir les enseignes à mot court).
+    const float signTextScale = 0.85f;
+    var signText = building.Name.ToUpperInvariant();
+    var signTextWidth = TextRenderer.MeasureWidth(signText, signTextScale);
+    var plaqueSize = new Vector2(MathF.Max(IsoMath.TileWidth * 0.46f, signTextWidth + 8f), IsoMath.TileHeight * 0.42f);
     var plaquePosition = postTop - new Vector2(plaqueSize.X / 2f, plaqueSize.Y * 0.75f);
     spriteBatch.Draw(whiteTexture, plaquePosition, plaqueSize, WorldMap.SignboardColor);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, building.Name.ToUpperInvariant(),
-        plaquePosition + new Vector2(plaqueSize.X / 2f, plaqueSize.Y / 2f - 3f), 1.1f, new Vector4(0.25f, 0.17f, 0.09f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, signText,
+        plaquePosition + new Vector2(plaqueSize.X / 2f, plaqueSize.Y / 2f - 3f), signTextScale, new Vector4(0.25f, 0.17f, 0.09f, 1f));
 }
 
 void DrawPortal(Vector2 gridPos, float animClock)

@@ -527,6 +527,24 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> MaxLevelTeamAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/max-level-team", new AdminMaxLevelTeamRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
 
+    // Voir retour utilisateur — "il manque des commandes dans les commandes admin (F2)" : existaient
+    // déjà en commande de tchat (/givemoney, /givexp, /setlevel, /unban, /givegems) mais pas ici.
+    public async Task<AdminGameActionResponse> GiveMoneyAsync(string sessionToken, string targetCharacterName, long amount, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-money", new AdminGiveMoneyRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, Amount = amount }, ct);
+
+    public async Task<AdminGameActionResponse> GiveXpAsync(string sessionToken, string targetCharacterName, long amount, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-xp", new AdminGiveXpRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, Amount = amount }, ct);
+
+    public async Task<AdminGameActionResponse> SetLevelAsync(string sessionToken, string targetCharacterName, int level, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/set-level", new AdminSetLevelRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, Level = level }, ct);
+
+    public async Task<AdminGameActionResponse> UnbanCharacterAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/unban", new AdminUnbanCharacterRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
+
+    /// <summary>Réservé au grade Fondateur — le serveur revérifie de toute façon (voir /api/admin/game/give-gems).</summary>
+    public async Task<AdminGameActionResponse> GiveGemsAsync(string sessionToken, string targetCharacterName, long amount, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-gems", new AdminGiveGemsRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, Amount = amount }, ct);
+
     private async Task<AdminGameActionResponse> PostAdminActionAsync<TRequest>(string url, TRequest request, CancellationToken ct)
     {
         var response = await _http.PostAsJsonAsync(url, request, JsonOptions, ct);
