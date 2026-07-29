@@ -450,11 +450,26 @@ public sealed partial class MainViewModel : ObservableObject
 
     private bool CanPlay() => SessionToken is not null && !IsUpdateAvailable;
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "quand il faut faire une maj on peut quand même join, fait
+    /// en sorte que il ait l'obligation de mettre à jour avant de pouvoir lancer le jeu" :
+    /// <see cref="IsUpdateAvailable"/> n'est recalculé qu'au démarrage/changement d'adresse
+    /// serveur (voir CheckServerStatusAsync), donc un Launcher resté ouvert pendant qu'une
+    /// nouvelle version est déployée gardait un état périmé et laissait passer "Jouer". Revérifie
+    /// donc la version serveur juste avant de lancer, plutôt que de faire confiance à ce cache.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanPlay))]
-    private void Play()
+    private async Task Play()
     {
         if (SessionToken is null)
         {
+            return;
+        }
+
+        await CheckServerStatusAsync();
+        if (IsUpdateAvailable)
+        {
+            StatusMessage = "Une nouvelle version est disponible : mettez à jour avant de jouer.";
             return;
         }
 

@@ -52,6 +52,12 @@ public sealed class DiscordAnnouncer
     /// <summary>Faux si DISCORD_BOT_TOKEN n'est pas configuré — les annonces sont alors journalisées et ignorées.</summary>
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_botToken);
 
+    /// <summary>Limite Discord pour la valeur d'un champ d'embed (voir GDD/demande utilisateur — "quand il y a trop de modifications le message ajoute '..' à la fin mais on n'a jamais la suite").</summary>
+    private const int FieldValueMaxLength = 1024;
+
+    /// <summary>Limite Discord au nombre d'embeds par message.</summary>
+    private const int MaxEmbedsPerMessage = 10;
+
     /// <summary>Poste dans tous les salons configurés (voir demande utilisateur — plusieurs salons) ; retourne vrai si l'envoi a réussi dans au moins un salon.</summary>
     public async Task<bool> PostUpdateAsync(string title, string description, IReadOnlyList<string> changes, CancellationToken ct = default)
     {
@@ -61,45 +67,125 @@ public sealed class DiscordAnnouncer
             return false;
         }
 
-        var embed = new Dictionary<string, object?>
-        {
-            ["title"] = Truncate(title, 256),
-            ["description"] = Truncate(description, 4096),
-            ["color"] = 0x8A5CF6,
-            ["footer"] = new { text = $"{GameInfo.Name} v{GameInfo.Version}" },
-            ["timestamp"] = DateTime.UtcNow.ToString("o"),
-        };
+        var truncatedTitle = Truncate(title, 256);
+        var truncatedDescription = Truncate(description, 4096);
 
-        if (changes.Count > 0)
+        // Voir GDD/demande utilisateur — auparavant un seul champ "Changements" plafonné à 1024
+        // caractères (limite Discord) : au-delà, le reste de la liste était silencieusement perdu
+        // ("..." final sans suite). Découpée maintenant en plusieurs embeds (un message Discord
+        // peut en contenir jusqu'à 10), chacun numéroté dans son titre plutôt que dans le corps
+        // (Discord ne permet pas de mettre en forme un embed autrement).
+        var changeChunks = ChunkChanges(changes);
+        var embeds = new List<object>();
+
+        if (changeChunks.Count == 0)
         {
-            var value = Truncate(string.Join('\n', changes.Select(c => $"• {c}")), 1024);
-            embed["fields"] = new[] { new { name = "Changements", value } };
+            embeds.Add(BuildEmbed(truncatedTitle, truncatedDescription, null));
+        }
+        else
+        {
+            for (var i = 0; i < changeChunks.Count; i++)
+            {
+                var embedTitle = changeChunks.Count > 1 ? $"{truncatedTitle} ({i + 1}/{changeChunks.Count})" : truncatedTitle;
+                embeds.Add(BuildEmbed(embedTitle, i == 0 ? truncatedDescription : null, changeChunks[i]));
+            }
         }
 
         var anySucceeded = false;
         foreach (var channelId in _channelIds)
         {
-            if (await PostToChannelAsync(channelId, embed, ct))
+            // Une seule requête si ça tient dans les 10 embeds autorisés par message ; sinon
+            // plusieurs messages successifs (cas extrême, très rare en pratique).
+            for (var offset = 0; offset < embeds.Count; offset += MaxEmbedsPerMessage)
             {
-                anySucceeded = true;
+                var batch = embeds.Skip(offset).Take(MaxEmbedsPerMessage).ToArray();
+                if (await PostToChannelAsync(channelId, batch, includeContent: offset == 0, ct))
+                {
+                    anySucceeded = true;
+                }
             }
         }
 
         return anySucceeded;
     }
 
-    private async Task<bool> PostToChannelAsync(string channelId, Dictionary<string, object?> embed, CancellationToken ct)
+    private static Dictionary<string, object?> BuildEmbed(string title, string? description, string? changesFieldValue)
+    {
+        var embed = new Dictionary<string, object?>
+        {
+            ["title"] = title,
+            ["color"] = 0x8A5CF6,
+            ["footer"] = new { text = $"{GameInfo.Name} v{GameInfo.Version}" },
+            ["timestamp"] = DateTime.UtcNow.ToString("o"),
+        };
+
+        if (description is not null)
+        {
+            embed["description"] = description;
+        }
+
+        if (changesFieldValue is not null)
+        {
+            embed["fields"] = new[] { new { name = "Changements", value = changesFieldValue } };
+        }
+
+        return embed;
+    }
+
+    /// <summary>
+    /// Découpe la liste de changements en morceaux qui tiennent chacun dans <see cref="FieldValueMaxLength"/>,
+    /// à la frontière d'une puce plutôt qu'en plein milieu (une puce trop longue à elle seule est
+    /// quand même tronquée, cas limite improbable en pratique).
+    /// </summary>
+    private static List<string> ChunkChanges(IReadOnlyList<string> changes)
+    {
+        var chunks = new List<string>();
+        if (changes.Count == 0)
+        {
+            return chunks;
+        }
+
+        var current = new List<string>();
+        var currentLength = 0;
+
+        foreach (var change in changes)
+        {
+            var bullet = $"• {change}";
+            var addedLength = bullet.Length + (current.Count > 0 ? 1 : 0); // +1 pour le "\n" séparateur
+
+            if (current.Count > 0 && currentLength + addedLength > FieldValueMaxLength)
+            {
+                chunks.Add(string.Join('\n', current));
+                current = [];
+                currentLength = 0;
+                addedLength = bullet.Length;
+            }
+
+            current.Add(Truncate(bullet, FieldValueMaxLength));
+            currentLength += addedLength;
+        }
+
+        if (current.Count > 0)
+        {
+            chunks.Add(string.Join('\n', current));
+        }
+
+        return chunks;
+    }
+
+    private async Task<bool> PostToChannelAsync(string channelId, IReadOnlyList<object> embeds, bool includeContent, CancellationToken ct)
     {
         // Le ping de rôle doit être dans "content" (un embed seul ne notifie personne) — voir
         // demande utilisateur. allowed_mentions.roles liste explicitement le rôle autorisé à être
         // mentionné : par défaut Discord bloque les mentions de rôle "@everyone-like" venant d'un
-        // bot sauf si elles sont explicitement permises ici.
+        // bot sauf si elles sont explicitement permises ici. Seul le premier message d'un lot
+        // ping le rôle (voir includeContent) pour ne pas spammer une notification par embed.
         using var request = new HttpRequestMessage(HttpMethod.Post, $"channels/{channelId}/messages")
         {
             Content = JsonContent.Create(new
             {
-                content = $"<@&{_roleId}>",
-                embeds = new[] { embed },
+                content = includeContent ? $"<@&{_roleId}>" : string.Empty,
+                embeds,
                 allowed_mentions = new { roles = new[] { _roleId } },
             }),
         };
