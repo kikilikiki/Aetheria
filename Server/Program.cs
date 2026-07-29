@@ -122,6 +122,7 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     await MonsterCatalogSeeder.SeedAsync(db);
     await DungeonSeeder.SeedAsync(db);
     await ProfessionCatalogSeeder.SeedAsync(db);
+    await EquipmentCatalogSeeder.SeedAsync(db);
     await TerritorySeeder.SeedAsync(db);
     await SeasonSeeder.SeedAsync(db);
     await QuestCatalogSeeder.SeedAsync(db);
@@ -336,7 +337,20 @@ app.MapGet("/api/characters/{id:guid}/monsters", async (Guid id) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var monsters = await db.Monsters.Where(m => m.OwnerCharacterId == id).ToListAsync();
-    return Results.Ok(monsters.Select(ToMonsterInstanceData));
+
+    // Voir GDD/demande utilisateur — équipement affiché par nom (pas seulement par ID) dans le
+    // panneau Monstres côté client.
+    var equippedItemIds = monsters
+        .SelectMany(m => new[] { m.EquippedWeaponItemId, m.EquippedArmorItemId, m.EquippedAccessoryItemId })
+        .Where(i => i is not null)
+        .Select(i => i!.Value)
+        .Distinct()
+        .ToList();
+    var itemNames = equippedItemIds.Count == 0
+        ? new Dictionary<int, string>()
+        : await db.Items.Where(i => equippedItemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => i.Name);
+
+    return Results.Ok(monsters.Select(m => ToMonsterInstanceData(m, itemNames)));
 });
 
 // UI de gestion des créatures (voir GDD — "monter de niveau, objet à donner").
@@ -375,6 +389,37 @@ app.MapPost("/api/monsters/{monsterId:guid}/set-active-team", async (Guid monste
     try
     {
         return Results.Ok(await careService.SetActiveTeamAsync(request.SessionToken, request.MonsterId, request.IsInActiveTeam));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos monstres".
+app.MapPost("/api/monsters/{monsterId:guid}/equip", async (Guid monsterId, EquipItemRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var equipmentService = new MonsterEquipmentService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await equipmentService.EquipAsync(monsterId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/monsters/{monsterId:guid}/unequip", async (Guid monsterId, UnequipItemRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var equipmentService = new MonsterEquipmentService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await equipmentService.UnequipAsync(monsterId, request));
     }
     catch (AccountOperationException ex)
     {
@@ -1772,6 +1817,79 @@ app.MapPost("/api/admin/game/level-up-monster", async (AdminLevelUpMonsterReques
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monster.Nickname} est maintenant niveau {monster.Level}." });
 });
 
+// Voir GDD/demande utilisateur — "ajoute que les admin et le fonda peuvent aussi donner 1 monstre".
+app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Name == request.SpeciesName);
+    if (species is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Espèce introuvable." });
+    }
+
+    var monster = new MonsterEntity
+    {
+        Id = Guid.NewGuid(),
+        OwnerCharacterId = target.Id,
+        SpeciesId = species.Id,
+        Variant = MonsterVariant.Normal,
+        Nickname = species.Name,
+        Level = 1,
+    };
+
+    db.Monsters.Add(monster);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{species.Name} donné à {target.Name}." });
+});
+
+// Voir GDD/demande utilisateur — "une touche pour mettre niveau max toute son équipe ou celle
+// d'un joueur" : agit sur TOUTES les créatures possédées par le personnage ciblé (pas seulement
+// les 4 de l'équipe active en combat), lecture la plus utile pour une action admin "tout maxer".
+app.MapPost("/api/admin/game/max-level-team", async (AdminMaxLevelTeamRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    var monsters = await db.Monsters.Where(m => m.OwnerCharacterId == target.Id).ToListAsync();
+    foreach (var monster in monsters)
+    {
+        monster.Level = MonsterProgressionService.MaxLevel;
+        monster.Experience = 0;
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monsters.Count} créature(s) de {target.Name} au niveau {MonsterProgressionService.MaxLevel}." });
+});
+
 using var shutdownCts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
 {
@@ -1830,7 +1948,7 @@ static MonsterSpeciesData ToSpeciesData(MonsterSpeciesEntity entity) => new()
     EvolutionLevel = entity.EvolutionLevel,
 };
 
-static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity) => new()
+static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnlyDictionary<int, string>? itemNames = null) => new()
 {
     Id = entity.Id,
     SpeciesId = entity.SpeciesId,
@@ -1842,6 +1960,12 @@ static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity) => new()
     Personality = entity.Personality,
     PassiveTalent = entity.PassiveTalent,
     IsInActiveTeam = entity.IsInActiveTeam,
+    EquippedWeaponItemId = entity.EquippedWeaponItemId,
+    EquippedWeaponName = entity.EquippedWeaponItemId is { } weaponId ? itemNames?.GetValueOrDefault(weaponId) : null,
+    EquippedArmorItemId = entity.EquippedArmorItemId,
+    EquippedArmorName = entity.EquippedArmorItemId is { } armorId ? itemNames?.GetValueOrDefault(armorId) : null,
+    EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
+    EquippedAccessoryName = entity.EquippedAccessoryItemId is { } accessoryId ? itemNames?.GetValueOrDefault(accessoryId) : null,
     CapturedAtUtc = entity.CapturedAtUtc,
 };
 

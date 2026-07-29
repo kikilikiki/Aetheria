@@ -16,4 +16,14 @@ public enum Element
     Air,
     Lumiere,
     Ombre,
+
+    // Voir GDD/demande utilisateur — bestiaire étendu ("types" : Poison, Métal, Spectre, Dragon,
+    // Cristal, Arcane). "Vent"/"Ténèbres"/"Lumière" du même document correspondent aux valeurs
+    // existantes Air/Ombre/Lumiere ci-dessus (pas de doublon créé).
+    Poison,
+    Metal,
+    Spectre,
+    Dragon,
+    Cristal,
+    Arcane,
 }

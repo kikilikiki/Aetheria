@@ -12,4 +12,16 @@ public enum MonsterType
     Guerrier,
     Archer,
     Soigneur,
+
+    // Voir GDD/demande utilisateur — bestiaire étendu ("roles"). Simplification assumée (voir
+    // Docs/README.md) : ces nouveaux rôles n'ont pas encore de capacité spéciale dédiée dans
+    // CombatEngine.ResolveSpecialAbility — comme tout type autre qu'Archer/Soigneur, ils utilisent
+    // la capacité générique "coup puissant" (branche par défaut déjà existante).
+    Tank,
+    Mage,
+    Assassin,
+    Support,
+    Invocateur,
+    Berserker,
+    Controleur,
 }

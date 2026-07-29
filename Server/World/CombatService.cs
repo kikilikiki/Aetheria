@@ -147,6 +147,27 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// <summary>Voir GDD/demande utilisateur — "l'archer doit pouvoir attaquer à distance" : portée de base plutôt que réservée à la capacité spéciale (qui garde son propre bonus de portée, voir CombatEngine.ResolveSpecialAbility).</summary>
     private static int BaseAttackRange(MonsterType type) => type == MonsterType.Archer ? 3 : 1;
 
+    /// <summary>Somme des <c>StatBonus</c> des objets équipés (arme/armure/accessoire) d'une créature — voir <see cref="MonsterEquipmentService"/> pour l'équipement lui-même.</summary>
+    private async Task<StatBlock> GetEquipmentBonusAsync(MonsterEntity monster, CancellationToken ct)
+    {
+        var total = StatBlock.Zero;
+        foreach (var itemId in new[] { monster.EquippedWeaponItemId, monster.EquippedArmorItemId, monster.EquippedAccessoryItemId })
+        {
+            if (itemId is not { } id)
+            {
+                continue;
+            }
+
+            var item = await db.Items.FirstOrDefaultAsync(i => i.Id == id, ct);
+            if (item is not null)
+            {
+                total += item.StatBonus;
+            }
+        }
+
+        return total;
+    }
+
     private static Rarity RarityForLevel(int level) => level switch
     {
         <= 5 => Rarity.Commun,
@@ -154,7 +175,12 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         <= 25 => Rarity.Rare,
         <= 35 => Rarity.Epique,
         <= 50 => Rarity.Legendaire,
-        _ => Rarity.Mythique,
+        <= 100 => Rarity.Mythique,
+        // Voir GDD/demande utilisateur — bestiaire étendu (Ancestral/Divin). Rarity.Admin n'est
+        // jamais choisie ici (ni dans ResolveDungeonEncounterSpeciesAsync) — voir GDD, "objets/
+        // monstres admin impossibles à obtenir" : seulement distribuable via le panel admin.
+        <= 300 => Rarity.Ancestral,
+        _ => Rarity.Divin,
     };
 
     /// <summary>Défi PvP direct entre deux personnages (voir GDD — section PvP). Pas de matchmaking pour cette version.</summary>
@@ -567,14 +593,21 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             var displayName = monster.Nickname.Length > 0 ? monster.Nickname : species?.Name ?? "Créature";
 
             var level = monster.Level;
-            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level);
+            // Voir GDD/demande utilisateur — "si les items équipés peuvent donner des avantages à
+            // nos monstres (exemple : une épée en fer donne plus de dégâts)" : bonus des 3
+            // emplacements d'équipement (arme/armure/accessoire) ajoutés par-dessus les stats
+            // mises à l'échelle du niveau.
+            var equipBonus = await GetEquipmentBonusAsync(monster, ct);
+            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level) + equipBonus.Health;
             var type = species?.Type ?? MonsterType.Guerrier;
 
             combatants.Add(new Combatant
             {
                 Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
                 MaxHealth = maxHealth, CurrentHealth = maxHealth,
-                Attack = ScaledStat(species?.BaseAttack ?? 5, level), Defense = ScaledStat(species?.BaseDefense ?? 5, level), Speed = ScaledStat(species?.BaseSpeed ?? 5, level),
+                Attack = ScaledStat(species?.BaseAttack ?? 5, level) + equipBonus.Attack,
+                Defense = ScaledStat(species?.BaseDefense ?? 5, level) + equipBonus.Defense,
+                Speed = ScaledStat(species?.BaseSpeed ?? 5, level) + equipBonus.Speed,
                 MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
                 Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,

@@ -100,6 +100,107 @@ public static class MonsterCatalogSeeder
                 },
             };
 
+            // Voir GDD/demande utilisateur — bestiaire étendu (rôles/types/raretés élargis, voir
+            // Shared/Enums). Stats identiques au sein d'un même palier de rareté plutôt
+            // qu'individuellement équilibrées par espèce (voir Docs/README.md pour cette limite
+            // assumée) — seuls l'élément et le rôle varient d'une espèce à l'autre.
+            var commonStats = new StatBlock(30, 9, 7, 9, 6, 6);
+            var uncommonStats = new StatBlock(42, 12, 10, 11, 8, 8);
+            var rareStats = new StatBlock(58, 16, 13, 13, 11, 11);
+            var epicStats = new StatBlock(78, 21, 17, 16, 15, 15);
+            var legendaryStats = new StatBlock(105, 27, 22, 19, 20, 20);
+            var mythicStats = new StatBlock(140, 34, 28, 22, 26, 26);
+            var ancestralStats = new StatBlock(185, 42, 35, 26, 33, 33);
+            var divineStats = new StatBlock(240, 52, 44, 30, 42, 42);
+            var adminStats = new StatBlock(999, 150, 120, 80, 120, 120);
+
+            MonsterSpeciesEntity Beast(string name, Element element, MonsterType role, Rarity rarity, StatBlock stats, string habitat, string lore) => new()
+            {
+                Name = name, Element = element, Type = role, BaseRarity = rarity, Habitat = habitat, Lore = lore, BaseStats = stats,
+            };
+
+            var extendedBestiary = new List<MonsterSpeciesEntity>
+            {
+                // Communs
+                Beast("Slimo", Element.Nature, MonsterType.Tank, Rarity.Commun, commonStats, "Marécages", "Une gelée verdâtre étonnamment coriace."),
+                Beast("Flambino", Element.Feu, MonsterType.Guerrier, Rarity.Commun, commonStats, "Volcans endormis", "Toujours prêt à en découdre, quitte à se brûler lui-même."),
+                Beast("Aquili", Element.Eau, MonsterType.Soigneur, Rarity.Commun, commonStats, "Rivières calmes", "Apaise ses compagnons d'un simple contact humide."),
+                Beast("Voltik", Element.Foudre, MonsterType.Archer, Rarity.Commun, commonStats, "Plaines orageuses", "Décoche ses attaques à la vitesse de l'éclair."),
+                Beast("Roclin", Element.Terre, MonsterType.Tank, Rarity.Commun, commonStats, "Collines rocheuses", "Une carapace de pierre qui encaisse sans broncher."),
+                Beast("Corbaciel", Element.Air, MonsterType.Archer, Rarity.Commun, commonStats, "Falaises", "Repère sa cible bien avant qu'elle ne le voie."),
+                Beast("Champi", Element.Poison, MonsterType.Support, Rarity.Commun, commonStats, "Sous-bois humides", "Ses spores soutiennent ses alliés à distance."),
+                Beast("Flocon", Element.Glace, MonsterType.Mage, Rarity.Commun, commonStats, "Sommets tempérés", "Canalise le froid environnant en petites bourrasques."),
+
+                // Peu Communs
+                Beast("Loup Cendré", Element.Ombre, MonsterType.Assassin, Rarity.PeuCommun, uncommonStats, "Forêts calcinées", "Chasse en silence dans les cendres encore tièdes."),
+                Beast("Dryade", Element.Nature, MonsterType.Soigneur, Rarity.PeuCommun, uncommonStats, "Bosquets sacrés", "Veille sur la forêt et ceux qui la respectent."),
+                Beast("Golem Rocheux", Element.Terre, MonsterType.Tank, Rarity.PeuCommun, uncommonStats, "Carrières abandonnées", "Une sentinelle de pierre que rien ne fait plier."),
+                Beast("Salamandre", Element.Feu, MonsterType.Mage, Rarity.PeuCommun, uncommonStats, "Failles volcaniques", "Manipule les flammes avec une précision surprenante."),
+                Beast("Harpie", Element.Air, MonsterType.Archer, Rarity.PeuCommun, uncommonStats, "Pics escarpés", "Fond sur ses proies depuis les hauteurs."),
+                Beast("Serpent Marin", Element.Eau, MonsterType.Guerrier, Rarity.PeuCommun, uncommonStats, "Récifs profonds", "Un prédateur redoutable dans les eaux troubles."),
+                Beast("Fantôme", Element.Spectre, MonsterType.Controleur, Rarity.PeuCommun, uncommonStats, "Ruines oubliées", "Brouille l'esprit de quiconque s'aventure trop près."),
+                Beast("Scarabée Doré", Element.Metal, MonsterType.Tank, Rarity.PeuCommun, uncommonStats, "Déserts anciens", "Sa carapace métallique brille sous le soleil."),
+
+                // Rares
+                Beast("Phénix", Element.Feu, MonsterType.Soigneur, Rarity.Rare, rareStats, "Pics enflammés", "Renaît de ses cendres, au sens propre comme au figuré."),
+                Beast("Basilic", Element.Poison, MonsterType.Assassin, Rarity.Rare, rareStats, "Cavernes toxiques", "Son regard seul suffit à paralyser d'effroi."),
+                Beast("Yéti", Element.Glace, MonsterType.Tank, Rarity.Rare, rareStats, "Sommets enneigés", "Une montagne de fourrure et de glace vivante."),
+                Beast("Griffon", Element.Air, MonsterType.Guerrier, Rarity.Rare, rareStats, "Pics escarpés", "Moitié aigle, moitié lion, entièrement redoutable."),
+                Beast("Kraken", Element.Eau, MonsterType.Mage, Rarity.Rare, rareStats, "Abysses", "Ses tentacules dissimulent une intelligence aiguisée."),
+                Beast("Chevalier Spectral", Element.Spectre, MonsterType.Guerrier, Rarity.Rare, rareStats, "Champs de bataille oubliés", "Continue de monter la garde bien après sa mort."),
+                Beast("Cerf Sacré", Element.Lumiere, MonsterType.Support, Rarity.Rare, rareStats, "Clairières bénies", "Sa présence seule rassure et guérit ses alliés."),
+                Beast("Golem de Cristal", Element.Cristal, MonsterType.Tank, Rarity.Rare, rareStats, "Grottes scintillantes", "Chaque coup porté résonne comme du verre."),
+
+                // Épiques
+                Beast("Dragon Rouge", Element.Feu, MonsterType.Berserker, Rarity.Epique, epicStats, "Cratères actifs", "Sa rage ne s'éteint jamais, tout comme ses flammes."),
+                Beast("Dragon Bleu", Element.Eau, MonsterType.Mage, Rarity.Epique, epicStats, "Lagons profonds", "Maîtrise les courants comme une extension de lui-même."),
+                Beast("Dragon Vert", Element.Nature, MonsterType.Tank, Rarity.Epique, epicStats, "Jungles primitives", "Une forteresse vivante recouverte d'écailles végétales."),
+                Beast("Ange Gardien", Element.Lumiere, MonsterType.Soigneur, Rarity.Epique, epicStats, "Sanctuaires célestes", "Veille sur les âmes égarées avec une patience infinie."),
+                Beast("Démon Abyssal", Element.Ombre, MonsterType.Berserker, Rarity.Epique, epicStats, "Failles abyssales", "Son fureur grandit à mesure que le combat s'éternise."),
+                Beast("Titan de Pierre", Element.Terre, MonsterType.Tank, Rarity.Epique, epicStats, "Montagnes ancestrales", "Certains disent qu'il EST la montagne."),
+                Beast("Liche", Element.Arcane, MonsterType.Mage, Rarity.Epique, epicStats, "Cryptes maudites", "A échangé sa mortalité contre un savoir interdit."),
+                Beast("Reine Araignée", Element.Poison, MonsterType.Invocateur, Rarity.Epique, epicStats, "Antres tissées", "Ne combat jamais seule bien longtemps."),
+
+                // Légendaires
+                Beast("Aetherion", Element.Arcane, MonsterType.Mage, Rarity.Legendaire, legendaryStats, "Failles de l'Aether", "Un être fait de pure énergie arcanique."),
+                Beast("Solarys", Element.Lumiere, MonsterType.Guerrier, Rarity.Legendaire, legendaryStats, "Temple du Soleil", "Porte la lumière comme une arme et un bouclier."),
+                Beast("Noctyss", Element.Ombre, MonsterType.Assassin, Rarity.Legendaire, legendaryStats, "Voile des Ombres", "Frappe une seule fois — cela suffit toujours."),
+                Beast("Leviathor", Element.Eau, MonsterType.Tank, Rarity.Legendaire, legendaryStats, "Fosses océaniques", "Les marins racontent son passage depuis des siècles."),
+                Beast("Ignis Rex", Element.Feu, MonsterType.Berserker, Rarity.Legendaire, legendaryStats, "Couronne de magma", "Régnait sur les volcans bien avant les royaumes actuels."),
+                Beast("Tempestia", Element.Air, MonsterType.Support, Rarity.Legendaire, legendaryStats, "Yeux de la tempête", "Chaque bourrasque qu'elle soulève protège ses alliés."),
+
+                // Mythiques
+                Beast("Chronos", Element.Arcane, MonsterType.Controleur, Rarity.Mythique, mythicStats, "Hors du temps", "On dit qu'il a déjà vu la fin de ce combat."),
+                Beast("Gaia", Element.Terre, MonsterType.Tank, Rarity.Mythique, mythicStats, "Cœur du monde", "La terre elle-même semble répondre à sa volonté."),
+                Beast("Zephyria", Element.Air, MonsterType.Archer, Rarity.Mythique, mythicStats, "Sommets invisibles", "Ses flèches voyagent plus vite que le vent lui-même."),
+                Beast("Raijin", Element.Foudre, MonsterType.Mage, Rarity.Mythique, mythicStats, "Nuages d'orage éternels", "Chaque éclair du ciel pourrait être le sien."),
+                Beast("Nerea", Element.Eau, MonsterType.Soigneur, Rarity.Mythique, mythicStats, "Sources primordiales", "Ses larmes auraient le pouvoir de guérir n'importe quelle blessure."),
+
+                // Ancestraux
+                Beast("Bahamut", Element.Dragon, MonsterType.Berserker, Rarity.Ancestral, ancestralStats, "Origine des dragons", "Le premier dragon, dit-on, et le dernier à tomber."),
+                Beast("Célestion", Element.Lumiere, MonsterType.Support, Rarity.Ancestral, ancestralStats, "Voûte céleste", "Une constellation vivante veillant sur le monde."),
+                Beast("Umbragon", Element.Ombre, MonsterType.Assassin, Rarity.Ancestral, ancestralStats, "Néant primordial", "Existe autant dans l'ombre que dans le silence."),
+                Beast("Atlas", Element.Terre, MonsterType.Tank, Rarity.Ancestral, ancestralStats, "Piliers du monde", "Porterait le poids du monde sur ses épaules, littéralement."),
+
+                // Divins
+                Beast("Astrael", Element.Lumiere, MonsterType.Mage, Rarity.Divin, divineStats, "Au-delà des étoiles", "Sa simple présence réécrit les lois du combat."),
+                Beast("Nyxara", Element.Ombre, MonsterType.Controleur, Rarity.Divin, divineStats, "Néant absolu", "Contrôle jusqu'au silence qui l'entoure."),
+                Beast("Eonar", Element.Nature, MonsterType.Soigneur, Rarity.Divin, divineStats, "Origine de la vie", "On dit qu'elle a soigné le monde lui-même, autrefois."),
+
+                // Admin (voir GDD — "IMPOSSIBLES À OBTENIR", jamais choisis par RarityForLevel/le tirage de donjon)
+                Beast("Le Créateur", Element.Arcane, MonsterType.Mage, Rarity.Admin, adminStats, "En dehors du jeu", "Celui qui a écrit les règles peut aussi les briser."),
+                Beast("L'Architecte", Element.Cristal, MonsterType.Support, Rarity.Admin, adminStats, "En dehors du jeu", "A conçu chaque pierre de ce monde, une à une."),
+                Beast("Le Gardien du Code", Element.Metal, MonsterType.Tank, Rarity.Admin, adminStats, "En dehors du jeu", "Rien ne passe sans son autorisation."),
+                Beast("Le Développeur", Element.Arcane, MonsterType.Invocateur, Rarity.Admin, adminStats, "En dehors du jeu", "Peut faire apparaître ou disparaître n'importe quoi."),
+                Beast("L'Observateur", Element.Spectre, MonsterType.Controleur, Rarity.Admin, adminStats, "En dehors du jeu", "Voit tout, partout, tout le temps."),
+            };
+
+            var missingExtended = extendedBestiary.Where(s => !existingNames.Contains(s.Name)).ToList();
+            if (missingExtended.Count > 0)
+            {
+                db.MonsterSpecies.AddRange(missingExtended);
+            }
+
             var missing = wanted.Where(s => !existingNames.Contains(s.Name)).ToList();
             if (missing.Count > 0)
             {
