@@ -352,6 +352,28 @@ app.MapPost("/api/monsters/{monsterId:guid}/give-item", async (Guid monsterId, G
     }
 });
 
+// Voir GDD/demande utilisateur — bâtiment "où l'on peut voir tout nos monstres et déplacer ce
+// que l'on a dans notre team" (panneau Monstres, touche T).
+app.MapPost("/api/monsters/{monsterId:guid}/set-active-team", async (Guid monsterId, SetMonsterActiveTeamRequest request) =>
+{
+    if (monsterId != request.MonsterId)
+    {
+        return Results.BadRequest(new ApiError { Message = "Identifiant de créature incohérent." });
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var careService = new MonsterCareService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await careService.SetActiveTeamAsync(request.SessionToken, request.MonsterId, request.IsInActiveTeam));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Inventaire (voir GDD — bouton Inventaire en jeu).
 app.MapGet("/api/characters/{id:guid}/inventory", async (Guid id) =>
 {

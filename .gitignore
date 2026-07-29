@@ -38,6 +38,7 @@ appsettings.*.local.json
 .discord-last-logged
 .discord-pending-changes.txt
 .discord-last-digest-date
+.discord-last-digest-hour
 
 # Divers OS
 .DS_Store
