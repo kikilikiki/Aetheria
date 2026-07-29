@@ -43,9 +43,13 @@ public sealed class DungeonRoomService(AetheriaDbContext db, SessionTokenStore t
         var random = new Random(seed);
         var gold = random.Next(20, 81);
 
-        character.Gold += gold;
+        // Voir GDD/demande utilisateur — "grade payant... 0.1%/0.2%/0.3% de gain d'argent en
+        // plus" (voir PremiumService).
+        var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, userId, ct);
+        var boostedGold = (int)Math.Round(gold * multiplier);
+        character.Gold += boostedGold;
         await db.SaveChangesAsync(ct);
 
-        return gold;
+        return boostedGold;
     }
 }

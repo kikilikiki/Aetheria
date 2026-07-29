@@ -13,6 +13,7 @@ using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.Combat;
+using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
 using Microsoft.AspNetCore.Builder;
@@ -36,17 +37,23 @@ var builder = WebApplication.CreateBuilder(args);
 // fichier zéro-installation pour dev/prod (voir Tools/start-server-dev.bat et
 // Tools/start-server-prod.bat, chacun pointant vers un fichier .db distinct) tant qu'aucun
 // serveur PostgreSQL n'est disponible sur la machine hébergeant le serveur.
+//
+// Voir GDD/demande utilisateur — "à chaque redémarrage la base de données ne doit pas être
+// reset" : une base en mémoire pure a longtemps servi de valeur par défaut quand cette variable
+// n'était pas définie (ex. serveur lancé sans passer par les scripts .bat) — tout redisparaissait
+// au moindre redémarrage. Remplacée par un fichier SQLite local par défaut, tout aussi zéro-
+// installation mais réellement persisté entre deux lancements.
 var connectionString = Environment.GetEnvironmentVariable("AETHERIA_DB_CONNECTION");
-var usingInMemoryDatabase = string.IsNullOrWhiteSpace(connectionString);
-var usingSqlite = !usingInMemoryDatabase && connectionString!.TrimStart().StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase);
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    connectionString = "Data Source=aetheria-local.db";
+}
+
+var usingSqlite = connectionString.TrimStart().StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase);
 
 builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 {
-    if (usingInMemoryDatabase)
-    {
-        options.UseInMemoryDatabase("aetheria-dev");
-    }
-    else if (usingSqlite)
+    if (usingSqlite)
     {
         options.UseSqlite(connectionString);
 
@@ -70,6 +77,7 @@ builder.Services.AddSingleton<CombatSessionStore>();
 builder.Services.AddSingleton<DuelInviteService>();
 builder.Services.AddSingleton<LootSessionStore>();
 builder.Services.AddSingleton<ArenaQueueService>();
+builder.Services.AddSingleton<KingdomWarQueueService>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
 // Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le serveur de
 // dev" : les deux ne peuvent pas partager les mêmes ports sur la même machine, d'où ces
@@ -94,13 +102,7 @@ var app = builder.Build();
 
 app.Logger.LogInformation("{Name} Server v{Version}", GameInfo.Name, GameInfo.Version);
 
-if (usingInMemoryDatabase)
-{
-    app.Logger.LogWarning(
-        "AETHERIA_DB_CONNECTION non défini : utilisation d'une base PostgreSQL en mémoire, " +
-        "réservée au développement local. Les données seront perdues à l'arrêt du serveur.");
-}
-else if (usingSqlite)
+if (usingSqlite)
 {
     app.Logger.LogInformation("Base SQLite : {ConnectionString}", connectionString);
 }
@@ -108,14 +110,7 @@ else if (usingSqlite)
 var dbFactory = app.Services.GetRequiredService<IDbContextFactory<AetheriaDbContext>>();
 await using (var db = await dbFactory.CreateDbContextAsync())
 {
-    if (usingInMemoryDatabase)
-    {
-        await db.Database.EnsureCreatedAsync();
-    }
-    else
-    {
-        await db.Database.MigrateAsync();
-    }
+    await db.Database.MigrateAsync();
 
     await DatabaseSeeder.SeedAsync(db);
     await AdminAccountSeeder.SeedAsync(db);
@@ -766,6 +761,126 @@ app.MapPost("/api/shop/sell", async (ShopSellRequest request) =>
     }
 });
 
+// Économie premium (voir GDD/demande utilisateur — "shop avec des gems") : palier de grade
+// (bonus XP/or) et palier de pass d'emplacement de personnage, tous deux achetés en gemmes.
+// Aucune passerelle de paiement réel branchée pour le moment (voir GDD, "bloque la page pour le
+// moment") — les gemmes ne sont créditées que manuellement (/givegems, Fondateur) ou converties
+// depuis des pièces (voir /api/shop/gems/exchange-gold).
+app.MapGet("/api/shop/premium/status", async (string sessionToken) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(sessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    return user is null
+        ? Results.Conflict(new ApiError { Message = "Compte introuvable." })
+        : Results.Ok(PremiumService.ToStatus(user));
+});
+
+app.MapPost("/api/shop/gems/exchange-gold", async (ExchangeGoldForGemsRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    if (request.GoldAmount <= 0 || request.GoldAmount % PremiumService.GoldPerGemBlock != 0)
+    {
+        return Results.Conflict(new ApiError { Message = $"Le montant doit être un multiple de {PremiumService.GoldPerGemBlock:N0} pièces." });
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    if (character.Gold < request.GoldAmount)
+    {
+        return Results.Conflict(new ApiError { Message = "Pas assez de pièces." });
+    }
+
+    var user = await db.Users.FirstAsync(u => u.Id == userId);
+    var blocks = request.GoldAmount / PremiumService.GoldPerGemBlock;
+    character.Gold -= request.GoldAmount;
+    user.Gems += blocks * PremiumService.GemsPerGemBlock;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(PremiumService.ToStatus(user));
+});
+
+app.MapPost("/api/shop/premium/grade/upgrade", async (PurchasePremiumTierRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Compte introuvable." });
+    }
+
+    var cost = PremiumService.NextGradeTierCost(user);
+    if (cost is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Palier de grade déjà maximum." });
+    }
+
+    if (user.Gems < cost)
+    {
+        return Results.Conflict(new ApiError { Message = $"Pas assez de gemmes (coût : {cost} gemmes)." });
+    }
+
+    user.Gems -= cost.Value;
+    user.PremiumGradeTier++;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(PremiumService.ToStatus(user));
+});
+
+app.MapPost("/api/shop/premium/characterslot/upgrade", async (PurchasePremiumTierRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Compte introuvable." });
+    }
+
+    var cost = PremiumService.NextSlotTierCost(user);
+    if (cost is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Pass d'emplacement de personnage déjà maximum." });
+    }
+
+    if (user.Gems < cost)
+    {
+        return Results.Conflict(new ApiError { Message = $"Pas assez de gemmes (coût : {cost} gemmes)." });
+    }
+
+    user.Gems -= cost.Value;
+    user.CharacterSlotTier++;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(PremiumService.ToStatus(user));
+});
+
 // Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — "ajoute un bâtiment (un HDV) où
 // les joueurs mettent en vente et achètent, moins cher que chez la marchande").
 app.MapGet("/api/auction/listings", async (Guid? viewerCharacterId) =>
@@ -856,6 +971,30 @@ app.MapGet("/api/leaderboard/{category}", async (LeaderboardCategory category, i
     await using var db = await dbFactory.CreateDbContextAsync();
     var leaderboardService = new LeaderboardService(db);
     var top = await leaderboardService.GetTopAsync(category, limit <= 0 ? 10 : limit);
+    return Results.Ok(top);
+});
+
+// Voir GDD/demande utilisateur — "classement de team (le meilleur de la team ombre etc), on peut
+// voir le classement des joueurs seulement si on est dans la même équipe" : le royaume est dérivé
+// du personnage authentifié (SessionToken+CharacterId), jamais reçu tel quel du client — un
+// membre des Ombres ne peut donc pas demander le classement des Glaces en falsifiant un paramètre.
+app.MapGet("/api/leaderboard/{category}/kingdom", async (LeaderboardCategory category, string sessionToken, Guid characterId, int limit) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(sessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    var leaderboardService = new LeaderboardService(db);
+    var top = await leaderboardService.GetTopByKingdomAsync(category, character.Kingdom, limit <= 0 ? 10 : limit);
     return Results.Ok(top);
 });
 
@@ -1212,10 +1351,68 @@ app.MapGet("/api/items/gatherable", async () =>
     return item is null ? Results.NotFound() : Results.Ok(new ShopItem { ItemId = item.Id, Name = item.Name, Description = item.Description, ItemType = item.ItemType, Rarity = item.Rarity, Price = item.Price });
 });
 
+// Voir GDD/demande utilisateur — "ajoute des bâtiments dans les villes (mine, champs etc) pour
+// avoir des objets" : ressource du Champ (voir WorldMap), pendant du Minerai de fer de la Mine
+// (voir /api/items/gatherable ci-dessus) — identifiée par nom plutôt que "premier Ressource" pour
+// ne pas entrer en collision avec elle.
+app.MapGet("/api/items/gatherable-crop", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var item = await db.Items.FirstOrDefaultAsync(i => i.ItemType == ItemType.Ressource && i.Name == "Blé");
+    return item is null ? Results.NotFound() : Results.Ok(new ShopItem { ItemId = item.Id, Name = item.Name, Description = item.Description, ItemType = item.ItemType, Rarity = item.Rarity, Price = item.Price });
+});
+
 app.MapGet("/api/kingdoms/wars/standings", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     return Results.Ok(await new KingdomWarService(db).GetStandingsAsync());
+});
+
+// Voir GDD/demande utilisateur — bâtiment "Guerre", UI "prêt" : matchmaking contre un personnage
+// d'un AUTRE royaume (voir KingdomWarQueueService) — le combat lui-même est un duel amical 1v1
+// classique (voir CombatService.StartFriendlyTeamDuelAsync), dont la victoire alimente déjà les
+// points de guerre du royaume vainqueur via ApplyArenaResultAsync (aucune logique dupliquée ici).
+app.MapPost("/api/kingdoms/wars/queue", async (QueueForWarRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    var warQueue = app.Services.GetRequiredService<KingdomWarQueueService>();
+    var ticket = new KingdomWarQueueService.WarTicket(character.Id, userId, character.Kingdom);
+    var matched = warQueue.EnqueueAndTryMatch(ticket);
+
+    if (matched is not null)
+    {
+        var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+        var state = await combatService.StartFriendlyTeamDuelAsync([matched[0].CharacterId], [matched[1].CharacterId]);
+        warQueue.RecordMatch(matched.Select(t => t.CharacterId), state.CombatId);
+    }
+
+    return Results.Ok(new { queued = true });
+});
+
+app.MapGet("/api/kingdoms/wars/queue/status", (Guid characterId) =>
+{
+    var warQueue = app.Services.GetRequiredService<KingdomWarQueueService>();
+    return warQueue.TryConsumeMatch(characterId, out var combatId)
+        ? Results.Ok(new ArenaQueueStatus { IsMatched = true, CombatId = combatId })
+        : Results.Ok(new ArenaQueueStatus { IsMatched = false, CombatId = null });
+});
+
+app.MapPost("/api/kingdoms/wars/queue/cancel", (Guid characterId) =>
+{
+    app.Services.GetRequiredService<KingdomWarQueueService>().Cancel(characterId);
+    return Results.Ok();
 });
 
 app.MapPost("/api/kingdoms/wars/resolve", async () =>

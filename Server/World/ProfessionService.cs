@@ -28,19 +28,24 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
             throw new AccountOperationException("Cet objet n'est pas une ressource récoltable.");
         }
 
-        // Voir GDD/demande utilisateur — "guerre de territoire... pour que les joueurs de sa team
-        // puissent aller faire des quêtes de minage" : une mine ne se récolte que par le royaume
-        // qui la contrôle actuellement (voir KingdomWarService.ResolveWeeklyWarAsync).
+        // Voir GDD/demande utilisateur — "si une team va dans la mine d'une autre team pour miner
+        // il gagnera moins et aura moins de chance de drop" : la récolte hors territoire n'est
+        // plus bloquée (comme avant) mais pénalisée — moitié moins de ressources ET une chance sur
+        // deux de ne rien obtenir du tout, plutôt qu'un refus pur et simple.
+        var isForeignTerritory = false;
+        var territoryYieldMultiplier = 1.0;
         if (request.TerritoryId is { } territoryId)
         {
             var territory = await db.Territories.Include(t => t.ControllingKingdom).FirstOrDefaultAsync(t => t.Id == territoryId, ct)
                 ?? throw new AccountOperationException("Territoire introuvable.");
 
-            if (territory.ControllingKingdom?.Type != character.Kingdom)
-            {
-                throw new AccountOperationException(
-                    $"{territory.Name} est actuellement contrôlée par le royaume {territory.ControllingKingdom?.Name ?? "?"} — seuls ses membres peuvent y récolter.");
-            }
+            isForeignTerritory = territory.ControllingKingdom?.Type != character.Kingdom;
+
+            // Voir GDD/demande utilisateur — "le premier gagne 2 bâtiments, le second 1..." :
+            // le bonus de rendement du royaume qui contrôle CE territoire (voir
+            // KingdomEntity.BonusTerritoryCount, KingdomWarService.ResolveWeeklyWarAsync)
+            // s'applique à quiconque y récolte, +10% par palier de bonus.
+            territoryYieldMultiplier = 1.0 + (territory.ControllingKingdom?.BonusTerritoryCount ?? 0) * 0.1;
         }
 
         var profession = await GetOrCreateProfessionAsync(character.Id, request.Profession, ct);
@@ -51,15 +56,28 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
             throw new AccountOperationException($"Il faut encore attendre {Math.Ceiling(remaining.TotalSeconds)}s avant de récolter à nouveau ici.");
         }
 
+        profession.LastGatheredAtUtc = DateTime.UtcNow;
+
+        if (isForeignTerritory && Random.Shared.Next(2) == 0)
+        {
+            await db.SaveChangesAsync(ct);
+            return BuildResponse(profession, leveledUp: false, "Récolte manquée — ce territoire est contrôlé par un royaume rival.");
+        }
+
         var quantity = Math.Clamp(request.Quantity, 1, 10);
+        quantity = Math.Max(1, (int)Math.Round(quantity * territoryYieldMultiplier));
+        if (isForeignTerritory)
+        {
+            quantity = Math.Max(1, quantity / 2);
+        }
+
         await AddToInventoryAsync(character.Id, resourceItem.Id, quantity, ct);
 
         var leveledUp = GrantExperience(profession, quantity * 10);
-        profession.LastGatheredAtUtc = DateTime.UtcNow;
-
         await db.SaveChangesAsync(ct);
 
-        return BuildResponse(profession, leveledUp, $"{quantity}x {resourceItem.Name} récolté(s).");
+        var suffix = isForeignTerritory ? " (rendement réduit — territoire rival)" : "";
+        return BuildResponse(profession, leveledUp, $"{quantity}x {resourceItem.Name} récolté(s){suffix}.");
     }
 
     public async Task<ProfessionActionResponse> CraftAsync(CraftRequest request, CancellationToken ct = default)

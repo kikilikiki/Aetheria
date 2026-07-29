@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Aetheria — Boutique</title>
+<meta name="description" content="Boutique Aetheria : gemmes, grades et pass de personnages supplémentaires." />
+<style>
+  :root {
+    --bg: #0b0c10;
+    --bg-alt: #14151b;
+    --card: #1a1c24;
+    --border: #2a2d38;
+    --text: #e8e8f0;
+    --text-dim: #a0a0b0;
+    --accent: #e0a944;
+    --accent-2: #7fb8e0;
+    --gem: #b98af0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  a { color: var(--accent-2); }
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    background: rgba(11, 12, 16, 0.9);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  header .logo {
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+  }
+
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    margin-left: 24px;
+    font-size: 0.95rem;
+  }
+
+  nav a:hover { color: var(--text); }
+
+  .hero {
+    text-align: center;
+    padding: 72px 24px 48px;
+    background: radial-gradient(circle at 50% 20%, rgba(185, 138, 240, 0.14), transparent 50%);
+  }
+
+  .hero h1 {
+    font-size: clamp(2.2rem, 5vw, 3.2rem);
+    margin: 0 0 12px;
+    letter-spacing: 0.02em;
+  }
+
+  .hero p.tagline {
+    color: var(--text-dim);
+    font-size: 1.1rem;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  .badge {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    background: rgba(224, 169, 68, 0.12);
+    border: 1px solid rgba(224, 169, 68, 0.4);
+    color: var(--accent);
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  section { padding: 48px 24px; max-width: 1100px; margin: 0 auto; }
+
+  section h2 {
+    text-align: center;
+    font-size: 1.8rem;
+    margin-bottom: 8px;
+  }
+
+  section > p.lead {
+    text-align: center;
+    color: var(--text-dim);
+    max-width: 620px;
+    margin: 0 auto 36px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+  }
+
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 1.1rem;
+    color: var(--text);
+  }
+
+  .card .price {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--gem);
+    margin: 8px 0;
+  }
+
+  .card p { color: var(--text-dim); margin: 0; font-size: 0.9rem; }
+
+  .card.soon { opacity: 0.6; }
+
+  .soon-tag {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px 10px;
+  }
+
+  .note-box {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    color: var(--text-dim);
+    font-size: 0.92rem;
+    max-width: 780px;
+    margin: 0 auto;
+  }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 24px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  footer a { color: var(--text-dim); }
+
+  @media (max-width: 560px) {
+    header { padding: 14px 16px; }
+    nav a { margin-left: 14px; font-size: 0.85rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">AETHERIA</div>
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="index.html#telecharger">Télécharger</a>
+    <a href="boutique.html">Boutique</a>
+  </nav>
+</header>
+
+<div class="hero">
+  <h1>Boutique</h1>
+  <p class="tagline">
+    Les gemmes sont la monnaie premium d'Aetheria : obtenues contre de l'argent réel, elles
+    permettent d'acheter des grades cosmétiques et des emplacements de personnage
+    supplémentaires. Aucun objet payant ne donne d'avantage décisif en combat.
+  </p>
+  <span class="badge">Paiement en argent réel — bientôt disponible</span>
+</div>
+
+<section>
+  <h2>Packs de gemmes</h2>
+  <p class="lead">
+    L'achat de gemmes avec de l'argent réel n'est pas encore ouvert — cette section sera
+    activée dès qu'une passerelle de paiement sera branchée. En attendant, des gemmes peuvent
+    être obtenues en jeu en convertissant des pièces (100 000 000 pièces &rarr; 10 gemmes).
+  </p>
+  <div class="grid">
+    <div class="card soon">
+      <span class="soon-tag">Bientôt</span>
+      <h3>Petit pack</h3>
+      <p class="price">10 gemmes</p>
+      <p>Idéal pour débloquer votre premier palier de grade.</p>
+    </div>
+    <div class="card soon">
+      <span class="soon-tag">Bientôt</span>
+      <h3>Pack moyen</h3>
+      <p class="price">30 gemmes</p>
+      <p>De quoi cumuler grade et pass de personnage.</p>
+    </div>
+    <div class="card soon">
+      <span class="soon-tag">Bientôt</span>
+      <h3>Grand pack</h3>
+      <p class="price">75 gemmes</p>
+      <p>Pour les joueurs qui veulent tout débloquer d'un coup.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Grades (cosmétique)</h2>
+  <p class="lead">
+    Un tag de couleur dans le tchat et un petit bonus symbolique de gain d'expérience et
+    d'or — jamais d'avantage en combat.
+  </p>
+  <div class="grid">
+    <div class="card">
+      <h3>Palier 1</h3>
+      <p class="price">5 gemmes</p>
+      <p>+0.1% d'expérience et d'or gagnés.</p>
+    </div>
+    <div class="card">
+      <h3>Palier 2</h3>
+      <p class="price">10 gemmes</p>
+      <p>+0.2% d'expérience et d'or gagnés (cumulatif, remplace le palier 1).</p>
+    </div>
+    <div class="card">
+      <h3>Palier 3</h3>
+      <p class="price">20 gemmes</p>
+      <p>+0.3% d'expérience et d'or gagnés (cumulatif, remplace le palier 2).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Pass de personnage supplémentaire</h2>
+  <p class="lead">
+    Chaque compte peut créer 2 personnages de base. Ces pass augmentent cette limite.
+  </p>
+  <div class="grid">
+    <div class="card">
+      <h3>Pass I</h3>
+      <p class="price">5 gemmes</p>
+      <p>3 personnages au total.</p>
+    </div>
+    <div class="card">
+      <h3>Pass II</h3>
+      <p class="price">10 gemmes</p>
+      <p>4 personnages au total.</p>
+    </div>
+    <div class="card">
+      <h3>Pass III</h3>
+      <p class="price">20 gemmes</p>
+      <p>6 personnages au total.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="note-box">
+    Les grades et pass de personnage s'achètent directement en jeu (bouton <strong>GEMMES</strong>
+    en haut à droite de l'écran) une fois vos gemmes obtenues. Le compte Fondateur possède le
+    palier maximum des deux sans dépenser de gemmes.
+  </div>
+</section>
+
+<footer>
+  <p>&copy; 2026 Aetheria. Tous droits réservés.</p>
+  <p>Aetheria est un projet personnel en développement, sans lien avec une société commerciale.</p>
+  <p>
+    <a href="https://github.com/kikilikiki/Aetheria">Code source sur GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="conditions-generales.html">Conditions générales d'utilisation</a>
+  </p>
+</footer>
+
+</body>
+</html>

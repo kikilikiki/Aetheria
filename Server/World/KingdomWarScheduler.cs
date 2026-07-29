@@ -6,11 +6,12 @@ using Microsoft.Extensions.Logging;
 namespace Aetheria.Server.World;
 
 /// <summary>
-/// Voir GDD/demande utilisateur — "ajoute un système de guerre de territoire et le gagnant gagne
-/// du territoire" : <see cref="KingdomWarService.ResolveWeeklyWarAsync"/> existait déjà mais
-/// n'était déclenché par personne (il fallait appeler l'endpoint à la main). Résout
-/// automatiquement une fois par semaine ISO (année+numéro de semaine), même mécanique de fichier
-/// témoin qu'un <see cref="DigestScheduler"/> pour éviter une double résolution au redémarrage.
+/// Voir GDD/demande utilisateur — "la guerre des territoires doit être tous les samedis" :
+/// <see cref="KingdomWarService.ResolveWeeklyWarAsync"/> existait déjà mais se déclenchait au
+/// premier changement de semaine ISO (n'importe quel jour) plutôt qu'un jour précis. Résout
+/// désormais uniquement le samedi (UTC), même mécanique de fichier témoin qu'un
+/// <see cref="DigestScheduler"/> pour éviter une double résolution au redémarrage/à chaque
+/// vérification dans la même journée.
 /// </summary>
 public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbContextFactory, ILogger<KingdomWarScheduler> logger)
 {
@@ -43,6 +44,11 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
     private async Task ResolveIfDueAsync(CancellationToken ct)
     {
         var now = DateTime.UtcNow;
+        if (now.DayOfWeek != DayOfWeek.Saturday)
+        {
+            return;
+        }
+
         var calendar = System.Globalization.CultureInfo.InvariantCulture.Calendar;
         var currentWeekBucket = $"{now.Year}-W{calendar.GetWeekOfYear(now, System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Monday):00}";
         var lastResolvedWeekBucket = File.Exists(StatePath) ? (await File.ReadAllTextAsync(StatePath, ct)).Trim() : null;
@@ -54,7 +60,7 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
 
         await using var db = await dbContextFactory.CreateDbContextAsync(ct);
         var message = await new KingdomWarService(db).ResolveWeeklyWarAsync(ct);
-        logger.LogInformation("Guerre de royaumes résolue automatiquement : {Message}", message);
+        logger.LogInformation("Guerre de royaumes résolue automatiquement (samedi) : {Message}", message);
 
         await File.WriteAllTextAsync(StatePath, currentWeekBucket, ct);
     }

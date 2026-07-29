@@ -25,6 +25,18 @@ public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tok
             throw new AccountOperationException("Ce nom de personnage est déjà pris.");
         }
 
+        // Voir GDD/demande utilisateur — "limite le nombre de personnages par personne à 2" +
+        // pass payants en gemmes pour l'augmenter (voir PremiumService) ; le Fondateur n'a aucune
+        // limite.
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new AccountOperationException("Compte introuvable.");
+        var existingCount = await db.Characters.CountAsync(c => c.UserId == userId, ct);
+        var maxCharacters = PremiumService.MaxCharacters(user);
+        if (existingCount >= maxCharacters)
+        {
+            throw new AccountOperationException($"Limite de personnages atteinte ({maxCharacters}). Achetez un pass d'emplacement supplémentaire dans la boutique pour en créer davantage.");
+        }
+
         var character = new CharacterEntity
         {
             Id = Guid.NewGuid(),

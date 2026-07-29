@@ -24,4 +24,12 @@ public static class GameInfo
 
     /// <summary>Délai avant de résoudre automatiquement un butin non entièrement réclamé (voir GDD/demande utilisateur — "timer de 10 secondes pour le choix des gains"), en secondes.</summary>
     public const int LootChoiceTimeoutSeconds = 10;
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "une page A propos avec un bouton pour aller sur les CGU
+    /// du site" (voir Launcher, panneau À propos). Le site n'est pas encore déployé sur un nom
+    /// de domaine dédié (voir Sites/README.md) — pointe vers le fichier réel du dépôt GitHub en
+    /// attendant, à mettre à jour dès que le site a une adresse propre.
+    /// </summary>
+    public const string TermsOfServiceUrl = "https://github.com/kikilikiki/Aetheria/blob/main/Sites/conditions-generales.html";
 }

@@ -30,6 +30,21 @@ public sealed class UserEntity
     public string? LastKnownIp { get; set; }
 
     /// <summary>
+    /// Monnaie premium (voir GDD/demande utilisateur — "shop avec des gems, si les personnes
+    /// payent avec de l'argent réel on peut obtenir des gems"). Créditée pour le moment
+    /// uniquement manuellement par le Fondateur (voir <c>/givegems</c>, PlayerSession) ou par
+    /// conversion de pièces (voir <see cref="PremiumService.GoldPerGemBlock"/>) — aucune vraie
+    /// passerelle de paiement n'est encore branchée (voir GDD, "bloque la page pour le moment").
+    /// </summary>
+    public long Gems { get; set; }
+
+    /// <summary>Palier de grade payant possédé (0 = aucun, 1 à 3 — voir <see cref="PremiumService"/>) : bonus cosmétique + petit boost XP/or. Le Fondateur a toujours le palier maximum sans dépenser de gemmes.</summary>
+    public int PremiumGradeTier { get; set; }
+
+    /// <summary>Palier de pass "emplacement de personnage" acheté (0 à 3 — voir <see cref="PremiumService"/>) : détermine le nombre maximum de personnages autorisés. Le Fondateur n'a aucune limite quel que soit ce palier.</summary>
+    public int CharacterSlotTier { get; set; }
+
+    /// <summary>
     /// Suppression douce : le compte est masqué (connexion refusée) mais conservé en base pour
     /// permettre une restauration réelle par un administrateur (voir <c>Docs/GameDesign.md</c> —
     /// "restaurer un compte").

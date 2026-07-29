@@ -246,6 +246,73 @@ public static class MonsterCatalogSeeder
                 ItemType = ItemType.Armure, Rarity = Rarity.Commun, IsStackable = false, MaxStackSize = 1, Price = 100,
                 StatBonus = new StatBlock(0, 0, 6, 0, 0, 0),
             },
+            // Voir GDD/demande utilisateur — "ajoute des item dans le shop" : élargit le catalogue
+            // de départ (3 objets) avec des consommables/équipements de milieu de partie.
+            new()
+            {
+                Name = "Grande potion de soin", Description = "Restaure une grande partie des points de vie en combat.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.PeuCommun, IsStackable = true, MaxStackSize = 20, Price = 60,
+            },
+            new()
+            {
+                Name = "Antidote", Description = "Neutralise les effets d'un poison.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Commun, IsStackable = true, MaxStackSize = 20, Price = 20,
+            },
+            new()
+            {
+                Name = "Sphère de capture renforcée", Description = "Meilleures chances de capture qu'une sphère standard.",
+                ItemType = ItemType.ObjetDeCapture, Rarity = Rarity.PeuCommun, IsStackable = true, MaxStackSize = 20, Price = 80,
+            },
+            new()
+            {
+                Name = "Hache de guerre", Description = "Une arme lourde qui favorise la puissance brute.",
+                ItemType = ItemType.Arme, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 220,
+                StatBonus = new StatBlock(0, 12, -2, -1, 0, 0),
+            },
+            new()
+            {
+                Name = "Arc en bois renforcé", Description = "Une arme de tir adaptée aux archers.",
+                ItemType = ItemType.Arme, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 200,
+                StatBonus = new StatBlock(0, 9, 0, 2, 0, 0),
+            },
+            new()
+            {
+                Name = "Bâton d'apprenti", Description = "Un bâton qui canalise l'intelligence de son porteur.",
+                ItemType = ItemType.Arme, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 200,
+                StatBonus = new StatBlock(0, 3, 0, 0, 9, 0),
+            },
+            new()
+            {
+                Name = "Armure de plates", Description = "Une lourde protection en acier.",
+                ItemType = ItemType.Armure, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 240,
+                StatBonus = new StatBlock(10, 0, 12, -2, 0, 0),
+            },
+            new()
+            {
+                Name = "Robe d'enchanteur", Description = "Un vêtement léger qui renforce la résistance magique.",
+                ItemType = ItemType.Armure, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 200,
+                StatBonus = new StatBlock(0, 0, 3, 0, 4, 6),
+            },
+            new()
+            {
+                Name = "Anneau de vitalité", Description = "Un anneau simple qui renforce l'endurance de la créature.",
+                ItemType = ItemType.Accessoire, Rarity = Rarity.Commun, IsStackable = false, MaxStackSize = 1, Price = 150,
+                StatBonus = new StatBlock(15, 0, 0, 0, 0, 0),
+            },
+            new()
+            {
+                Name = "Amulette de vitesse", Description = "Une amulette qui aiguise les réflexes.",
+                ItemType = ItemType.Accessoire, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 180,
+                StatBonus = new StatBlock(0, 0, 0, 6, 0, 0),
+            },
+            // Voir GDD/demande utilisateur — "ajoute des bâtiments dans les villes (mine, champs
+            // etc) pour avoir des objets" : ressource récoltée au Champ (voir WorldMap, métier
+            // Agriculteur), pendant du Minerai de fer pour la Mine.
+            new()
+            {
+                Name = "Blé", Description = "Récolté aux champs — utilisé par les cuisiniers et alchimistes.",
+                ItemType = ItemType.Ressource, Rarity = Rarity.Commun, IsStackable = true, MaxStackSize = 99, Price = 5,
+            },
         };
 
         var missingShopItems = wantedShopItems.Where(i => !existingItemNames.Contains(i.Name)).ToList();

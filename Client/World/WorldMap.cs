@@ -75,12 +75,14 @@ public sealed class WorldMap
         var pension = (X: size / 2 + 3, Y: size / 2 - 4);
         var mine = (X: size / 2 - 8, Y: size / 2 + 3);
         var shop = (X: auctionHouse.X + 3, Y: auctionHouse.Y + 2);
+        var field = (X: village.X - 4, Y: village.Y + 5);
+        var warRoom = (X: guild.X + 3, Y: guild.Y - 3);
 
         SpawnPosition = (capital.X, capital.Y + 2);
         DungeonEntrance = (size - 4, size - 4);
 
         var pathTiles = new HashSet<(int X, int Y)>();
-        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, mine, shop, DungeonEntrance })
+        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, mine, shop, field, warRoom, DungeonEntrance })
         {
             MarkPath(pathTiles, capital, target);
         }
@@ -124,6 +126,15 @@ public sealed class WorldMap
             // vendre au lieu de l'UI Boutique en haut à droite" : bâtiment dédié à la Marchande
             // plutôt qu'un simple raccourci clavier/HUD.
             new Building("Boutique", shop.X, shop.Y, 1.3f, new Vector4(0.55f, 0.42f, 0.2f, 1f) * tint, new Vector4(0.35f, 0.25f, 0.1f, 1f) * tint, new Vector4(0.7f, 0.55f, 0.3f, 1f) * tint),
+            // Voir GDD/demande utilisateur — "guerre de territoire... des bâtiments (mine, champs
+            // etc)" : même mécanique de capture/contrôle que la Mine (nom propre au royaume, voir
+            // KingdomBiome.FieldName, mêmes noms que TerritorySeeder.cs).
+            new Building(biome.FieldName, field.X, field.Y, 1.2f, new Vector4(0.78f, 0.68f, 0.28f, 1f) * tint, new Vector4(0.5f, 0.42f, 0.16f, 1f) * tint, new Vector4(0.85f, 0.78f, 0.4f, 1f) * tint),
+            // Voir GDD/demande utilisateur — "il y a un bâtiment nommé Guerre où on rentre dedans,
+            // ça nous met une UI pour dire quand on est prêt" : rouge sang plutôt que teinté par
+            // royaume (repère facile à trouver, comme le Téléporteur), pas de contrôle de
+            // territoire pour ce bâtiment lui-même (c'est la porte d'entrée du matchmaking).
+            new Building("Guerre", warRoom.X, warRoom.Y, 1.4f, new Vector4(0.62f, 0.18f, 0.16f, 1f), new Vector4(0.38f, 0.1f, 0.08f, 1f), new Vector4(0.78f, 0.3f, 0.26f, 1f)),
         ];
 
         Npcs =

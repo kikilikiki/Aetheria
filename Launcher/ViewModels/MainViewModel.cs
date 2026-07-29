@@ -233,6 +233,28 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
 
+    // Voir GDD/demande utilisateur — "une page sur le launcher avec un i pour accéder au à
+    // propos, avec un bouton pour aller sur les CGU du site" + crédits.
+    [ObservableProperty]
+    private bool _isAboutOpen;
+
+    [RelayCommand]
+    private void ToggleAbout() => IsAboutOpen = !IsAboutOpen;
+
+    [RelayCommand]
+    private void OpenTermsOfService()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(GameInfo.TermsOfServiceUrl) { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // Pas de navigateur par défaut configuré sur cette machine — rien de plus à faire,
+            // l'utilisateur reste sur le panneau À propos.
+        }
+    }
+
     // Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
     [ObservableProperty]
     private bool _isLeaderboardOpen;
