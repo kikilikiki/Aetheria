@@ -11,8 +11,8 @@ public enum UserRank
 {
     Joueur,
     VIP,
-    Ami,
     Testeur,
+    Ami,
     Moderateur,
     Fondateur,
 }

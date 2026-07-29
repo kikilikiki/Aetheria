@@ -46,4 +46,11 @@ public sealed class Combatant
     public Guid? OwnerCharacterId { get; init; }
 
     public bool IsAlive => CurrentHealth > 0;
+
+    /// <summary>
+    /// Nombre de tours (propres à ce combattant) restants avant de pouvoir réutiliser sa capacité
+    /// spéciale (voir GDD/demande utilisateur — "ajoute un cooldown pour le spécial") : décrémenté
+    /// à chaque fois que c'est de nouveau son tour (<see cref="CombatEngine.AdvanceTurn"/>).
+    /// </summary>
+    public int SpecialAbilityCooldownRemaining { get; set; }
 }

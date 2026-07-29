@@ -46,11 +46,11 @@ public sealed class CharacterApiClient : IDisposable
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions, ct);
             return new CreateCharacterResult(false, null, error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
         }
 
-        var body = await response.Content.ReadFromJsonAsync<CharacterSummary>(cancellationToken: ct);
+        var body = await response.Content.ReadFromJsonAsync<CharacterSummary>(JsonOptions, ct);
         return new CreateCharacterResult(true, body, null);
     }
 

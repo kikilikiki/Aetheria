@@ -739,7 +739,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         CombatSession.GridWidth,
         CombatSession.GridHeight,
         session.Combatants
-            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element))
+            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining))
             .ToList(),
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,

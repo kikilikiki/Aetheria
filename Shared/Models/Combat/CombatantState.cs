@@ -21,4 +21,6 @@ public sealed record CombatantState(
     /// <summary>Voir GDD — couleur en combat selon le type (soigneur/guerrier/archer).</summary>
     MonsterType Type = MonsterType.Guerrier,
     /// <summary>Voir GDD — avantages/faiblesses de type.</summary>
-    Element Element = Element.Neutre);
+    Element Element = Element.Neutre,
+    /// <summary>Voir GDD/demande utilisateur — "cooldown pour le spécial" : 0 si utilisable ce tour-ci.</summary>
+    int SpecialAbilityCooldownRemaining = 0);

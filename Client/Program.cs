@@ -326,6 +326,16 @@ host.Update += deltaTime =>
     mouse.Update();
     animationClock += deltaTime;
 
+    // Voir GDD/demande utilisateur — "quand on appuie sur les touches ça s'affiche aussi dans
+    // le tchat même s'il n'est pas ouvert" : les touches de déplacement produisent aussi des
+    // évènements de saisie de texte, purgés uniquement par les panneaux qui en ont besoin (tchat,
+    // création de personnage, etc.) via KeyboardState.DrainTypedChars. Le try/finally garantit
+    // que la file est bien vidée à chaque frame malgré les nombreux "return" anticipés ci-dessous
+    // (un seul scénario/panneau est mis à jour par frame), sans quoi les touches tapées pendant
+    // le jeu s'accumulaient indéfiniment puis se déversaient d'un coup à l'ouverture du tchat.
+    try
+    {
+
     // F9 : cycle la préférence de disposition clavier (Auto -> QWERTY -> AZERTY -> Auto),
     // disponible partout et persistée pour que le Launcher la reflète aussi (voir GDD).
     if (keyboard.WasJustPressed(Key.F9))
@@ -535,6 +545,16 @@ host.Update += deltaTime =>
         else if (keyboard.WasJustPressed(Key.S) || keyboard.WasJustPressed(Key.Down)) dy = 1;
         else if (keyboard.WasJustPressed(Key.A) || keyboard.WasJustPressed(Key.Left)) dx = -1;
         else if (keyboard.WasJustPressed(Key.D) || keyboard.WasJustPressed(Key.Right)) dx = 1;
+        else if (!isAwaitingServerStep && moveQueue.Count == 0)
+        {
+            // Voir GDD/demande utilisateur — "rester appuyé pour se déplacer" : une fois la case
+            // en cours confirmée/animée (voir plus bas), enchaîne automatiquement tant que la
+            // touche reste enfoncée, au même rythme qu'un appui répété.
+            if (keyboard.IsDown(Key.W) || keyboard.IsDown(Key.Up)) dy = -1;
+            else if (keyboard.IsDown(Key.S) || keyboard.IsDown(Key.Down)) dy = 1;
+            else if (keyboard.IsDown(Key.A) || keyboard.IsDown(Key.Left)) dx = -1;
+            else if (keyboard.IsDown(Key.D) || keyboard.IsDown(Key.Right)) dx = 1;
+        }
 
         if (dx != 0 || dy != 0)
         {
@@ -633,6 +653,11 @@ host.Update += deltaTime =>
                 }
                 break;
         }
+    }
+    }
+    finally
+    {
+        keyboard.DiscardTypedChars();
     }
 };
 
@@ -890,7 +915,7 @@ static (string Title, string[] Lines)[] TutorialPages() =>
     ]),
     ("PANNEAUX EN JEU",
     [
-        "I : Inventaire   M : Montres   P : Groupe",
+        "I : Inventaire   M : Monstres   P : Groupe",
         "G : Guilde   B : Boutique   V : Arène classée",
         "Ou cliquez les boutons en haut à droite de l'écran.",
     ]),
@@ -1454,7 +1479,7 @@ async Task LoadMonstersAsync()
 }
 
 /// <summary>
-/// Ouvre un panneau en jeu (voir GDD — boutons Inventaire/Guilde/Boutique/Groupe/Arène/Montres) :
+/// Ouvre un panneau en jeu (voir GDD — boutons Inventaire/Guilde/Boutique/Groupe/Arène/Monstres) :
 /// partagé entre les raccourcis clavier (I/G/B/P/V/M) et les boutons cliquables du HUD (voir
 /// <see cref="DrawOutdoorHudButtons"/>) pour ne pas dupliquer la logique d'ouverture/chargement.
 /// </summary>
@@ -1613,7 +1638,7 @@ void UpdatePartyPanel()
 }
 
 /// <summary>
-/// Panneau Montres (touche M) : liste des créatures possédées, niveau/XP, et un mode "donner un
+/// Panneau Monstres (touche M) : liste des créatures possédées, niveau/XP, et un mode "donner un
 /// objet" qui consomme un objet d'inventaire contre de l'XP (voir GDD — UI de gestion des
 /// montres). **Simplification assumée** : tout objet donne le même montant d'XP fixe, voir
 /// <c>MonsterCareService</c> côté serveur.
@@ -2822,7 +2847,7 @@ void DrawOutdoorHudButtons(int w, int h)
     (string Label, PanelKind Kind)[] buttons =
     [
         ("INVENTAIRE (I)", PanelKind.Inventory),
-        ("MONTRES (M)", PanelKind.Monsters),
+        ("MONSTRES (M)", PanelKind.Monsters),
         ("GROUPE (P)", PanelKind.Party),
         ("GUILDE (G)", PanelKind.Guild),
         ("BOUTIQUE (B)", PanelKind.Shop),
@@ -2993,7 +3018,7 @@ void DrawMonstersPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.4f, 0.75f, 0.5f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONTRES", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONSTRES", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
 
     if (!monstersLoaded)
     {
@@ -3744,6 +3769,14 @@ void DrawCombat()
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 150f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         }
 
+        // Voir GDD/demande utilisateur — "un petit texte pour dire à qui est le tour".
+        if (combatState.Combatants.FirstOrDefault(c => c.Id == combatState.CurrentTurnCombatantId) is { } turnOwner)
+        {
+            var turnLabel = turnOwner.Team == 0 ? $"Tour de {turnOwner.Name} (vous)" : $"Tour de {turnOwner.Name}";
+            var turnColor = turnOwner.Team == 0 ? new Vector4(0.55f, 0.85f, 0.6f, 1f) : new Vector4(0.9f, 0.6f, 0.55f, 1f);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, turnLabel, new Vector2(w / 2f, h - 195f), 1.8f, turnColor);
+        }
+
         // Compte à rebours du tour (voir GDD/demande utilisateur — "timer de 10 secondes entre
         // chaque tour") : approximatif côté client (horloges non synchronisées avec le serveur,
         // qui fait foi et passe réellement le tour au-delà du délai), mais suffisant pour donner
@@ -3762,6 +3795,13 @@ void DrawCombat()
                 var current = combatState.Combatants.First(c => c.Id == combatState.CurrentTurnCombatantId);
                 var isImmediateAbility = current.Type == MonsterType.Soigneur;
 
+                // Voir GDD/demande utilisateur — "cooldown pour le spécial" : affiché sur le
+                // bouton lui-même plutôt qu'à part, le serveur reste seul juge (rejette l'action
+                // si on clique quand même, message affiché normalement via combatMessage).
+                var abilityLabel = current.SpecialAbilityCooldownRemaining > 0
+                    ? $"4:CAPACITE ({current.SpecialAbilityCooldownRemaining})"
+                    : "4:CAPACITE";
+
                 // Boutons cliquables (voir retour utilisateur — "on doit pouvoir cliquer pour
                 // faire les actions") en plus des raccourcis clavier 1-6, toujours actifs.
                 List<(string Label, CombatActionType Action)> actionButtons =
@@ -3769,7 +3809,7 @@ void DrawCombat()
                     ("1:DEPLACER", CombatActionType.Move),
                     ("2:ATTAQUER", CombatActionType.Attack),
                     ("3:PASSER", CombatActionType.Pass),
-                    ("4:CAPACITE", CombatActionType.SpecialAbility),
+                    (abilityLabel, CombatActionType.SpecialAbility),
                 ];
 
                 if (captureSphereItemId is not null)
