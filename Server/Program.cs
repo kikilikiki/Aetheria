@@ -125,6 +125,17 @@ _ = GitChangelogAnnouncer.LogNewCommitsAsync(app.Logger);
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
 
+// Voir GDD/demande utilisateur — "mise à jour obligatoire du Launcher" : sert le même paquet que
+// le site (Payload Launcher+Client en Release) pour que le Launcher puisse se mettre à jour tout
+// seul au lieu de se contenter de bloquer JOUER en renvoyant vers un téléchargement manuel.
+app.MapGet("/api/updates/launcher-package", (IWebHostEnvironment env) =>
+{
+    var path = Path.Combine(env.ContentRootPath, "Sites", "downloads", "AetheriaSetup.zip");
+    return File.Exists(path)
+        ? Results.File(path, "application/zip", "AetheriaSetup.zip")
+        : Results.NotFound();
+});
+
 app.MapPost("/api/account/register", async (RegisterRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();

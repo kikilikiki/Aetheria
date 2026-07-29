@@ -922,7 +922,7 @@ static (string Title, string[] Lines)[] TutorialPages() =>
     ("COMBAT",
     [
         "Choisissez une action : 1 Déplacer, 2 Attaquer,",
-        "3 Passer, 4 Capturer (avec une Sphère de capture).",
+        "3 Passer, 4 Capturer (avec une Carte de capture).",
         "Visez avec les flèches + Entrée, ou cliquez",
         "directement une case en surbrillance sur la grille.",
     ]),

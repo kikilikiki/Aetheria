@@ -60,7 +60,17 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _serverVersion;
 
-    /// <summary>Le gros bouton du bas est soit JOUER, soit METTRE À JOUR — jamais les deux (voir GDD).</summary>
+    /// <summary>Voir GDD/demande utilisateur — "mise à jour en cours (14%)" : vrai pendant le téléchargement/application de la mise à jour (voir <see cref="UpdateAsync"/>).</summary>
+    [ObservableProperty]
+    private bool _isUpdating;
+
+    [ObservableProperty]
+    private int _updateProgressPercent;
+
+    /// <summary>Texte du bouton de mise à jour (voir GDD/demande utilisateur — "Mise à jour / Mise à jour en cours (14%) / Jouer").</summary>
+    public string UpdateButtonText => IsUpdating ? $"Mise à jour en cours ({UpdateProgressPercent}%)" : "Mise à jour";
+
+    /// <summary>Le gros bouton du bas est soit JOUER, soit MISE À JOUR — jamais les deux (voir GDD).</summary>
     public bool ShowPlayButton => IsLoggedIn && !IsUpdateAvailable;
     public bool ShowUpdateButton => IsLoggedIn && IsUpdateAvailable;
 
@@ -407,6 +417,42 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     partial void OnSessionTokenChanged(string? value) => PlayCommand.NotifyCanExecuteChanged();
+
+    private bool CanUpdate() => !IsUpdating;
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "obligé de faire la dernière mise à jour pour lancer le
+    /// jeu" : télécharge et applique le paquet servi par le serveur (voir
+    /// <see cref="SelfUpdateService"/>), puis ferme ce Launcher — le script détaché le relance
+    /// une fois les fichiers remplacés.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanUpdate))]
+    private async Task Update()
+    {
+        IsUpdating = true;
+        UpdateProgressPercent = 0;
+        StatusMessage = null;
+
+        var progress = new Progress<int>(p => UpdateProgressPercent = p);
+        var error = await SelfUpdateService.DownloadAndApplyAsync(ServerHost, GameInfo.DefaultAccountApiPort, progress);
+
+        if (error is not null)
+        {
+            IsUpdating = false;
+            StatusMessage = error;
+            return;
+        }
+
+        System.Windows.Application.Current.Shutdown();
+    }
+
+    partial void OnIsUpdatingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(UpdateButtonText));
+        UpdateCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnUpdateProgressPercentChanged(int value) => OnPropertyChanged(nameof(UpdateButtonText));
 
     /// <summary>Revérifie si le Launcher peut jouer dès que la disponibilité d'une mise à jour change (voir GDD — bloquer "Jouer" tant qu'une mise à jour est disponible).</summary>
     partial void OnIsUpdateAvailableChanged(bool value)
