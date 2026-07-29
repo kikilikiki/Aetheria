@@ -400,6 +400,12 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> LevelUpMonsterAsync(string sessionToken, Guid monsterId, int levels, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/level-up-monster", new AdminLevelUpMonsterRequest { SessionToken = sessionToken, MonsterId = monsterId, Levels = levels }, ct);
 
+    public async Task<AdminGameActionResponse> BanPlayerAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/ban", new AdminBanRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
+
+    public async Task<AdminGameActionResponse> TransformPlayerAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/transform", new AdminTransformRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, DurationSeconds = 60 }, ct);
+
     private async Task<AdminGameActionResponse> PostAdminActionAsync<TRequest>(string url, TRequest request, CancellationToken ct)
     {
         var response = await _http.PostAsJsonAsync(url, request, JsonOptions, ct);

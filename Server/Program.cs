@@ -1592,6 +1592,68 @@ app.MapPost("/api/admin/game/toggle-admin", async (AdminToggleAdminRequest reque
     });
 });
 
+// Voir GDD/demande utilisateur — "il n'y a pas la touche pour les admin abuse et faire des choses
+// (kick/ban/transformer en panneau etc) réservé au fonda et au admin" : le kick existait déjà
+// (EXPULSER), ceci ajoute le bannissement complet du compte depuis le panel en jeu (même logique
+// que la commande de tchat <c>/ban</c>, voir PlayerSession.HandleChatCommand, exposée ici via HTTP
+// pour le panel F2 plutôt que dupliquée).
+app.MapPost("/api/admin/game/ban", async (AdminBanRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target?.User is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    target.User.IsBanned = true;
+    target.User.BanReason = string.IsNullOrWhiteSpace(request.Reason) ? "Banni via le panel admin en jeu." : request.Reason;
+    await db.SaveChangesAsync();
+
+    // Voir GDD/demande utilisateur — un compte banni doit aussi être déconnecté immédiatement
+    // (le /ban de tchat, lui, ne le faisait pas — voir Docs/README.md sur cette limite).
+    app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterName(request.TargetCharacterName)?.Kick();
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a été banni." });
+});
+
+// Voir GDD/demande utilisateur — "transformer en panneau" ciblé sur un seul joueur (par
+// opposition au mode panneau global existant, voir /api/admin/game/sign-mode) : réutilise le même
+// AdminEffectPacket/AdminEffectKind.SignMode côté client (aucun changement client nécessaire),
+// envoyé uniquement à la session visée plutôt que diffusé à tout le monde.
+app.MapPost("/api/admin/game/transform", async (AdminTransformRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var session = app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterName(request.TargetCharacterName);
+    if (session is null)
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = false, Message = "Ce joueur n'est pas connecté." });
+    }
+
+    var duration = Math.Clamp(request.DurationSeconds, 5, 3600);
+    session.SendPacket(new AdminEffectPacket { Kind = AdminEffectKind.SignMode, DurationSeconds = duration });
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} transformé en panneau pour {duration}s." });
+});
+
 // Voir GDD/demande utilisateur — "ajoute au admin la possibilité d'augmenter le niveau de ces
 // monstres" : agit directement sur MonsterEntity.Level, sans passer par la courbe d'XP normale.
 app.MapPost("/api/admin/game/level-up-monster", async (AdminLevelUpMonsterRequest request) =>

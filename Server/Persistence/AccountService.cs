@@ -1,5 +1,6 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 using Microsoft.EntityFrameworkCore;
 
@@ -72,6 +73,17 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
         if (user.IsBanned)
         {
             throw new AccountOperationException($"Compte banni : {user.BanReason ?? "aucune raison fournie"}.");
+        }
+
+        // Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le
+        // serveur de dev mais seul moi peut accéder au serveur de dev et les autres accès à la
+        // prod" : quand cette variable d'environnement est activée (mise en place seulement sur
+        // l'instance dev, jamais sur la prod), seuls les comptes admin/Fondateur peuvent s'y
+        // connecter — tout le monde d'autre est redirigé implicitement vers la prod.
+        if (string.Equals(Environment.GetEnvironmentVariable("AETHERIA_RESTRICT_ACCESS"), "true", StringComparison.OrdinalIgnoreCase)
+            && !user.IsAdmin && user.Rank != UserRank.Fondateur)
+        {
+            throw new AccountOperationException("Ce serveur est réservé à l'administrateur. Utilisez le serveur habituel.");
         }
 
         if (!string.IsNullOrWhiteSpace(remoteIp))
