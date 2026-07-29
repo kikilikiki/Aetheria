@@ -25,8 +25,14 @@ public static class TerritorySeeder
             new TerritoryEntity { Name = "Mine de Braise", TerritoryType = TerritoryType.Mine, ControllingKingdomId = kingdoms[KingdomType.Feu].Id },
             new TerritoryEntity { Name = "Village d'Ignaria", TerritoryType = TerritoryType.Village, ControllingKingdomId = kingdoms[KingdomType.Feu].Id },
             new TerritoryEntity { Name = "Fort de Sylvandre", TerritoryType = TerritoryType.Fort, ControllingKingdomId = kingdoms[KingdomType.Nature].Id },
+            // Voir GDD/demande utilisateur — "guerre de territoire... pour que les joueurs de sa
+            // team puissent aller faire des quêtes de minage" : une mine par royaume, pour que la
+            // mécanique (voir ProfessionService.GatherAsync — accès réservé au royaume contrôleur)
+            // s'applique de façon symétrique aux 4 royaumes, pas seulement Feu/Glaces.
+            new TerritoryEntity { Name = "Mine de Sylvandre", TerritoryType = TerritoryType.Mine, ControllingKingdomId = kingdoms[KingdomType.Nature].Id },
             new TerritoryEntity { Name = "Mine de Frimavel", TerritoryType = TerritoryType.Mine, ControllingKingdomId = kingdoms[KingdomType.Glaces].Id },
-            new TerritoryEntity { Name = "Village de Nocturne", TerritoryType = TerritoryType.Village, ControllingKingdomId = kingdoms[KingdomType.Ombres].Id });
+            new TerritoryEntity { Name = "Village de Nocturne", TerritoryType = TerritoryType.Village, ControllingKingdomId = kingdoms[KingdomType.Ombres].Id },
+            new TerritoryEntity { Name = "Mine des Ombres", TerritoryType = TerritoryType.Mine, ControllingKingdomId = kingdoms[KingdomType.Ombres].Id });
 
         await db.SaveChangesAsync(ct);
     }

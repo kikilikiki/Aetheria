@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aetheria.Shared;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
@@ -317,6 +318,48 @@ public sealed class GameDataApiClient : IDisposable
             CharacterId = characterId,
             QuestName = questName,
         }, JsonOptions, ct);
+    }
+
+    public async Task<List<KingdomData>> GetKingdomsAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<KingdomData>>("/api/kingdoms", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "guerre de territoire... quêtes de minage".</summary>
+    public async Task<List<TerritorySummary>> GetTerritoriesAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<TerritorySummary>>("/api/territories", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<List<KingdomWarStanding>> GetWarStandingsAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<KingdomWarStanding>>("/api/kingdoms/wars/standings", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<ShopItem?> GetGatherableItemAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<ShopItem>("/api/items/gatherable", JsonOptions, ct);
+
+    public async Task<ProfessionActionResponse?> GatherAsync(string sessionToken, Guid characterId, int resourceItemId, int territoryId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/professions/gather", new GatherRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            Profession = ProfessionType.Mineur,
+            ResourceItemId = resourceItemId,
+            TerritoryId = territoryId,
+        }, JsonOptions, ct);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return await response.Content.ReadFromJsonAsync<ProfessionActionResponse>(JsonOptions, ct);
+        }
+
+        var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+        return new ProfessionActionResponse { Profession = ProfessionType.Mineur, Level = 0, Experience = 0, LeveledUp = false, Message = error?.Message ?? "Récolte impossible." };
     }
 
     /// <summary>Donne un objet d'inventaire à une créature (voir GDD — UI de gestion des montres).</summary>

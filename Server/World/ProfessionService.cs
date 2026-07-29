@@ -25,6 +25,21 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
             throw new AccountOperationException("Cet objet n'est pas une ressource récoltable.");
         }
 
+        // Voir GDD/demande utilisateur — "guerre de territoire... pour que les joueurs de sa team
+        // puissent aller faire des quêtes de minage" : une mine ne se récolte que par le royaume
+        // qui la contrôle actuellement (voir KingdomWarService.ResolveWeeklyWarAsync).
+        if (request.TerritoryId is { } territoryId)
+        {
+            var territory = await db.Territories.Include(t => t.ControllingKingdom).FirstOrDefaultAsync(t => t.Id == territoryId, ct)
+                ?? throw new AccountOperationException("Territoire introuvable.");
+
+            if (territory.ControllingKingdom?.Type != character.Kingdom)
+            {
+                throw new AccountOperationException(
+                    $"{territory.Name} est actuellement contrôlée par le royaume {territory.ControllingKingdom?.Name ?? "?"} — seuls ses membres peuvent y récolter.");
+            }
+        }
+
         var quantity = Math.Clamp(request.Quantity, 1, 10);
         await AddToInventoryAsync(character.Id, resourceItem.Id, quantity, ct);
 
