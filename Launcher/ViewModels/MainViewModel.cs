@@ -81,6 +81,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAdminAccount;
 
+    /// <summary>Voir GDD/demande utilisateur — "quand on n'est pas modo, l'adresse du serveur ne doit pas être affichée" : modérateur/admin/fondateur, plus large que <see cref="IsAdminAccount"/> (qui réserve l'ÉDITION à l'admin/fondateur ; ceci réserve juste la VISIBILITÉ du champ).</summary>
+    [ObservableProperty]
+    private bool _isStaffAccount;
+
     [ObservableProperty]
     private bool _isAdminPanelOpen;
 
@@ -146,6 +150,7 @@ public sealed partial class MainViewModel : ObservableObject
         SessionToken = sessionToken;
         IsLoggedIn = true;
         IsAdminAccount = result.Value!.IsAdmin || result.Value.Rank == UserRank.Fondateur;
+        IsStaffAccount = result.Value.IsAdmin || result.Value.Rank is UserRank.Moderateur or UserRank.Fondateur;
         _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
     }
 
@@ -369,6 +374,7 @@ public sealed partial class MainViewModel : ObservableObject
 
             // Voir GDD/demande utilisateur — panneau "Communauté" réservé aux admin/fondateur.
             IsAdminAccount = result.Value.IsAdmin || result.Value.Rank == UserRank.Fondateur;
+            IsStaffAccount = result.Value.IsAdmin || result.Value.Rank is UserRank.Moderateur or UserRank.Fondateur;
             _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
 
             // Voir GDD/demande utilisateur — "rester connecté jusqu'à la déconnexion".
@@ -390,6 +396,7 @@ public sealed partial class MainViewModel : ObservableObject
         Password = string.Empty;
         StatusMessage = null;
         IsAdminAccount = false;
+        IsStaffAccount = false;
         IsAdminPanelOpen = false;
         AdminUsers.Clear();
 

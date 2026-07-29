@@ -78,7 +78,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 Id = Guid.NewGuid(), Name = enemyCount > 1 ? $"{wildSpecies.Name} {i + 1}" : wildSpecies.Name, Team = 1, X = x, Y = y,
                 MaxHealth = Math.Max(1, wildSpecies.BaseHealth), CurrentHealth = Math.Max(1, wildSpecies.BaseHealth),
                 Attack = wildSpecies.BaseAttack, Defense = wildSpecies.BaseDefense, Speed = wildSpecies.BaseSpeed,
-                MovementRange = 2, AttackRange = 1, IsPlayerControlled = false,
+                MovementRange = 2, AttackRange = BaseAttackRange(wildSpecies.Type), IsPlayerControlled = false,
                 Type = wildSpecies.Type, Element = wildSpecies.Element, SpeciesId = wildSpecies.Id,
             });
         }
@@ -141,6 +141,12 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// Simplification assumée : paliers de niveau fixes plutôt qu'une formule continue — voir
     /// <c>Docs/README.md</c>. Le chef de groupe sert de référence, pas la moyenne du groupe.
     /// </summary>
+    /// <summary>Voir GDD/demande utilisateur — "quand notre monstre monte de niveau, ses stats augmentent (attaque, défense etc)" : croissance linéaire (pas de composition exponentielle, importante avec le plafond de niveau 1000 — voir MonsterProgressionService.MaxLevel) d'environ 10% de la stat de base par niveau au-delà du niveau 1.</summary>
+    private static int ScaledStat(int baseStat, int level) => Math.Max(1, baseStat + (level - 1) * Math.Max(1, baseStat / 10));
+
+    /// <summary>Voir GDD/demande utilisateur — "l'archer doit pouvoir attaquer à distance" : portée de base plutôt que réservée à la capacité spéciale (qui garde son propre bonus de portée, voir CombatEngine.ResolveSpecialAbility).</summary>
+    private static int BaseAttackRange(MonsterType type) => type == MonsterType.Archer ? 3 : 1;
+
     private static Rarity RarityForLevel(int level) => level switch
     {
         <= 5 => Rarity.Commun,
@@ -560,14 +566,18 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == monster.SpeciesId, ct);
             var displayName = monster.Nickname.Length > 0 ? monster.Nickname : species?.Name ?? "Créature";
 
+            var level = monster.Level;
+            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level);
+            var type = species?.Type ?? MonsterType.Guerrier;
+
             combatants.Add(new Combatant
             {
                 Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
-                MaxHealth = Math.Max(1, species?.BaseHealth ?? 20), CurrentHealth = Math.Max(1, species?.BaseHealth ?? 20),
-                Attack = species?.BaseAttack ?? 5, Defense = species?.BaseDefense ?? 5, Speed = species?.BaseSpeed ?? 5,
-                MovementRange = 3, AttackRange = 1, IsPlayerControlled = true,
+                MaxHealth = maxHealth, CurrentHealth = maxHealth,
+                Attack = ScaledStat(species?.BaseAttack ?? 5, level), Defense = ScaledStat(species?.BaseDefense ?? 5, level), Speed = ScaledStat(species?.BaseSpeed ?? 5, level),
+                MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
-                Type = species?.Type ?? MonsterType.Guerrier, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
+                Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
             });
         }
 

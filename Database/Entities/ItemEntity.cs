@@ -45,4 +45,12 @@ public sealed class ItemEntity
 
     /// <summary>Prix en or à la Boutique (voir GDD) ; 0 = non vendu en boutique.</summary>
     public int Price { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute des objets que l'on ne peut pas obtenir ni
+    /// fabriquer" : exclu du tirage de butin de combat (voir <c>LootService</c>) même si son prix
+    /// est à 0 (le prix à 0 exclut déjà de la Boutique, mais pas du butin aléatoire). Reste
+    /// distribuable manuellement via le panel admin ("DONNER UN OBJET"), qui ignore ce champ.
+    /// </summary>
+    public bool IsObtainable { get; set; } = true;
 }

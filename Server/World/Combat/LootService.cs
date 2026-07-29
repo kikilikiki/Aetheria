@@ -22,7 +22,9 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
 
     public async Task<LootSessionState?> CreateFromVictoryAsync(Guid winnerCharacterId, CancellationToken ct = default)
     {
-        var catalog = await db.Items.ToListAsync(ct);
+        // Voir GDD/demande utilisateur — "objets que l'on ne peut pas obtenir ni fabriquer" :
+        // exclus du tirage aléatoire (voir ItemEntity.IsObtainable).
+        var catalog = await db.Items.Where(i => i.IsObtainable).ToListAsync(ct);
         if (catalog.Count == 0)
         {
             return null;
