@@ -8,7 +8,7 @@ namespace Aetheria.Client;
 /// Sans <see cref="SessionToken"/>, le Client tourne en mode démo hors-ligne (utile pour
 /// développer le moteur sans lancer le Launcher/Server).
 /// </summary>
-public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, string Host, int Port)
+public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, string Host, int Port, int AccountApiPort)
 {
     public static LaunchOptions Parse(string[] args)
     {
@@ -21,6 +21,12 @@ public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, stri
         // Launcher).
         var host = GameSettings.Load().ServerHost;
         var port = GameInfo.DefaultGamePort;
+        // Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le
+        // serveur de dev" : dev et prod ne peuvent pas partager les mêmes ports sur la même
+        // machine (voir Server/Program.cs, AETHERIA_ACCOUNT_PORT/AETHERIA_GAME_PORT) — ce port
+        // API (compte, boutique, etc., tout ce qui n'est pas la connexion TCP de jeu) doit donc
+        // pouvoir être surchargé indépendamment de --port pour se connecter à une instance dev.
+        var accountApiPort = GameInfo.DefaultAccountApiPort;
 
         foreach (var arg in args)
         {
@@ -44,9 +50,12 @@ public sealed record LaunchOptions(string? SessionToken, Guid? CharacterId, stri
                 case "--port":
                     port = int.Parse(parts[1]);
                     break;
+                case "--apiPort":
+                    accountApiPort = int.Parse(parts[1]);
+                    break;
             }
         }
 
-        return new LaunchOptions(token, characterId, host, port);
+        return new LaunchOptions(token, characterId, host, port, accountApiPort);
     }
 }
