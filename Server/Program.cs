@@ -1024,8 +1024,25 @@ app.MapGet("/api/kingdoms", async () =>
 app.MapGet("/api/territories", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var territories = await db.Territories.ToListAsync();
-    return Results.Ok(territories);
+    var territories = await db.Territories.Include(t => t.ControllingKingdom).ToListAsync();
+    return Results.Ok(territories.Select(t => new TerritorySummary
+    {
+        Id = t.Id,
+        Name = t.Name,
+        TerritoryType = t.TerritoryType,
+        ControllingKingdomId = t.ControllingKingdomId,
+        ControllingKingdomName = t.ControllingKingdom?.Name ?? "?",
+    }));
+});
+
+// Voir GDD/demande utilisateur — "guerre de territoire... quêtes de minage" : la première
+// ressource brute du catalogue (voir ProfessionCatalogSeeder — "Minerai de fer" pour cette
+// première version, une seule mine "type" plutôt qu'une par territoire).
+app.MapGet("/api/items/gatherable", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var item = await db.Items.FirstOrDefaultAsync(i => i.ItemType == ItemType.Ressource);
+    return item is null ? Results.NotFound() : Results.Ok(new ShopItem { ItemId = item.Id, Name = item.Name, Description = item.Description, ItemType = item.ItemType, Rarity = item.Rarity, Price = item.Price });
 });
 
 app.MapGet("/api/kingdoms/wars/standings", async () =>
@@ -1600,7 +1617,12 @@ var combatTimeoutScheduler = new Aetheria.Server.World.Combat.CombatTimeoutSched
     app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<Aetheria.Server.World.Combat.CombatTimeoutScheduler>());
 var combatTimeoutTask = combatTimeoutScheduler.RunAsync(shutdownCts.Token);
 
-await Task.WhenAll(tcpTask, httpTask, dailyDigestTask, combatTimeoutTask);
+// Voir GDD/demande utilisateur — "guerre de territoire" résolue automatiquement chaque semaine
+// (voir KingdomWarScheduler), plutôt que de dépendre d'un appel manuel à l'endpoint.
+var kingdomWarScheduler = new KingdomWarScheduler(dbFactory, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<KingdomWarScheduler>());
+var kingdomWarTask = kingdomWarScheduler.RunAsync(shutdownCts.Token);
+
+await Task.WhenAll(tcpTask, httpTask, dailyDigestTask, combatTimeoutTask, kingdomWarTask);
 
 return;
 

@@ -164,6 +164,17 @@ QuestSummary? activeStoryQuest = null;
 var combatVictoryQuestFired = false;
 var lastSubmittedCombatAction = CombatActionType.Pass;
 
+// Voir GDD/demande utilisateur — "guerre de territoire... pour que les joueurs de sa team
+// puissent aller faire des quêtes de minage" : panneau ouvert en entrant dans la mine du royaume
+// (voir KingdomBiome.MineName) montrant qui la contrôle actuellement (peut avoir changé de main).
+var isMinePanelOpen = false;
+Task<(TerritorySummary? Territory, ShopItem? Ore, int? MyKingdomId)>? mineLoadTask = null;
+TerritorySummary? mineTerritory = null;
+ShopItem? mineOreItem = null;
+int? myKingdomId = null;
+string? mineMessage = null;
+Task<ProfessionActionResponse?>? mineGatherTask = null;
+
 // Sélection du starter (voir Server/World/StarterService.cs) : Introduction (texte narratif) ->
 // Choosing (grille de ~10 créatures communes) -> Confirming (gros plan animé + lore) -> Sending
 // (appel HTTP en cours) -> retour à Confirming en cas d'échec, ou Outdoor en cas de succès.
@@ -494,6 +505,12 @@ host.Update += deltaTime =>
         return;
     }
 
+    if (isMinePanelOpen)
+    {
+        UpdateMinePanel();
+        return;
+    }
+
     if (sceneMode == SceneMode.CharacterSelect)
     {
         UpdateCharacterSelect();
@@ -774,6 +791,14 @@ host.Update += deltaTime =>
                 isTeleportPanelOpen = true;
                 teleportCursor = 0;
                 break;
+            case InteractionKind.Building when interaction.Building!.Name.StartsWith("Mine"):
+                // Voir GDD/demande utilisateur — "guerre de territoire... quêtes de minage".
+                isMinePanelOpen = true;
+                mineMessage = null;
+                mineTerritory = null;
+                mineOreItem = null;
+                mineLoadTask = LoadMineInfoAsync(interaction.Building.Name);
+                break;
             case InteractionKind.Building when interaction.Building!.Name == "Pension":
                 // Voir GDD/demande utilisateur — bâtiment "où l'on peut voir tout nos monstres et
                 // déplacer ce que l'on a dans notre team" : réutilise le panneau Monstres existant
@@ -941,6 +966,11 @@ host.Render += _ =>
     if (isTeleportPanelOpen)
     {
         DrawTeleportPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
+    if (isMinePanelOpen)
+    {
+        DrawMinePanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
     }
 
     spriteBatch.End();
@@ -1275,6 +1305,103 @@ void DrawTeleportPanel(int w, int h)
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VOYAGER - HAUT/BAS : CHOISIR - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+async Task<(TerritorySummary? Territory, ShopItem? Ore, int? MyKingdomId)> LoadMineInfoAsync(string mineName)
+{
+    if (gameDataApi is null)
+    {
+        return (null, null, null);
+    }
+
+    var territories = await gameDataApi.GetTerritoriesAsync();
+    var territory = territories.FirstOrDefault(t => t.Name == mineName);
+    var ore = await gameDataApi.GetGatherableItemAsync();
+    var kingdoms = await gameDataApi.GetKingdomsAsync();
+    var myKingdom = kingdoms.FirstOrDefault(k => k.Type == currentKingdom);
+    return (territory, ore, myKingdom?.Id);
+}
+
+/// <summary>Voir GDD/demande utilisateur — panneau de la mine (voir <see cref="LoadMineInfoAsync"/>).</summary>
+void UpdateMinePanel()
+{
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        isMinePanelOpen = false;
+        return;
+    }
+
+    if (mineLoadTask is { IsCompleted: true } loadTask)
+    {
+        (mineTerritory, mineOreItem, myKingdomId) = loadTask.IsFaulted ? (null, null, null) : loadTask.Result;
+        mineLoadTask = null;
+        return;
+    }
+
+    if (mineGatherTask is { IsCompleted: true } gatherTask)
+    {
+        mineMessage = gatherTask.IsFaulted ? "Connexion au serveur impossible." : gatherTask.Result?.Message ?? "Récolte impossible.";
+        mineGatherTask = null;
+        return;
+    }
+
+    if (mineLoadTask is not null || mineGatherTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.R) && mineTerritory is not null && mineOreItem is not null
+        && chosenCharacterId is not null && gameDataApi is not null && mineTerritory.ControllingKingdomId == myKingdomId)
+    {
+        mineMessage = null;
+        mineGatherTask = gameDataApi.GatherAsync(options.SessionToken!, chosenCharacterId.Value, mineOreItem.ItemId, mineTerritory.Id);
+    }
+}
+
+void DrawMinePanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    const float boxHeight = 240f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.08f, 0.06f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.6f, 0.55f, 0.45f, 1f));
+
+    if (mineLoadTask is not null || mineTerritory is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, mineTerritory.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.75f, 0.55f, 1f));
+
+        var isMine = mineTerritory.ControllingKingdomId == myKingdomId;
+        var controlColor = isMine ? new Vector4(0.6f, 0.9f, 0.6f, 1f) : new Vector4(0.9f, 0.5f, 0.45f, 1f);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"CONTROLEE PAR : {mineTerritory.ControllingKingdomName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 70f), 1.9f, controlColor);
+
+        var status = isMine
+            ? "Cette mine appartient à votre royaume — vous pouvez y récolter."
+            : "Un royaume rival contrôle cette mine. Remportez la guerre pour la reprendre.";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status, new Vector2(w / 2f, topLeft.Y + 110f), 1.6f, Vector4.One);
+
+        if (mineMessage is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, mineMessage, new Vector2(w / 2f, topLeft.Y + 150f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        }
+
+        if (isMine && mineGatherTask is null && mineOreItem is not null)
+        {
+            if (DrawClickableCentered("RECOLTER (R)", new Vector2(w / 2f, topLeft.Y + 190f), 2f, new Vector4(0.85f, 0.75f, 0.55f, 1f))
+                && chosenCharacterId is not null && gameDataApi is not null)
+            {
+                mineMessage = null;
+                mineGatherTask = gameDataApi.GatherAsync(options.SessionToken!, chosenCharacterId.Value, mineOreItem.ItemId, mineTerritory.Id);
+            }
+        }
+    }
+
+    var footer = mineTerritory?.ControllingKingdomId == myKingdomId ? "R OU CLIC : RECOLTER - ECHAP : FERMER" : "ECHAP : FERMER";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void OnDialogueFinished(string npcName)

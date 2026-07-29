@@ -20,13 +20,18 @@ public sealed record KingdomBiome(
     Vector4 GrassDark,
     Vector4 GroundPath,
     Vector4 Water,
-    Vector4 AccentTint)
+    Vector4 AccentTint,
+    // Voir GDD/demande utilisateur — "guerre de territoire... quêtes de minage" : la mine "natale"
+    // de ce royaume (voir Server/Persistence/TerritorySeeder.cs, mêmes noms) — peut appartenir à
+    // un AUTRE royaume si celui-ci a gagné la dernière guerre hebdomadaire (voir KingdomWarService).
+    string MineName = "Mine")
 {
     public static KingdomBiome For(KingdomType kingdom) => kingdom switch
     {
         KingdomType.Feu => new KingdomBiome(
             CapitalName: "Citadelle de Braise",
             DungeonName: "Gouffre Ardent",
+            MineName: "Mine de Braise",
             GrassLight: new Vector4(0.42f, 0.24f, 0.14f, 1f),
             GrassMid: new Vector4(0.36f, 0.19f, 0.11f, 1f),
             GrassDark: new Vector4(0.28f, 0.14f, 0.08f, 1f),
@@ -37,6 +42,7 @@ public sealed record KingdomBiome(
         KingdomType.Glaces => new KingdomBiome(
             CapitalName: "Citadelle de Glace",
             DungeonName: "Crevasse Gelée",
+            MineName: "Mine de Frimavel",
             GrassLight: new Vector4(0.78f, 0.85f, 0.90f, 1f),
             GrassMid: new Vector4(0.68f, 0.78f, 0.85f, 1f),
             GrassDark: new Vector4(0.58f, 0.70f, 0.80f, 1f),
@@ -47,6 +53,7 @@ public sealed record KingdomBiome(
         KingdomType.Ombres => new KingdomBiome(
             CapitalName: "Bastion des Ombres",
             DungeonName: "Antre des Ténèbres",
+            MineName: "Mine des Ombres",
             GrassLight: new Vector4(0.28f, 0.24f, 0.34f, 1f),
             GrassMid: new Vector4(0.22f, 0.19f, 0.28f, 1f),
             GrassDark: new Vector4(0.16f, 0.14f, 0.22f, 1f),
@@ -58,6 +65,7 @@ public sealed record KingdomBiome(
         _ => new KingdomBiome(
             CapitalName: "Sylvaltar",
             DungeonName: "Donjon des Araignées",
+            MineName: "Mine de Sylvandre",
             GrassLight: new Vector4(0.35f, 0.55f, 0.28f, 1f),
             GrassMid: new Vector4(0.30f, 0.48f, 0.24f, 1f),
             GrassDark: new Vector4(0.25f, 0.42f, 0.20f, 1f),

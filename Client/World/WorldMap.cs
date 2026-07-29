@@ -73,12 +73,13 @@ public sealed class WorldMap
         var guild = (X: size / 2 + 9, Y: size / 2 + 8);
         var teleporter = (X: size / 2 - 3, Y: size / 2 - 4);
         var pension = (X: size / 2 + 3, Y: size / 2 - 4);
+        var mine = (X: size / 2 - 8, Y: size / 2 + 3);
 
         SpawnPosition = (capital.X, capital.Y + 2);
         DungeonEntrance = (size - 4, size - 4);
 
         var pathTiles = new HashSet<(int X, int Y)>();
-        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, DungeonEntrance })
+        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, mine, DungeonEntrance })
         {
             MarkPath(pathTiles, capital, target);
         }
@@ -113,6 +114,11 @@ public sealed class WorldMap
             // déplacer ce que l'on a dans notre team" : ouvre directement le panneau Monstres
             // existant (touche M) plutôt qu'une scène d'intérieur dédiée.
             new Building("Pension", pension.X, pension.Y, 1.3f, new Vector4(0.35f, 0.65f, 0.45f, 1f), new Vector4(0.18f, 0.38f, 0.24f, 1f), new Vector4(0.5f, 0.8f, 0.6f, 1f)),
+            // Voir GDD/demande utilisateur — "guerre de territoire... pour que les joueurs de sa
+            // team puissent aller faire des quêtes de minage" : nom propre au royaume (voir
+            // KingdomBiome.MineName, mêmes noms que Server/Persistence/TerritorySeeder.cs) —
+            // peut appartenir à un autre royaume si celui-ci a gagné la dernière guerre.
+            new Building(biome.MineName, mine.X, mine.Y, 1.4f, new Vector4(0.5f, 0.45f, 0.4f, 1f) * tint, new Vector4(0.3f, 0.26f, 0.22f, 1f) * tint, new Vector4(0.6f, 0.55f, 0.5f, 1f) * tint),
         ];
 
         Npcs =

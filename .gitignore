@@ -39,6 +39,7 @@ appsettings.*.local.json
 .discord-pending-changes.txt
 .discord-last-digest-date
 .discord-last-digest-hour
+.kingdom-war-last-week
 
 # Divers OS
 .DS_Store
