@@ -10,13 +10,39 @@ namespace Aetheria.Engine.Input;
 public sealed class KeyboardState
 {
     private readonly IKeyboard? _keyboard;
+    private readonly IGamepad? _gamepad;
     private readonly HashSet<Key> _previousDown = [];
     private readonly HashSet<Key> _currentDown = [];
     private readonly Queue<char> _typedChars = new();
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute un support manette" : plutôt qu'un état séparé à
+    /// vérifier en plus du clavier partout dans Client/Program.cs (des centaines d'appels à
+    /// <see cref="WasJustPressed"/>/<see cref="IsDown"/>), les boutons de la manette sont fondus
+    /// dans le même <see cref="_currentDown"/> — chaque appelant existant obtient le support
+    /// manette gratuitement, sans modification. Un seul stick/pad analogique n'a pas de sens pour
+    /// une saisie de texte libre : pas d'équivalent manette pour <see cref="DrainTypedChars"/>.
+    /// </summary>
+    private static readonly Dictionary<ButtonName, Key[]> GamepadButtonMap = new()
+    {
+        [ButtonName.A] = [Key.Enter, Key.E],
+        [ButtonName.B] = [Key.Escape],
+        [ButtonName.X] = [Key.E],
+        [ButtonName.DPadUp] = [Key.Up],
+        [ButtonName.DPadDown] = [Key.Down],
+        [ButtonName.DPadLeft] = [Key.Left],
+        [ButtonName.DPadRight] = [Key.Right],
+        [ButtonName.LeftBumper] = [Key.M],
+        [ButtonName.RightBumper] = [Key.F1],
+        [ButtonName.Start] = [Key.Escape],
+    };
+
+    private const float StickDeadzone = 0.5f;
+
     public KeyboardState(IInputContext input)
     {
         _keyboard = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
+        _gamepad = input.Gamepads.Count > 0 ? input.Gamepads[0] : null;
 
         if (_keyboard is not null)
         {
@@ -33,16 +59,37 @@ public sealed class KeyboardState
         _previousDown.UnionWith(_currentDown);
         _currentDown.Clear();
 
-        if (_keyboard is null)
+        if (_keyboard is not null)
         {
-            return;
+            foreach (var key in Enum.GetValues<Key>())
+            {
+                if (key != Key.Unknown && _keyboard.IsKeyPressed(key))
+                {
+                    _currentDown.Add(key);
+                }
+            }
         }
 
-        foreach (var key in Enum.GetValues<Key>())
+        if (_gamepad is not null)
         {
-            if (key != Key.Unknown && _keyboard.IsKeyPressed(key))
+            foreach (var button in _gamepad.Buttons)
             {
-                _currentDown.Add(key);
+                if (button.Pressed && GamepadButtonMap.TryGetValue(button.Name, out var keys))
+                {
+                    _currentDown.UnionWith(keys);
+                }
+            }
+
+            // Stick gauche = déplacement/navigation (voir GDD/demande utilisateur — "manette pour
+            // pouvoir y jouer") : mêmes touches Haut/Bas/Gauche/Droite que le D-pad, avec une zone
+            // morte pour ignorer le bruit du capteur au repos.
+            if (_gamepad.Thumbsticks.Count > 0)
+            {
+                var stick = _gamepad.Thumbsticks[0];
+                if (stick.Y < -StickDeadzone) _currentDown.Add(Key.Up);
+                if (stick.Y > StickDeadzone) _currentDown.Add(Key.Down);
+                if (stick.X < -StickDeadzone) _currentDown.Add(Key.Left);
+                if (stick.X > StickDeadzone) _currentDown.Add(Key.Right);
             }
         }
     }
