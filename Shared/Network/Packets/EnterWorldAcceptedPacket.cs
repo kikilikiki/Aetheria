@@ -12,12 +12,16 @@ public sealed class EnterWorldAcceptedPacket : IPacket
     public required int PositionY { get; init; }
     public UserRank Rank { get; init; } = UserRank.Joueur;
 
+    /// <summary>Voir GDD/demande utilisateur — "le panel admin en jeu [est] pour les admins" : le flag technique IsAdmin (distinct du grade Fondateur) doit aussi donner accès au panel admin en jeu.</summary>
+    public bool IsAdmin { get; init; }
+
     public void Write(BinaryWriter writer)
     {
         writer.Write(CharacterId.ToByteArray());
         writer.Write(PositionX);
         writer.Write(PositionY);
         writer.Write((byte)Rank);
+        writer.Write(IsAdmin);
     }
 
     public static IPacket Read(BinaryReader reader) => new EnterWorldAcceptedPacket
@@ -26,5 +30,6 @@ public sealed class EnterWorldAcceptedPacket : IPacket
         PositionX = reader.ReadInt32(),
         PositionY = reader.ReadInt32(),
         Rank = (UserRank)reader.ReadByte(),
+        IsAdmin = reader.ReadBoolean(),
     };
 }

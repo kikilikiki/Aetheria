@@ -15,6 +15,9 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
 {
     private const int ExperiencePerLevel = 100;
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown après extraction à un endroit (mine par exemple)".</summary>
+    private static readonly TimeSpan GatherCooldown = TimeSpan.FromSeconds(30);
+
     public async Task<ProfessionActionResponse> GatherAsync(GatherRequest request, CancellationToken ct = default)
     {
         var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
@@ -40,11 +43,19 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
             }
         }
 
+        var profession = await GetOrCreateProfessionAsync(character.Id, request.Profession, ct);
+
+        if (profession.LastGatheredAtUtc is { } lastGatheredAt && DateTime.UtcNow - lastGatheredAt < GatherCooldown)
+        {
+            var remaining = GatherCooldown - (DateTime.UtcNow - lastGatheredAt);
+            throw new AccountOperationException($"Il faut encore attendre {Math.Ceiling(remaining.TotalSeconds)}s avant de récolter à nouveau ici.");
+        }
+
         var quantity = Math.Clamp(request.Quantity, 1, 10);
         await AddToInventoryAsync(character.Id, resourceItem.Id, quantity, ct);
 
-        var profession = await GetOrCreateProfessionAsync(character.Id, request.Profession, ct);
         var leveledUp = GrantExperience(profession, quantity * 10);
+        profession.LastGatheredAtUtc = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
 

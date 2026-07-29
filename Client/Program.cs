@@ -100,6 +100,12 @@ string? dungeonRoomMessage = null;
 /// <summary>Position du joueur dans la salle courante (0..1 relatif, voir DrawDungeonRoom) — recentrée à chaque changement de salle.</summary>
 var dungeonPlayerPos = new Vector2(0.5f, 0.5f);
 
+/// <summary>Voir GDD/demande utilisateur — "dans les donjons ajoute le déplacement au clic" : cible (0..1 relatif à la salle) vers laquelle marcher, effacée à l'arrivée ou dès qu'une touche de déplacement est utilisée.</summary>
+Vector2? dungeonClickTarget = null;
+
+/// <summary>Voir GDD/demande utilisateur — "avant de quitter le donjon ajoute un texte pour demander si il est sûr".</summary>
+var dungeonExitConfirmOpen = false;
+
 /// <summary>Indices de salles déjà résolues (combat gagné, coffre ouvert, évènement vu) — pour ne pas re-déclencher en repassant.</summary>
 HashSet<int> dungeonClearedRooms = [];
 
@@ -175,9 +181,12 @@ Task<List<RecipeSummary>>? questRecipeTask = null;
 // Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui
 // expliquent le jeu" et "une histoire avec des dialogues cohérents" : la quête d'histoire/tuto
 // active occupe le même panneau de gauche que la liste de craft du Forgeron (voir
-// ShowStoryQuestIfIdle) — jamais les deux en même temps, la liste de craft reprend le dessus
+// RefreshStoryQuestPanel) — jamais les deux en même temps, la liste de craft reprend le dessus
 // tant qu'ouverte, puis la quête d'histoire revient à la fermeture (touche Q).
 QuestSummary? activeStoryQuest = null;
+
+/// <summary>Voir GDD/demande utilisateur — masquage explicite du panneau de quête par le joueur (touche Q), distinct de "rien à afficher" — voir <see cref="ToggleQuestPanel"/>.</summary>
+var isQuestPanelHidden = false;
 var combatVictoryQuestFired = false;
 var lastSubmittedCombatAction = CombatActionType.Pass;
 
@@ -246,6 +255,9 @@ var guildLoaded = false;
 // uniquement (pas de persistance des messages), reçu/renseigné par le serveur via
 // ChatMessagePacket (voir PlayerSession.HandleChatMessage côté serveur).
 var myRank = UserRank.Joueur;
+
+/// <summary>Voir GDD/demande utilisateur — "le panel admin en jeu est pour les admins" : flag technique IsAdmin, distinct du grade Fondateur, donnant lui aussi accès au panel admin en jeu (F2).</summary>
+var myIsAdmin = false;
 var chatChannel = ChatChannel.Global;
 var chatTextInput = string.Empty;
 var chatMessages = new List<ChatLine>();
@@ -280,14 +292,28 @@ var adminPanelTextInput = string.Empty;
 string? adminPanelMessage = null;
 Task<AdminGameActionResponse>? adminPanelActionTask = null;
 
-/// <summary>Libellés des commandes du panel admin en jeu (voir <see cref="UpdateAdminGamePanel"/>/<see cref="DrawAdminGamePanel"/>) : les indices 0, 2 et 3 demandent une saisie, 1 s'exécute immédiatement.</summary>
-var AdminPanelCommands = new[]
-{
-    "MESSAGE A TOUS (texte)",
-    "MODE PANNEAU 5 MIN (aucune saisie)",
-    "DONNER UN OBJET (perso;id;qte)",
-    "EXPULSER (nom du personnage)",
-};
+/// <summary>
+/// Libellés des commandes du panel admin en jeu (voir <see cref="UpdateAdminGamePanel"/>/
+/// <see cref="DrawAdminGamePanel"/>) : les indices 0, 2, 3 et 4 demandent une saisie, 1 s'exécute
+/// immédiatement. Fonction (pas un tableau figé) car l'indice 4 — voir GDD/demande utilisateur,
+/// "le fondateur ajoute un bouton que seul eux peuvent voir" — n'apparaît que pour ce grade.
+/// </summary>
+string[] AdminPanelCommands() => myRank == UserRank.Fondateur
+    ?
+    [
+        "MESSAGE A TOUS (texte)",
+        "MODE PANNEAU 5 MIN (aucune saisie)",
+        "DONNER UN OBJET (perso;id;qte)",
+        "EXPULSER (nom du personnage)",
+        "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
+    ]
+    :
+    [
+        "MESSAGE A TOUS (texte)",
+        "MODE PANNEAU 5 MIN (aucune saisie)",
+        "DONNER UN OBJET (perso;id;qte)",
+        "EXPULSER (nom du personnage)",
+    ];
 
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
@@ -309,8 +335,8 @@ Task<ShopPurchaseResponse>? shopBuyTask = null;
 var shopSellMode = false;
 var shopSellCursor = 0;
 
-// Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — panneau ouvert en parlant au
-// Commis, à l'intérieur du bâtiment du même nom).
+// Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — panneau ouvert directement en
+// entrant dans le bâtiment du même nom, pas via un dialogue).
 List<AuctionListingSummary> auctionListings = [];
 Task<List<AuctionListingSummary>>? auctionLoadTask = null;
 Task<AuctionResponse>? auctionActionTask = null;
@@ -468,39 +494,39 @@ host.Update += deltaTime =>
         questRecipeTask = null;
     }
 
-    if (questTitle is not null && activeDialogueNpc is null && activePanel == PanelKind.None
-        && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
+    if (activeDialogueNpc is null && activePanel == PanelKind.None && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
     {
         if (keyboard.WasJustPressed(Key.Q))
         {
-            var wasShowingCraftList = forgeronRecipes.Count > 0;
-            questTitle = null;
-            questLines = [];
-            forgeronRecipes = [];
-
-            // Voir GDD/demande utilisateur — fermer la liste de craft du Forgeron révèle à nouveau
-            // la quête d'histoire/tuto en cours (si elle existe) plutôt que de laisser le panneau
-            // vide ; un second Q la masque complètement (déjà géré : questTitle est déjà null ici).
-            if (wasShowingCraftList)
-            {
-                ShowStoryQuestIfIdle();
-            }
+            ToggleQuestPanel();
         }
-        else if (forgeronRecipes.Count > 0)
+        else if (questTitle is not null && forgeronRecipes.Count > 0)
         {
             if (keyboard.WasJustPressed(Key.Down)) questRecipeCursor = Math.Min(questRecipeCursor + 1, forgeronRecipes.Count - 1);
             else if (keyboard.WasJustPressed(Key.Up)) questRecipeCursor = Math.Max(questRecipeCursor - 1, 0);
             else if (keyboard.WasJustPressed(Key.C) && chosenCharacterId is not null && gameDataApi is not null)
             {
-                questMessage = null;
-                _ = CraftSelectedRecipeAsync();
+                // Voir GDD/demande utilisateur — "pour fabriquer l'épée on doit aller voir le
+                // forgeron, pas le faire en une touche où on veut" : la liste reste consultable
+                // depuis n'importe où (elle sert de rappel, façon quête), mais fabriquer exige
+                // d'être effectivement chez l'Apprenti forgeron.
+                if (sceneMode == SceneMode.Interior && interiorNpcs.Any(n => n.Name == "Apprenti forgeron"))
+                {
+                    questMessage = null;
+                    _ = CraftSelectedRecipeAsync();
+                }
+                else
+                {
+                    questMessage = "Rendez-vous à la Forge pour fabriquer cet objet.";
+                }
             }
         }
     }
 
-    // Voir GDD/demande utilisateur — "panel admin en jeu" : F2, réservé au grade Fondateur (même
-    // règle que le panel admin du Launcher), disponible en dehors des scènes de connexion/combat.
-    if (myRank == UserRank.Fondateur && keyboard.WasJustPressed(Key.F2)
+    // Voir GDD/demande utilisateur — "le panel admin en jeu [est] pour les admins" : F2, ouvert
+    // aux comptes IsAdmin ET au grade Fondateur (le Fondateur a en plus un bouton exclusif dans
+    // le panel, voir AdminPanelCommands/UpdateAdminGamePanel), disponible hors connexion/combat.
+    if ((myIsAdmin || myRank == UserRank.Fondateur) && keyboard.WasJustPressed(Key.F2)
         && sceneMode is SceneMode.Outdoor or SceneMode.Interior && activeDialogueNpc is null)
     {
         isAdminPanelOpen = !isAdminPanelOpen;
@@ -635,9 +661,11 @@ host.Update += deltaTime =>
         return;
     }
 
+    // Voir GDD/demande utilisateur — "ajoute un bâtiment marchand au lieu de l'UI Boutique en
+    // haut à droite" : plus de raccourci B, la Boutique ne s'ouvre plus qu'en visitant le
+    // bâtiment "Boutique" ou en parlant à la Marchande (voir InteractionKind.Building/Npc).
     if (keyboard.WasJustPressed(Key.I)) OpenPanel(PanelKind.Inventory);
     else if (keyboard.WasJustPressed(Key.G)) OpenPanel(PanelKind.Guild);
-    else if (keyboard.WasJustPressed(Key.B)) OpenPanel(PanelKind.Shop);
     else if (keyboard.WasJustPressed(Key.P)) OpenPanel(PanelKind.Party);
     else if (keyboard.WasJustPressed(Key.V)) OpenPanel(PanelKind.Arena);
     else if (keyboard.WasJustPressed(Key.M)) OpenPanel(PanelKind.Monsters);
@@ -649,8 +677,10 @@ host.Update += deltaTime =>
         positionBeforeInput = gridPosition;
     }
 
-    // Clic gauche : calcule la case visée (transformation isométrique inverse) et y trace un chemin.
-    if (mouse.WasButtonJustPressed(MouseButton.Left))
+    // Clic gauche : calcule la case visée (transformation isométrique inverse) et y trace un chemin
+    // — sauf si le clic tombe sur un bouton du HUD en haut à droite (voir GDD/demande utilisateur
+    // et IsPointOverOutdoorHudButtons), sans quoi ouvrir un panneau déplaçait aussi le personnage.
+    if (mouse.WasButtonJustPressed(MouseButton.Left) && !IsPointOverOutdoorHudButtons(mouse.Position, uiCamera.ViewportWidth))
     {
         var worldPoint = camera.ScreenToWorld(mouse.Position);
         var clickedGrid = IsoMath.IsoToGrid(worldPoint);
@@ -822,6 +852,18 @@ host.Update += deltaTime =>
                 // (touche M), qui a maintenant la gestion d'équipe (touche T).
                 OpenPanel(PanelKind.Monsters);
                 break;
+            case InteractionKind.Building when interaction.Building!.Name == "Boutique":
+                // Voir GDD/demande utilisateur — "ajoute un bâtiment d'un marchand où on peut
+                // acheter/vendre au lieu de l'UI Boutique en haut à droite" : ouvre directement le
+                // panneau Boutique, comme les autres bâtiments à accès direct.
+                OpenPanel(PanelKind.Shop);
+                break;
+            case InteractionKind.Building when interaction.Building!.Name == "Hôtel des ventes":
+                // Voir GDD/demande utilisateur — "l'ui de l'hdv doit s'afficher quand on rentre
+                // dedans, pas après avoir parlé au Commis" : ouvre directement le panneau, comme
+                // le Téléporteur/la Mine/la Pension, plutôt que de passer par un dialogue d'abord.
+                OpenPanel(PanelKind.Auction);
+                break;
             case InteractionKind.Building:
                 sceneMode = SceneMode.Interior;
                 interiorTitle = interaction.Building!.Name;
@@ -845,6 +887,8 @@ host.Update += deltaTime =>
                 dungeonFloor = null;
                 dungeonClearedRooms = [];
                 dungeonLastAutoFightRoomIndex = -1;
+                dungeonClickTarget = null;
+                dungeonExitConfirmOpen = false;
                 dungeonPlayerPos = new Vector2(0.5f, 0.5f);
                 dungeonRoomMessage = null;
                 dungeonEncounterPreview = null;
@@ -1218,7 +1262,7 @@ void UpdateAdminGamePanel()
         return;
     }
 
-    if (keyboard.WasJustPressed(Key.Down)) adminPanelCursor = Math.Min(adminPanelCursor + 1, AdminPanelCommands.Length - 1);
+    if (keyboard.WasJustPressed(Key.Down)) adminPanelCursor = Math.Min(adminPanelCursor + 1, AdminPanelCommands().Length - 1);
     else if (keyboard.WasJustPressed(Key.Up)) adminPanelCursor = Math.Max(adminPanelCursor - 1, 0);
     else if (keyboard.WasJustPressed(Key.Enter))
     {
@@ -1260,6 +1304,11 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
         }
         case 3:
             adminPanelActionTask = gameDataApi!.KickPlayerAsync(options.SessionToken!, input);
+            break;
+        case 4:
+            // Voir GDD/demande utilisateur — bouton exclusif au Fondateur ; le serveur revérifie
+            // de toute façon le grade de l'appelant (voir /api/admin/game/toggle-admin).
+            adminPanelActionTask = gameDataApi!.ToggleAdminAsync(options.SessionToken!, input);
             break;
     }
 }
@@ -1440,13 +1489,6 @@ void OnDialogueFinished(string npcName)
     {
         OpenPanel(PanelKind.Shop);
     }
-    else if (npcName == "Commis")
-    {
-        // Voir GDD/demande utilisateur — "un HDV où les joueurs mettent en vente et achètent" :
-        // le Commis de l'Hôtel des ventes (déjà présent à l'intérieur du bâtiment du même nom)
-        // ouvre le panneau des enchères entre joueurs, distinct de la Boutique de la Marchande.
-        OpenPanel(PanelKind.Auction);
-    }
 }
 
 /// <summary>
@@ -1509,8 +1551,10 @@ static (string Title, string[] Lines)[] TutorialPages() =>
     ("PANNEAUX EN JEU",
     [
         "I : Inventaire   M : Monstres   P : Groupe",
-        "G : Guilde   B : Boutique   V : Arène classée",
+        "G : Guilde   V : Arène classée",
         "Ou cliquez les boutons en haut à droite de l'écran.",
+        "Boutique, Hôtel des ventes, Forge, Mine, Pension et",
+        "Téléporteur s'ouvrent en visitant leur bâtiment en ville.",
     ]),
     ("COMBAT",
     [
@@ -1647,6 +1691,7 @@ void ConnectAndEnterWorld(Guid characterId)
             serverConfirmedPosition = gridPosition;
             statusMessage = "Connecté au monde.";
             myRank = packet.Rank;
+            myIsAdmin = packet.IsAdmin;
         }
 
         Console.WriteLine($"[Réseau] Entrée dans le monde acceptée en ({packet.PositionX}, {packet.PositionY}).");
@@ -1794,21 +1839,102 @@ async Task RefreshActiveQuestAsync()
     try
     {
         activeStoryQuest = await gameDataApi.GetActiveQuestAsync(chosenCharacterId.Value);
-        ShowStoryQuestIfIdle();
+        RefreshStoryQuestPanel();
     }
     catch (HttpRequestException)
     {
     }
 }
 
-/// <summary>Affiche la quête d'histoire/tuto dans le panneau de gauche si rien d'autre (la liste de craft du Forgeron) ne l'occupe déjà.</summary>
-void ShowStoryQuestIfIdle()
+/// <summary>
+/// Voir GDD/demande utilisateur — "la première quête ne se finit jamais alors que je suis allé
+/// parler au garde" : le serveur validait pourtant bien la quête (confirmé), mais le panneau ne se
+/// rafraîchissait QUE s'il était vide (voir l'ancienne <c>ShowStoryQuestIfIdle</c>) — une fois la
+/// quête 1 affichée, elle y restait indéfiniment même après complétion côté serveur. Rafraîchit
+/// maintenant systématiquement le texte affiché (sauf liste de craft du Forgeron ouverte, ou
+/// panneau explicitement masqué par le joueur — voir <see cref="isQuestPanelHidden"/>).
+/// </summary>
+void RefreshStoryQuestPanel()
 {
-    if (questTitle is null && activeStoryQuest is { } quest)
+    if (forgeronRecipes.Count > 0 || isQuestPanelHidden)
+    {
+        return;
+    }
+
+    if (activeStoryQuest is { } quest)
     {
         questTitle = quest.Name;
-        questLines = [quest.Description, "", "Q POUR MASQUER"];
+        // Voir GDD/demande utilisateur — "le texte dépasse de l'UI" : la description peut être
+        // plus longue que la largeur du panneau (voir DrawQuestPanel, panelWidth fixe), repliée
+        // en plusieurs lignes distinctes plutôt qu'un seul \n interne (dont la hauteur ne serait
+        // pas comptée par l'espacement ligne par ligne du panneau).
+        questLines = [.. WrapTextToLines(quest.Description, 300f, 1.5f), "", "Q OU CLIC POUR MASQUER"];
     }
+    else
+    {
+        questTitle = null;
+        questLines = [];
+    }
+}
+
+/// <summary>Découpe un texte en lignes qui tiennent dans <paramref name="maxWidth"/> (voir GDD/demande utilisateur — "le texte dépasse de l'UI"), mot par mot plutôt que caractère par caractère pour rester lisible.</summary>
+static List<string> WrapTextToLines(string text, float maxWidth, float pixelSize)
+{
+    var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    var lines = new List<string>();
+    var current = "";
+
+    foreach (var word in words)
+    {
+        var candidate = current.Length == 0 ? word : $"{current} {word}";
+        if (TextRenderer.MeasureWidth(candidate, pixelSize) > maxWidth && current.Length > 0)
+        {
+            lines.Add(current);
+            current = word;
+        }
+        else
+        {
+            current = candidate;
+        }
+    }
+
+    if (current.Length > 0)
+    {
+        lines.Add(current);
+    }
+
+    return lines;
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "il y a une touche pour masquer la quête mais pas la
+/// réafficher" : Q (ou un clic, voir DrawOutdoorHudButtons/DrawQuestPanel) bascule maintenant
+/// dans les deux sens plutôt que de seulement masquer.
+/// </summary>
+void ToggleQuestPanel()
+{
+    if (forgeronRecipes.Count > 0)
+    {
+        // Ferme la liste de craft du Forgeron et révèle la quête d'histoire en cours (si masquée,
+        // la rouvre aussi — fermer le craft est un choix explicite de "revenir à la quête").
+        forgeronRecipes = [];
+        questTitle = null;
+        questLines = [];
+        isQuestPanelHidden = false;
+        RefreshStoryQuestPanel();
+        return;
+    }
+
+    if (questTitle is not null)
+    {
+        isQuestPanelHidden = true;
+        questTitle = null;
+        questLines = [];
+        return;
+    }
+
+    isQuestPanelHidden = false;
+    RefreshStoryQuestPanel();
 }
 
 /// <summary>
@@ -3041,6 +3167,7 @@ void UpdateDungeonCorridor(float deltaTime)
             dungeonPlayerPos = new Vector2(0.5f, 0.5f);
             dungeonClearedRooms = [];
             dungeonLastAutoFightRoomIndex = -1;
+            dungeonClickTarget = null;
         }
 
         return;
@@ -3066,15 +3193,45 @@ void UpdateDungeonCorridor(float deltaTime)
         dungeonEncounterPreviewTask = null;
     }
 
+    // Voir GDD/demande utilisateur — "avant de quitter le donjon ajoute un texte pour demander
+    // si il est sûr" : Échap ouvre une confirmation plutôt que de sortir immédiatement ; Entrée
+    // confirme, Échap à nouveau annule.
+    if (dungeonExitConfirmOpen)
+    {
+        if (keyboard.WasJustPressed(Key.Enter))
+        {
+            dungeonExitConfirmOpen = false;
+            sceneMode = SceneMode.Outdoor;
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            dungeonExitConfirmOpen = false;
+        }
+
+        return;
+    }
+
     if (keyboard.WasJustPressed(Key.Escape))
     {
-        sceneMode = SceneMode.Outdoor;
+        dungeonExitConfirmOpen = true;
         return;
     }
 
     var room = dungeonFloor.Rooms.First(r => r.Index == dungeonRoomIndex);
     var isCleared = dungeonClearedRooms.Contains(dungeonRoomIndex);
     var allCleared = dungeonClearedRooms.Count >= dungeonFloor.Rooms.Count;
+
+    // Voir GDD/demande utilisateur — "dans les donjons ajoute le déplacement au clic" : clic dans
+    // la salle (voir DungeonRoomScreenRect, même géométrie que le rendu) = marcher vers ce point.
+    if (mouse.WasButtonJustPressed(MouseButton.Left))
+    {
+        var (roomTopLeft, roomSize) = DungeonRoomScreenRect(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+        var relative = (mouse.Position - roomTopLeft) / roomSize;
+        if (relative.X is >= 0f and <= 1f && relative.Y is >= 0f and <= 1f)
+        {
+            dungeonClickTarget = relative;
+        }
+    }
 
     // Voir remarque ci-dessus — "l'étage entier nettoyé" tient lieu d'escalier pour cette
     // première version, accessible depuis n'importe quelle salle une fois toutes résolues.
@@ -3155,20 +3312,44 @@ void MoveWithinDungeonRoom(DungeonRoom room, float deltaTime)
     if (keyboard.IsDown(Key.A) || keyboard.IsDown(Key.Left)) direction.X -= 1;
     if (keyboard.IsDown(Key.D) || keyboard.IsDown(Key.Right)) direction.X += 1;
 
+    if (direction != Vector2.Zero)
+    {
+        // Une touche de déplacement annule un déplacement au clic en cours.
+        dungeonClickTarget = null;
+    }
+    else if (dungeonClickTarget is { } target)
+    {
+        // Voir GDD/demande utilisateur — "dans les donjons ajoute le déplacement au clic".
+        var toTarget = target - dungeonPlayerPos;
+        if (toTarget.LengthSquared() < 0.0006f)
+        {
+            dungeonClickTarget = null;
+        }
+        else
+        {
+            direction = toTarget;
+        }
+    }
+
     if (direction == Vector2.Zero)
     {
         return;
     }
 
     const float speed = 0.6f;
+    const float bound = 0.04f;
     var next = dungeonPlayerPos + Vector2.Normalize(direction) * speed * deltaTime;
 
-    if (next.Y < 0f && room.North) { TransitionDungeonRoom(room.GridX, room.GridY - 1, new Vector2(next.X, 0.92f)); return; }
-    if (next.Y > 1f && room.South) { TransitionDungeonRoom(room.GridX, room.GridY + 1, new Vector2(next.X, 0.08f)); return; }
-    if (next.X < 0f && room.West) { TransitionDungeonRoom(room.GridX - 1, room.GridY, new Vector2(0.92f, next.Y)); return; }
-    if (next.X > 1f && room.East) { TransitionDungeonRoom(room.GridX + 1, room.GridY, new Vector2(0.08f, next.Y)); return; }
+    // Voir GDD/demande utilisateur — "on ne peut pas changer de salle" : le déplacement normal
+    // borne la position à [bound, 1-bound] (voir le Clamp plus bas), qui n'atteint donc jamais
+    // littéralement 0/1 — comparer à ces bornes réelles plutôt qu'à 0f/1f, sans quoi le joueur
+    // restait bloqué contre le mur avant même de pouvoir déclencher une transition.
+    if (next.Y < bound && room.North) { TransitionDungeonRoom(room.GridX, room.GridY - 1, new Vector2(next.X, 1f - bound - 0.02f)); return; }
+    if (next.Y > 1f - bound && room.South) { TransitionDungeonRoom(room.GridX, room.GridY + 1, new Vector2(next.X, bound + 0.02f)); return; }
+    if (next.X < bound && room.West) { TransitionDungeonRoom(room.GridX - 1, room.GridY, new Vector2(1f - bound - 0.02f, next.Y)); return; }
+    if (next.X > 1f - bound && room.East) { TransitionDungeonRoom(room.GridX + 1, room.GridY, new Vector2(bound + 0.02f, next.Y)); return; }
 
-    dungeonPlayerPos = new Vector2(Math.Clamp(next.X, 0.04f, 0.96f), Math.Clamp(next.Y, 0.04f, 0.96f));
+    dungeonPlayerPos = new Vector2(Math.Clamp(next.X, bound, 1f - bound), Math.Clamp(next.Y, bound, 1f - bound));
 }
 
 void TransitionDungeonRoom(int gridX, int gridY, Vector2 enterAt)
@@ -3183,6 +3364,7 @@ void TransitionDungeonRoom(int gridX, int gridY, Vector2 enterAt)
     dungeonPlayerPos = new Vector2(Math.Clamp(enterAt.X, 0.04f, 0.96f), Math.Clamp(enterAt.Y, 0.04f, 0.96f));
     dungeonRoomMessage = null;
     dungeonLastAutoFightRoomIndex = -1;
+    dungeonClickTarget = null;
 }
 
 async Task<CombatResult> StartDungeonRoomCombatAsync(int floorNumber, int roomIndex)
@@ -3848,18 +4030,45 @@ void DrawOutdoorHud()
 /// des raccourcis clavier I/G/B/P/V/M qui restent tous actifs). Un clic sur le panneau déjà
 /// ouvert le referme (bascule), comme Échap.
 /// </summary>
+/// <summary>Libellés des boutons du HUD en haut à droite (voir <see cref="DrawOutdoorHudButtons"/>), factorisé pour que <see cref="OutdoorHudButtonsBounds"/> utilise exactement la même liste.</summary>
+(string Label, PanelKind Kind)[] OutdoorHudButtonLabels() =>
+[
+    ("INVENTAIRE (I)", PanelKind.Inventory),
+    ("MONSTRES (M)", PanelKind.Monsters),
+    ("GROUPE (P)", PanelKind.Party),
+    ("GUILDE (G)", PanelKind.Guild),
+    ("ARENE (V)", PanelKind.Arena),
+    ("TCHAT (T)", PanelKind.Chat),
+];
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "quand on appuie sur les boutons en haut à droite ça nous
+/// déplace encore" : la case cliquée était calculée sans jamais vérifier si le clic tombait
+/// plutôt sur un bouton du HUD (les deux zones se chevauchent à l'écran) — le clic sur un bouton
+/// déclenchait DONC AUSSI un déplacement vers la case du monde sous ce bouton. Calcule le
+/// rectangle englobant de la colonne de boutons (même géométrie que <see cref="DrawOutdoorHudButtons"/>)
+/// pour que le déplacement au clic puisse l'ignorer.
+/// </summary>
+bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
+{
+    const float pixelSize = 1.7f;
+    var labels = OutdoorHudButtonLabels().Select(b => b.Label).ToList();
+    if (activeStoryQuest is not null)
+    {
+        labels.Add(questTitle is not null ? "QUETE (Q)" : "QUETE (Q) [MASQUEE]");
+    }
+
+    var maxWidth = labels.Count > 0 ? labels.Max(l => TextRenderer.MeasureWidth(l, pixelSize)) : 0f;
+    var totalHeight = labels.Count * (TextRenderer.LineHeight(pixelSize) + 10f);
+    const float pad = 10f;
+
+    return point.X >= w - 16f - maxWidth - pad && point.X <= w + pad
+        && point.Y >= 14f - pad && point.Y <= 14f + totalHeight + pad;
+}
+
 void DrawOutdoorHudButtons(int w, int h)
 {
-    (string Label, PanelKind Kind)[] buttons =
-    [
-        ("INVENTAIRE (I)", PanelKind.Inventory),
-        ("MONSTRES (M)", PanelKind.Monsters),
-        ("GROUPE (P)", PanelKind.Party),
-        ("GUILDE (G)", PanelKind.Guild),
-        ("BOUTIQUE (B)", PanelKind.Shop),
-        ("ARENE (V)", PanelKind.Arena),
-        ("TCHAT (T)", PanelKind.Chat),
-    ];
+    var buttons = OutdoorHudButtonLabels();
 
     const float pixelSize = 1.7f;
     var y = 14f;
@@ -3883,6 +4092,23 @@ void DrawOutdoorHudButtons(int w, int h)
         }
 
         y += TextRenderer.LineHeight(pixelSize) + 10f;
+    }
+
+    // Voir GDD/demande utilisateur — "il y a une touche pour masquer la quête mais pas la
+    // réafficher, ajoute une UI pour l'afficher avec un bouton en haut à droite" : bouton distinct
+    // des autres (pas un PanelKind, la quête reste visible par-dessus le monde, pas un panneau
+    // modal) mais rendu au même endroit pour rester cohérent.
+    if (activeStoryQuest is not null)
+    {
+        var questLabel = questTitle is not null ? "QUETE (Q)" : "QUETE (Q) [MASQUEE]";
+        var questWidth = TextRenderer.MeasureWidth(questLabel, pixelSize);
+        var questCenter = new Vector2(w - 16f - questWidth / 2f, y);
+        var questColor = questTitle is not null ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
+
+        if (DrawClickableCentered(questLabel, questCenter, pixelSize, questColor))
+        {
+            ToggleQuestPanel();
+        }
     }
 }
 
@@ -4258,7 +4484,13 @@ void DrawQuestPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(panelWidth, panelHeight), new Vector4(0.08f, 0.08f, 0.12f, 0.9f));
     DrawPanel(topLeft, new Vector2(panelWidth, 3f), new Vector4(0.9f, 0.8f, 0.4f, 1f));
-    TextRenderer.Draw(spriteBatch, whiteTexture, questTitle, topLeft + new Vector2(12f, 10f), 1.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+
+    // Voir GDD/demande utilisateur — "fait en sorte que l'on puisse le faire aussi au clic" :
+    // cliquer le titre masque/réaffiche la quête, comme la touche Q.
+    if (DrawClickableRow(questTitle, topLeft + new Vector2(12f, 10f), panelWidth - 24f, 1.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f)))
+    {
+        ToggleQuestPanel();
+    }
 
     var y = topLeft.Y + 40f;
     for (var i = 0; i < displayLines.Count; i++)
@@ -4276,8 +4508,17 @@ void DrawQuestPanel(int w, int h)
             if (DrawClickableRow(displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), panelWidth - 24f, 1.5f, color) && chosenCharacterId is not null && gameDataApi is not null)
             {
                 questRecipeCursor = i;
-                questMessage = null;
-                _ = CraftSelectedRecipeAsync();
+                // Voir GDD/demande utilisateur — fabriquer exige d'être chez l'Apprenti forgeron
+                // (même règle qu'au clavier, touche C — voir plus haut).
+                if (sceneMode == SceneMode.Interior && interiorNpcs.Any(n => n.Name == "Apprenti forgeron"))
+                {
+                    questMessage = null;
+                    _ = CraftSelectedRecipeAsync();
+                }
+                else
+                {
+                    questMessage = "Rendez-vous à la Forge pour fabriquer cet objet.";
+                }
             }
         }
         else
@@ -4289,32 +4530,34 @@ void DrawQuestPanel(int w, int h)
     }
 }
 
-/// <summary>Panel admin en jeu (touche F2, Fondateur uniquement) — voir <see cref="UpdateAdminGamePanel"/>.</summary>
+/// <summary>Panel admin en jeu (touche F2, comptes IsAdmin et grade Fondateur) — voir <see cref="UpdateAdminGamePanel"/>.</summary>
 void DrawAdminGamePanel(int w, int h)
 {
-    const float boxWidth = 480f;
-    const float boxHeight = 300f;
+    const float boxWidth = 560f;
+    const float boxHeight = 330f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.35f, 0.3f, 1f));
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PANEL ADMIN", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.5f, 0.45f, 1f));
 
+    var commands = AdminPanelCommands();
+
     if (adminPanelTyping)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, AdminPanelCommands[adminPanelCursor], new Vector2(topLeft.X + 20f, topLeft.Y + 60f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, commands[adminPanelCursor], new Vector2(topLeft.X + 20f, topLeft.Y + 60f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         TextRenderer.Draw(spriteBatch, whiteTexture, adminPanelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 2f, Vector4.One);
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : VALIDER - ECHAP : ANNULER LA SAISIE", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
         var y = topLeft.Y + 60f;
-        for (var i = 0; i < AdminPanelCommands.Length; i++)
+        for (var i = 0; i < commands.Length; i++)
         {
             var selected = i == adminPanelCursor;
             var color = selected ? new Vector4(0.95f, 0.6f, 0.55f, 1f) : Vector4.One;
             var prefix = selected ? "> " : "  ";
-            if (DrawClickableRow(prefix + AdminPanelCommands[i], new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 1.8f, color) && adminPanelActionTask is null)
+            if (DrawClickableRow(prefix + commands[i], new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 1.6f, color) && adminPanelActionTask is null)
             {
                 adminPanelCursor = i;
                 if (i == 1)
@@ -4580,7 +4823,7 @@ void DrawShopPanel(int w, int h)
         new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
-/// <summary>Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — panneau ouvert en parlant au Commis).</summary>
+/// <summary>Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — panneau ouvert directement en entrant dans le bâtiment).</summary>
 void DrawAuctionPanel(int w, int h)
 {
     const float boxWidth = 560f;
@@ -4749,6 +4992,10 @@ void DrawInteriorScene()
 /// une pièce (murs avec ouvertures aux portes, voir <see cref="DungeonRoom"/>), le joueur déplacé
 /// dedans (voir <see cref="MoveWithinDungeonRoom"/>) plutôt qu'une rangée de cases abstraites.
 /// </summary>
+/// <summary>Géométrie écran de la salle de donjon courante — factorisé pour que <see cref="DrawDungeonCorridor"/> (rendu) et le déplacement au clic (voir <see cref="UpdateDungeonCorridor"/>) utilisent exactement le même rectangle.</summary>
+(Vector2 TopLeft, Vector2 Size) DungeonRoomScreenRect(int w, int h) =>
+    (new Vector2(w * 0.22f, h * 0.32f), new Vector2(w * 0.56f, h * 0.5f));
+
 void DrawDungeonCorridor(int w, int h)
 {
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ETAGE {dungeonFloorNumber}", new Vector2(w / 2f, h * 0.20f), 2.4f, new Vector4(0.85f, 0.7f, 0.95f, 1f));
@@ -4776,8 +5023,7 @@ void DrawDungeonCorridor(int w, int h)
     // La pièce elle-même : un rectangle avec des ouvertures (portes) là où une salle voisine
     // existe sur la grille (voir DungeonRoom.North/South/East/West).
     const float doorGap = 0.16f;
-    var roomTopLeft = new Vector2(w * 0.22f, h * 0.32f);
-    var roomSize = new Vector2(w * 0.56f, h * 0.5f);
+    var (roomTopLeft, roomSize) = DungeonRoomScreenRect(w, h);
     var wallColor = isCleared ? new Vector4(0.35f, 0.35f, 0.4f, 1f) : DungeonRoomColor(room.EncounterType);
     const float wallThickness = 10f;
 
@@ -4857,6 +5103,15 @@ void DrawDungeonCorridor(int w, int h)
     if (combatMessage is not null)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.14f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+    }
+
+    // Voir GDD/demande utilisateur — "avant de quitter le donjon ajoute un texte pour demander
+    // si il est sûr" : superposé à tout le reste, dessiné en dernier pour rester au premier plan.
+    if (dungeonExitConfirmOpen)
+    {
+        DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0f, 0f, 0f, 0.6f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "QUITTER LE DONJON ?", new Vector2(w / 2f, h * 0.44f), 3f, Vector4.One);
+        DrawPromptBanner("ENTREE : CONFIRMER - ECHAP : ANNULER", new Vector2(w / 2f, h * 0.56f));
     }
 }
 

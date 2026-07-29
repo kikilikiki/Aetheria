@@ -1558,6 +1558,40 @@ app.MapPost("/api/admin/game/kick", async (AdminKickRequest request) =>
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a été expulsé." });
 });
 
+// Voir GDD/demande utilisateur — "le fonda[teur] ajoute un bouton que seul eux peuvent voir" :
+// bascule le flag IsAdmin d'un joueur, réservé au grade Fondateur spécifiquement (pas seulement
+// IsAdmin) — accorder des droits admin à d'autres est un cran au-dessus des autres actions.
+app.MapPost("/api/admin/game/toggle-admin", async (AdminToggleAdminRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+
+    if (!app.Services.GetRequiredService<SessionTokenStore>().TryValidate(request.SessionToken, out var callerUserId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var caller = await db.Users.FirstOrDefaultAsync(u => u.Id == callerUserId);
+    if (caller is not { Rank: UserRank.Fondateur })
+    {
+        return Results.Json(new ApiError { Message = "Action réservée au grade Fondateur." }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target?.User is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    target.User.IsAdmin = !target.User.IsAdmin;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new AdminGameActionResponse
+    {
+        Success = true,
+        Message = $"{request.TargetCharacterName} est {(target.User.IsAdmin ? "maintenant" : "n'est plus")} administrateur.",
+    });
+});
+
 // Voir GDD/demande utilisateur — "ajoute au admin la possibilité d'augmenter le niveau de ces
 // monstres" : agit directement sur MonsterEntity.Level, sans passer par la courbe d'XP normale.
 app.MapPost("/api/admin/game/level-up-monster", async (AdminLevelUpMonsterRequest request) =>

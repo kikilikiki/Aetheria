@@ -30,6 +30,9 @@ public sealed class PlayerSession(
     public string CharacterName { get; private set; } = string.Empty;
     public Guid UserId { get; private set; }
     public UserRank Rank { get; private set; } = UserRank.Joueur;
+
+    /// <summary>Voir GDD/demande utilisateur — "le panel admin en jeu [est] pour les admins" : envoyé au client via EnterWorldAcceptedPacket pour donner accès au panel admin en jeu même sans le grade Fondateur.</summary>
+    public bool IsAdmin { get; private set; }
     public int PositionX { get; private set; }
     public int PositionY { get; private set; }
 
@@ -156,7 +159,9 @@ public sealed class PlayerSession(
         CharacterId = character.Id;
         CharacterName = character.Name;
         UserId = userId;
-        Rank = db.Users.Where(u => u.Id == userId).Select(u => u.Rank).FirstOrDefault();
+        var user = db.Users.FirstOrDefault(u => u.Id == userId);
+        Rank = user?.Rank ?? UserRank.Joueur;
+        IsAdmin = user?.IsAdmin ?? false;
 
         // Position de départ : la capitale du royaume choisi. Le placement réel dans le
         // monde persistant (royaumes/donjons) arrive avec les systèmes de jeu (Phase G).
@@ -169,6 +174,7 @@ public sealed class PlayerSession(
             PositionX = PositionX,
             PositionY = PositionY,
             Rank = Rank,
+            IsAdmin = IsAdmin,
         });
 
         // Snapshot des joueurs déjà connectés (voir GDD — visibilité globale) : une série de
