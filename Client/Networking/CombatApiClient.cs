@@ -77,17 +77,16 @@ public sealed class CombatApiClient : IDisposable
         return await ReadResultAsync(response, ct);
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : appelé par le client du défieur une fois l'invitation acceptée (voir DuelAcceptedPacket), après avoir récupéré les créatures de l'adversaire via l'endpoint public des personnages.</summary>
-    public async Task<CombatResult> ChallengeAsync(
-        string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, Guid opponentCharacterId, IReadOnlyList<Guid> opponentMonsterIds, CancellationToken ct = default)
+    /// <summary>Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres doivent accepter" : appelé par le client du défieur une fois <see cref="Aetheria.Shared.Network.Packets.TeamDuelReadyPacket"/> reçu (tous les membres de l'équipe ciblée ont accepté). Chaque personnage engage son équipe active — pas de sélection manuelle, voir <c>CombatService.StartFriendlyTeamDuelAsync</c>.</summary>
+    public async Task<CombatResult> ChallengeTeamAsync(
+        string sessionToken, Guid characterId, IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/pvp/challenge", new StartPvpCombatRequest
+        var response = await _http.PostAsJsonAsync("/api/pvp/team-challenge", new StartFriendlyTeamDuelRequest
         {
             SessionToken = sessionToken,
             CharacterId = characterId,
-            MonsterIds = monsterIds,
-            OpponentCharacterId = opponentCharacterId,
-            OpponentMonsterIds = opponentMonsterIds,
+            ChallengerTeamCharacterIds = challengerTeamCharacterIds,
+            TargetTeamCharacterIds = targetTeamCharacterIds,
         }, JsonOptions, ct);
 
         return await ReadResultAsync(response, ct);

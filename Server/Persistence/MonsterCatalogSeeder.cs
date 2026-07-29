@@ -20,63 +20,66 @@ public static class MonsterCatalogSeeder
         {
             var wanted = new List<MonsterSpeciesEntity>
             {
+                // Voir GDD/demande utilisateur — "10 choix de starter, pas 18" : IsStarter=true
+                // réservé à ces 10 espèces d'origine, le bestiaire étendu (H40) ajoute d'autres
+                // espèces Commun mais qui ne doivent apparaître qu'en rencontre sauvage.
                 new MonsterSpeciesEntity
                 {
-                    Name = "Braisillon", Element = Element.Feu, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
+                    Name = "Braisillon", Element = Element.Feu, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Royaume du Feu", Lore = "Petite salamandre qui couve des braises sous ses écailles.",
                     BaseStats = new StatBlock(30, 12, 8, 10, 6, 6),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Racinelle", Element = Element.Nature, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun,
+                    Name = "Racinelle", Element = Element.Nature, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Royaume de la Nature", Lore = "Esprit végétal né des vieilles forêts.",
                     BaseStats = new StatBlock(34, 8, 12, 6, 8, 10),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Aquapouss", Element = Element.Eau, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
+                    Name = "Aquapouss", Element = Element.Eau, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Rives et étangs", Lore = "Petite créature gélatineuse qui ne quitte jamais l'eau bien longtemps.",
                     BaseStats = new StatBlock(32, 9, 11, 9, 7, 9),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Fulgurin", Element = Element.Foudre, Type = MonsterType.Archer, BaseRarity = Rarity.Commun,
+                    Name = "Fulgurin", Element = Element.Foudre, Type = MonsterType.Archer, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Plaines orageuses", Lore = "Sa crinière crépite au moindre orage.",
                     BaseStats = new StatBlock(28, 12, 7, 13, 7, 6),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Rocaillon", Element = Element.Terre, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
+                    Name = "Rocaillon", Element = Element.Terre, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Collines rocheuses", Lore = "Une carapace de pierre qui durcit avec l'âge.",
                     BaseStats = new StatBlock(36, 9, 15, 5, 6, 8),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Zéphyrin", Element = Element.Air, Type = MonsterType.Archer, BaseRarity = Rarity.Commun,
+                    Name = "Zéphyrin", Element = Element.Air, Type = MonsterType.Archer, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Falaises et courants ascendants", Lore = "Plane des heures entières sans un battement d'aile.",
                     BaseStats = new StatBlock(26, 10, 7, 15, 8, 7),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Lumignon", Element = Element.Lumiere, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun,
+                    Name = "Lumignon", Element = Element.Lumiere, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Clairières ensoleillées", Lore = "Diffuse une lueur douce et rassurante la nuit venue.",
                     BaseStats = new StatBlock(30, 8, 9, 8, 12, 9),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Pénombrelle", Element = Element.Ombre, Type = MonsterType.Archer, BaseRarity = Rarity.Commun,
+                    Name = "Pénombrelle", Element = Element.Ombre, Type = MonsterType.Archer, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Sous-bois et greniers", Lore = "Se glisse entre les ombres sans jamais faire de bruit.",
                     BaseStats = new StatBlock(29, 11, 8, 11, 9, 7),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Bouboule", Element = Element.Neutre, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun,
+                    Name = "Bouboule", Element = Element.Neutre, Type = MonsterType.Guerrier, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Un peu partout", Lore = "Compagnon passe-partout, apprécié des débutants pour son caractère facile.",
                     BaseStats = new StatBlock(33, 10, 10, 10, 8, 8),
                 },
                 new MonsterSpeciesEntity
                 {
-                    Name = "Frimousse", Element = Element.Glace, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun,
+                    Name = "Frimousse", Element = Element.Glace, Type = MonsterType.Soigneur, BaseRarity = Rarity.Commun, IsStarter = true,
                     Habitat = "Sommets tempérés", Lore = "Boule de poils qui adore rouler dans la neige fraîche.",
                     BaseStats = new StatBlock(31, 8, 12, 7, 9, 10),
                 },

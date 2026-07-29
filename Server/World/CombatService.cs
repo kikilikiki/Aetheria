@@ -183,44 +183,54 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         _ => Rarity.Divin,
     };
 
-    /// <summary>Défi PvP direct entre deux personnages (voir GDD — section PvP). Pas de matchmaking pour cette version.</summary>
-    public async Task<CombatSessionState> StartPvpAsync(StartPvpCombatRequest request, CancellationToken ct = default)
+    /// <summary>
+    /// Duel amical entre un ou plusieurs joueurs de chaque côté (voir GDD/demande utilisateur —
+    /// bouton PVP avec pseudo, tous les membres du groupe ciblé doivent accepter). Généralise
+    /// l'ancien <c>StartPvpAsync</c> (1 joueur contre 1 joueur) : chaque personnage engage son
+    /// équipe active (<see cref="MonsterEntity.IsInActiveTeam"/>) plutôt qu'une sélection
+    /// manuelle par combat — impossible à coordonner entre plusieurs joueurs humains au moment
+    /// où l'invitation est acceptée. Utilise le même algorithme de récompense par participant que
+    /// l'arène classée (voir <see cref="ApplyArenaResultAsync"/>), qui généralise correctement au
+    /// cas 1v1 (équipes d'un seul membre).
+    /// </summary>
+    public async Task<CombatSessionState> StartFriendlyTeamDuelAsync(IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, CancellationToken ct = default)
     {
-        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        var combatants = new List<Combatant>();
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, Combatants = combatants };
+
+        async Task AddTeamAsync(IReadOnlyList<Guid> characterIds, int team)
         {
-            throw new AccountOperationException("Session invalide ou expirée.");
+            var cellQueue = BuildTeamCellQueue(leftSide: team == 0);
+            foreach (var characterId in characterIds)
+            {
+                var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct);
+                if (character is null)
+                {
+                    continue;
+                }
+
+                if (!session.TeamOwnerUserId.ContainsKey(team))
+                {
+                    session.TeamOwnerUserId[team] = character.UserId;
+                    session.TeamCharacterId[team] = character.Id;
+                }
+
+                var activeMonsterIds = await db.Monsters
+                    .Where(m => m.OwnerCharacterId == characterId && m.IsInActiveTeam)
+                    .Select(m => m.Id)
+                    .ToListAsync(ct);
+
+                combatants.AddRange(await BuildTeamCombatantsAsync(character, activeMonsterIds, team, cellQueue, maxMonsters: 4, ct));
+            }
         }
 
-        var challenger = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
-            ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
+        await AddTeamAsync(challengerTeamCharacterIds, team: 0);
+        await AddTeamAsync(targetTeamCharacterIds, team: 1);
 
-        var opponent = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.OpponentCharacterId, ct)
-            ?? throw new AccountOperationException("Adversaire introuvable.");
-
-        if (opponent.Id == challenger.Id)
+        if (!combatants.Any(c => c.Team == 0) || !combatants.Any(c => c.Team == 1))
         {
-            throw new AccountOperationException("Impossible de vous défier vous-même.");
+            throw new AccountOperationException("Les deux équipes doivent avoir au moins une créature active.");
         }
-
-        var combatants = await BuildTeamCombatantsAsync(challenger, request.MonsterIds, team: 0, BuildTeamCellQueue(leftSide: true), maxMonsters: 4, ct);
-        if (combatants.Count == 0)
-        {
-            throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
-        }
-
-        var opponentCombatants = await BuildTeamCombatantsAsync(opponent, request.OpponentMonsterIds, team: 1, BuildTeamCellQueue(leftSide: false), maxMonsters: 4, ct);
-        if (opponentCombatants.Count == 0)
-        {
-            throw new AccountOperationException("L'adversaire doit avoir au moins une créature disponible.");
-        }
-
-        combatants.AddRange(opponentCombatants);
-
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, Combatants = combatants };
-        session.TeamOwnerUserId[0] = userId;
-        session.TeamCharacterId[0] = challenger.Id;
-        session.TeamOwnerUserId[1] = opponent.UserId;
-        session.TeamCharacterId[1] = opponent.Id;
 
         CombatEngine.Initialize(session);
         combatStore.Add(session);

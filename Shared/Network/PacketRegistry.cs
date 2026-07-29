@@ -23,8 +23,8 @@ public static class PacketRegistry
         [OpCode.AdminEffect] = AdminEffectPacket.Read,
         [OpCode.DuelInvite] = DuelInvitePacket.Read,
         [OpCode.DuelResponse] = DuelResponsePacket.Read,
-        [OpCode.DuelAccepted] = DuelAcceptedPacket.Read,
         [OpCode.DuelStarted] = DuelStartedPacket.Read,
+        [OpCode.TeamDuelReady] = TeamDuelReadyPacket.Read,
     };
 
     public static IPacket Read(OpCode opCode, BinaryReader reader)

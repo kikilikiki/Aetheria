@@ -329,7 +329,10 @@ app.MapPost("/api/monsters/capture", async (CaptureAttemptRequest request) =>
 app.MapGet("/api/monsters/species/starters", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var species = await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun).OrderBy(s => s.Id).ToListAsync();
+    // Voir GDD/demande utilisateur — "10 choix de starter, pas 18" : IsStarter (pas seulement
+    // BaseRarity==Commun, le bestiaire étendu a ajouté d'autres espèces communes qui ne sont que
+    // des rencontres sauvages).
+    var species = await db.MonsterSpecies.Where(s => s.IsStarter).OrderBy(s => s.Id).ToListAsync();
     return Results.Ok(species.Select(ToSpeciesData));
 });
 
@@ -1073,20 +1076,45 @@ app.MapGet("/api/loot/{lootId:guid}", async (Guid lootId) =>
         : Results.NotFound(new ApiError { Message = "Butin introuvable ou déjà réparti." });
 });
 
-app.MapPost("/api/pvp/challenge", async (StartPvpCombatRequest request) =>
+app.MapPost("/api/pvp/team-challenge", async (StartFriendlyTeamDuelRequest request) =>
 {
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    if (!request.ChallengerTeamCharacterIds.Contains(request.CharacterId))
+    {
+        return Results.Conflict(new ApiError { Message = "Vous ne faites pas partie de l'équipe qui défie." });
+    }
+
     await using var db = await dbFactory.CreateDbContextAsync();
-    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+    var caller = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (caller is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
 
     try
     {
-        var state = await combatService.StartPvpAsync(request);
+        var state = await combatService.StartFriendlyTeamDuelAsync(request.ChallengerTeamCharacterIds, request.TargetTeamCharacterIds);
 
-        // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : notifie
-        // l'adversaire (celui qui a accepté l'invitation, voir PlayerSession.HandleDuelResponse)
-        // que le combat a bien été créé, avec son ID, pour qu'il puisse le récupérer lui aussi.
-        app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterId(request.OpponentCharacterId)
-            ?.SendPacket(new DuelStartedPacket { CombatId = state.CombatId });
+        // Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les
+        // membres doivent accepter" : notifie tous les autres participants (des deux équipes) que
+        // le combat a bien été créé, avec son ID, pour qu'ils puissent le récupérer eux aussi.
+        var registry = app.Services.GetRequiredService<WorldSessionRegistry>();
+        foreach (var characterId in request.ChallengerTeamCharacterIds.Concat(request.TargetTeamCharacterIds).Distinct())
+        {
+            if (characterId == request.CharacterId)
+            {
+                continue;
+            }
+
+            registry.FindByCharacterId(characterId)?.SendPacket(new DuelStartedPacket { CombatId = state.CombatId });
+        }
 
         return Results.Ok(state);
     }

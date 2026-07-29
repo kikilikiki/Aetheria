@@ -26,6 +26,8 @@ public enum OpCode : byte
     // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp".
     DuelInvite = 50,
     DuelResponse = 51,
-    DuelAccepted = 52,
     DuelStarted = 53,
+
+    /// <summary>Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres doivent accepter" : envoyé au défieur une fois que TOUTE l'équipe ciblée a accepté (voir DuelInviteService, PlayerSession.HandleDuelResponse).</summary>
+    TeamDuelReady = 54,
 }

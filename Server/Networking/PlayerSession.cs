@@ -1,8 +1,11 @@
 using System.Net.Sockets;
 using Aetheria.Database.Context;
+using Aetheria.Database.Entities;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World;
+using Aetheria.Shared;
 using Aetheria.Shared.Enums;
+using Aetheria.Shared.Models;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +43,10 @@ public sealed class PlayerSession(
 
     /// <summary>Mis à jour immédiatement par la commande <c>/nick</c> (voir <see cref="HandleChatCommand"/>) — sans attendre une reconnexion.</summary>
     public void UpdateCharacterName(string newName) => CharacterName = newName;
+
+    /// <summary>Voir GDD/demande utilisateur — "/reply" : nom du dernier joueur ayant chuchoté à CETTE session, renseigné côté destinataire quand un message privé arrive (voir HandleChatMessage, ChatChannel.Prive).</summary>
+    private string? _lastWhisperFromCharacterName;
+    public void RecordIncomingWhisper(string fromCharacterName) => _lastWhisperFromCharacterName = fromCharacterName;
 
     /// <summary>
     /// Voir GDD/demande utilisateur — "panel admin en jeu... kick" : ferme la connexion TCP, ce
@@ -264,7 +271,15 @@ public sealed class PlayerSession(
             // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" :
             // commande ouverte à tout le monde (contrairement à HandleChatCommand, réservée
             // aux modérateurs/admin/fondateur), donc traitée à part, avant ce filtrage.
-            HandleDuelCommand(trimmed, chat.Channel);
+            HandleDuelCommand(db, trimmed, chat.Channel);
+            return;
+        }
+
+        // Voir GDD/demande utilisateur — grande liste de commandes de tchat. Celles ouvertes à
+        // tout le monde (pas seulement modérateur/admin/fondateur) sont traitées ici, avant le
+        // filtrage de HandleChatCommand — voir TryHandlePublicCommand.
+        if (trimmed.StartsWith('/') && TryHandlePublicCommand(db, trimmed, chat.Channel, self.Rank))
+        {
             return;
         }
 
@@ -302,6 +317,7 @@ public sealed class PlayerSession(
             }
 
             target.SendPacket(outgoing);
+            target.RecordIncomingWhisper(CharacterName);
             SendPacket(outgoing);
             return;
         }
@@ -344,12 +360,14 @@ public sealed class PlayerSession(
     }
 
     /// <summary>
-    /// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : ouvert à tout
-    /// le monde (contrairement à <see cref="HandleChatCommand"/>). Le combat n'est pas démarré
-    /// ici — juste l'invitation ; voir <see cref="HandleDuelResponse"/> pour la suite une fois
-    /// acceptée/refusée.
+    /// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp", puis "propose un
+    /// pvp, si la personne est en team tout les membres doivent accepter" : ouvert à tout le monde
+    /// (contrairement à <see cref="HandleChatCommand"/>). Si le personnage ciblé est en groupe,
+    /// TOUS ses membres connectés reçoivent l'invitation et doivent l'accepter (voir
+    /// <see cref="HandleDuelResponse"/>) — le groupe du défieur, lui, est engagé sans confirmation
+    /// individuelle (le simple fait de lancer /duel vaut consentement de sa part).
     /// </summary>
-    private void HandleDuelCommand(string command, ChatChannel replyChannel)
+    private void HandleDuelCommand(AetheriaDbContext db, string command, ChatChannel replyChannel)
     {
         void Reply(string message) => SendPacket(new ChatMessagePacket { SenderName = "Système", Message = message, Channel = replyChannel });
 
@@ -373,33 +391,511 @@ public sealed class PlayerSession(
             return;
         }
 
-        duelInvites.SendInvite(CharacterId, CharacterName, target.CharacterId);
-        target.SendPacket(new DuelInvitePacket { FromCharacterName = CharacterName });
-        Reply($"Demande de duel envoyée à {target.CharacterName}.");
+        var challengerTeam = ResolvePartyCharacterIds(db, CharacterId);
+        var targetTeam = ResolvePartyCharacterIds(db, target.CharacterId);
+
+        if (challengerTeam.Contains(target.CharacterId))
+        {
+            Reply("Impossible de défier un membre de votre propre groupe.");
+            return;
+        }
+
+        // Voir GDD/demande utilisateur — seuls les membres du groupe ciblé réellement connectés
+        // doivent accepter (sinon un membre hors ligne bloquerait indéfiniment le duel).
+        var onlineTargetTeam = targetTeam.Where(id => registry.FindByCharacterId(id) is not null).ToList();
+        if (onlineTargetTeam.Count == 0)
+        {
+            Reply($"{parts[1]} n'est pas connecté(e).");
+            return;
+        }
+
+        duelInvites.CreateInvite(CharacterId, CharacterName, challengerTeam, onlineTargetTeam);
+
+        foreach (var memberId in onlineTargetTeam)
+        {
+            registry.FindByCharacterId(memberId)?.SendPacket(new DuelInvitePacket { FromCharacterName = CharacterName, TargetTeamSize = onlineTargetTeam.Count });
+        }
+
+        var teamSuffix = onlineTargetTeam.Count > 1 ? " et son groupe" : "";
+        Reply($"Demande de duel envoyée à {target.CharacterName}{teamSuffix}.");
+    }
+
+    /// <summary>Résout le groupe (voir <see cref="PartyEntity"/>) du personnage, lui inclus — juste lui-même s'il n'est dans aucun groupe.</summary>
+    private static IReadOnlyList<Guid> ResolvePartyCharacterIds(AetheriaDbContext db, Guid characterId)
+    {
+        var partyId = db.PartyMembers.Where(m => m.CharacterId == characterId).Select(m => (Guid?)m.PartyId).FirstOrDefault();
+        return partyId is null
+            ? [characterId]
+            : db.PartyMembers.Where(m => m.PartyId == partyId).Select(m => m.CharacterId).ToList();
     }
 
     /// <summary>
-    /// Réponse du joueur défié (voir <see cref="HandleDuelCommand"/>) : si accepté, notifie le
-    /// défieur (voir <see cref="DuelAcceptedPacket"/>) dont le client démarre lui-même le combat
-    /// via <c>POST /api/pvp/challenge</c> (déjà entièrement implémenté côté HTTP — voir
-    /// CombatService.StartPvpAsync), puis reçoit à son tour <see cref="DuelStartedPacket"/>
-    /// une fois ce combat créé (voir l'endpoint dans Server/Program.cs).
+    /// Réponse d'un des membres du groupe défié (voir <see cref="HandleDuelCommand"/>). Un refus
+    /// annule tout pour tout le monde. Une fois TOUS les membres requis acceptés, le défieur reçoit
+    /// <see cref="TeamDuelReadyPacket"/> : son client appelle alors <c>POST /api/pvp/team-challenge</c>
+    /// (voir <c>CombatService.StartFriendlyTeamDuelAsync</c>), puis tous les autres participants
+    /// reçoivent <see cref="DuelStartedPacket"/> une fois ce combat créé (voir Server/Program.cs).
     /// </summary>
     private void HandleDuelResponse(DuelResponsePacket response)
     {
-        if (!duelInvites.TryConsume(CharacterId, out var challengerId, out var challengerName))
+        if (!duelInvites.TryGetPendingForTarget(CharacterId, out var invite))
         {
             return;
         }
 
-        var challengerSession = registry.FindByCharacterId(challengerId);
+        void NotifyAll(string message)
+        {
+            foreach (var characterId in invite.ChallengerTeamCharacterIds.Concat(invite.TargetTeamCharacterIds).Distinct())
+            {
+                registry.FindByCharacterId(characterId)?.SendPacket(new ChatMessagePacket { SenderName = "Système", Message = message, Channel = ChatChannel.Global });
+            }
+        }
+
         if (!response.Accept)
         {
-            challengerSession?.SendPacket(new ChatMessagePacket { SenderName = "Système", Message = $"{CharacterName} a refusé le duel.", Channel = ChatChannel.Global });
+            duelInvites.RemoveInvite(invite.InviteId);
+            NotifyAll($"{CharacterName} a refusé le duel — combat annulé.");
             return;
         }
 
-        challengerSession?.SendPacket(new DuelAcceptedPacket { OpponentCharacterId = CharacterId, OpponentCharacterName = CharacterName });
+        invite.AcceptedCharacterIds.Add(CharacterId);
+        if (invite.AcceptedCharacterIds.Count < invite.TargetTeamCharacterIds.Count)
+        {
+            NotifyAll($"{CharacterName} a accepté le duel ({invite.AcceptedCharacterIds.Count}/{invite.TargetTeamCharacterIds.Count}).");
+            return;
+        }
+
+        duelInvites.RemoveInvite(invite.InviteId);
+        registry.FindByCharacterId(invite.ChallengerCharacterId)?.SendPacket(new TeamDuelReadyPacket
+        {
+            ChallengerTeamCharacterIds = invite.ChallengerTeamCharacterIds,
+            TargetTeamCharacterIds = invite.TargetTeamCharacterIds,
+        });
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — grande liste de commandes de tchat ("/help, /profile,
+    /// /stats, /friend, /whisper, /guild, /party, /kingdom, etc."). Contrairement à
+    /// <see cref="HandleChatCommand"/>, ouvertes à tout le monde. Retourne faux si la commande
+    /// n'est pas reconnue ici (laisse alors <see cref="HandleChatCommand"/> tenter sa propre
+    /// liste, réservée modérateur/admin/fondateur).
+    /// </summary>
+    private bool TryHandlePublicCommand(AetheriaDbContext db, string command, ChatChannel replyChannel, UserRank rank)
+    {
+        void Reply(string message) => SendPacket(new ChatMessagePacket { SenderName = "Système", Message = message, Channel = replyChannel });
+
+        var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        switch (parts[0].ToLowerInvariant())
+        {
+            case "/help":
+                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /ping /version" +
+                    (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /give /givemoney /givexp /givemonster /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : ""));
+                break;
+
+            case "/menu":
+                Reply("Utilisez les touches I/M/P/G/V/T/F/U/K/J en jeu, ou /help pour la liste des commandes.");
+                break;
+
+            case "/ping":
+                Reply("Pong !");
+                break;
+
+            case "/version":
+                Reply($"{GameInfo.Name} v{GameInfo.Version}");
+                break;
+
+            case "/settings":
+                Reply("Les paramètres se règlent depuis le launcher (touche F9 en jeu pour la disposition clavier).");
+                break;
+
+            case "/profile":
+            {
+                var character = db.Characters.Include(c => c.User).FirstOrDefault(c => c.Id == CharacterId);
+                if (character?.User is null)
+                {
+                    Reply("Profil introuvable.");
+                    break;
+                }
+
+                var titleText = character.ActiveTitle is { Length: > 0 } t ? $" — {t}" : "";
+                Reply($"{character.Name} (Nv.{character.Level}, {character.User.Rank}){titleText} : {(character.ProfileDescription.Length > 0 ? character.ProfileDescription : "(pas de description)")}");
+                break;
+            }
+
+            case "/stats":
+            {
+                var character = db.Characters.FirstOrDefault(c => c.Id == CharacterId);
+                var stats = db.Statistics.FirstOrDefault(s => s.CharacterId == CharacterId);
+                if (character is null)
+                {
+                    Reply("Personnage introuvable.");
+                    break;
+                }
+
+                Reply($"Niveau {character.Level} - {character.Gold} or - {stats?.Monsters.MonstersCaptured ?? 0} créature(s) capturée(s) - ELO PvP {stats?.Pvp.CurrentRank ?? 1000} - étage donjon max {stats?.Exploration.DeepestFloorReached ?? 0}");
+                break;
+            }
+
+            case "/achievements":
+            {
+                var count = db.Achievements.Count(a => a.UserId == UserId);
+                Reply($"{count} succès débloqué(s).");
+                break;
+            }
+
+            case "/title":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /title <nom du titre déjà débloqué, ou 'aucun'>");
+                    break;
+                }
+
+                SetActiveTitle(db, string.Join(' ', parts[1..]), Reply);
+                break;
+
+            case "/friend":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /friend add|remove|list [pseudo]");
+                    break;
+                }
+
+                HandleFriendCommand(db, parts[1..], Reply);
+                break;
+
+            case "/whisper":
+            case "/w":
+                if (parts.Length < 3)
+                {
+                    Reply("Usage : /whisper <pseudo> <message>");
+                    break;
+                }
+
+                SendWhisper(parts[1], string.Join(' ', parts[2..]), replyChannel, Reply);
+                break;
+
+            case "/reply":
+            case "/r":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /reply <message>");
+                    break;
+                }
+
+                if (_lastWhisperFromCharacterName is null)
+                {
+                    Reply("Personne ne vous a chuchoté récemment.");
+                    break;
+                }
+
+                SendWhisper(_lastWhisperFromCharacterName, string.Join(' ', parts[1..]), replyChannel, Reply);
+                break;
+
+            case "/guild":
+                HandleGuildCommand(db, parts.Length > 1 ? parts[1..] : [], replyChannel, Reply);
+                break;
+
+            case "/party":
+                HandlePartyCommand(db, parts.Length > 1 ? parts[1..] : [], Reply);
+                break;
+
+            case "/kingdom":
+                HandleKingdomCommand(db, parts.Length > 1 ? parts[1] : "", Reply);
+                break;
+
+            default:
+                return false;
+        }
+
+        return true;
+    }
+
+    private void SetActiveTitle(AetheriaDbContext db, string titleName, Action<string> reply)
+    {
+        var character = db.Characters.FirstOrDefault(c => c.Id == CharacterId);
+        if (character is null)
+        {
+            reply("Personnage introuvable.");
+            return;
+        }
+
+        if (string.Equals(titleName, "aucun", StringComparison.OrdinalIgnoreCase))
+        {
+            character.ActiveTitle = null;
+            db.SaveChanges();
+            reply("Titre retiré.");
+            return;
+        }
+
+        var owned = db.CharacterTitles.Any(t => t.CharacterId == CharacterId && t.TitleKey == titleName);
+        if (!owned)
+        {
+            reply($"Vous n'avez pas débloqué le titre '{titleName}'.");
+            return;
+        }
+
+        character.ActiveTitle = titleName;
+        db.SaveChanges();
+        reply($"Titre actif : {titleName}.");
+    }
+
+    private void HandleFriendCommand(AetheriaDbContext db, string[] args, Action<string> reply)
+    {
+        switch (args[0].ToLowerInvariant())
+        {
+            case "list":
+                var friends = db.Friendships
+                    .Where(f => f.Status == FriendshipStatus.Accepted && (f.RequesterCharacterId == CharacterId || f.TargetCharacterId == CharacterId))
+                    .ToList();
+                if (friends.Count == 0)
+                {
+                    reply("Aucun ami pour l'instant.");
+                    break;
+                }
+
+                var friendIds = friends.Select(f => f.RequesterCharacterId == CharacterId ? f.TargetCharacterId : f.RequesterCharacterId).ToList();
+                var names = db.Characters.Where(c => friendIds.Contains(c.Id)).Select(c => c.Name).ToList();
+                reply($"Amis : {string.Join(", ", names)}");
+                break;
+
+            case "add":
+                if (args.Length < 2)
+                {
+                    reply("Usage : /friend add <pseudo>");
+                    break;
+                }
+
+                var addTarget = db.Characters.FirstOrDefault(c => c.Name == args[1]);
+                if (addTarget is null)
+                {
+                    reply($"Personnage introuvable : {args[1]}");
+                    break;
+                }
+
+                if (addTarget.Id == CharacterId)
+                {
+                    reply("Impossible de s'ajouter soi-même.");
+                    break;
+                }
+
+                var existingFriendship = db.Friendships.FirstOrDefault(f =>
+                    (f.RequesterCharacterId == CharacterId && f.TargetCharacterId == addTarget.Id)
+                    || (f.RequesterCharacterId == addTarget.Id && f.TargetCharacterId == CharacterId));
+                if (existingFriendship is not null)
+                {
+                    reply($"Une relation existe déjà avec {addTarget.Name}.");
+                    break;
+                }
+
+                db.Friendships.Add(new FriendshipEntity { Id = Guid.NewGuid(), RequesterCharacterId = CharacterId, TargetCharacterId = addTarget.Id });
+                db.SaveChanges();
+                reply($"Demande d'ami envoyée à {addTarget.Name}.");
+                break;
+
+            case "remove":
+                if (args.Length < 2)
+                {
+                    reply("Usage : /friend remove <pseudo>");
+                    break;
+                }
+
+                var removeTarget = db.Characters.FirstOrDefault(c => c.Name == args[1]);
+                if (removeTarget is null)
+                {
+                    reply($"Personnage introuvable : {args[1]}");
+                    break;
+                }
+
+                var toRemove = db.Friendships.Where(f =>
+                    (f.RequesterCharacterId == CharacterId && f.TargetCharacterId == removeTarget.Id)
+                    || (f.RequesterCharacterId == removeTarget.Id && f.TargetCharacterId == CharacterId)).ToList();
+                if (toRemove.Count == 0)
+                {
+                    reply($"{removeTarget.Name} n'est pas dans votre liste d'amis.");
+                    break;
+                }
+
+                db.Friendships.RemoveRange(toRemove);
+                db.SaveChanges();
+                reply($"{removeTarget.Name} retiré de vos amis.");
+                break;
+
+            default:
+                reply("Usage : /friend add|remove|list [pseudo]");
+                break;
+        }
+    }
+
+    private void SendWhisper(string targetCharacterName, string message, ChatChannel replyChannel, Action<string> reply)
+    {
+        var target = registry.FindByCharacterName(targetCharacterName);
+        if (target is null)
+        {
+            reply($"{targetCharacterName} n'est pas connecté(e).");
+            return;
+        }
+
+        var outgoing = new ChatMessagePacket { SenderName = CharacterName, Message = message, Channel = ChatChannel.Prive, Rank = Rank, TargetCharacterName = targetCharacterName };
+        target.SendPacket(outgoing);
+        target.RecordIncomingWhisper(CharacterName);
+        SendPacket(outgoing);
+    }
+
+    private void HandleGuildCommand(AetheriaDbContext db, string[] args, ChatChannel replyChannel, Action<string> reply)
+    {
+        if (args.Length == 0)
+        {
+            reply("Usage : /guild info|leave|<message>");
+            return;
+        }
+
+        var membership = db.GuildMembers.Include(m => m.Guild).FirstOrDefault(m => m.CharacterId == CharacterId);
+
+        switch (args[0].ToLowerInvariant())
+        {
+            case "info":
+                reply(membership is null ? "Vous n'êtes dans aucune guilde." : $"Guilde : {membership.Guild?.Name} — {db.GuildMembers.Count(m => m.GuildId == membership.GuildId)} membre(s).");
+                break;
+
+            case "leave":
+                if (membership is null)
+                {
+                    reply("Vous n'êtes dans aucune guilde.");
+                    break;
+                }
+
+                db.GuildMembers.Remove(membership);
+                db.SaveChanges();
+                reply("Vous avez quitté votre guilde.");
+                break;
+
+            default:
+                // Voir GDD/demande utilisateur — "/guild <message>" : même diffusion que le canal
+                // Guild du tchat (voir HandleChatMessage), déclenchée ici depuis une commande.
+                if (membership is null)
+                {
+                    reply("Vous n'êtes dans aucune guilde.");
+                    break;
+                }
+
+                var guildMemberIds = db.GuildMembers.Where(m => m.GuildId == membership.GuildId).Select(m => m.CharacterId).ToHashSet();
+                var guildOutgoing = new ChatMessagePacket { SenderName = CharacterName, Message = string.Join(' ', args), Channel = ChatChannel.Guild, Rank = Rank };
+                foreach (var session in registry.All().Where(s => guildMemberIds.Contains(s.CharacterId)))
+                {
+                    session.SendPacket(guildOutgoing);
+                }
+
+                break;
+        }
+    }
+
+    private void HandlePartyCommand(AetheriaDbContext db, string[] args, Action<string> reply)
+    {
+        if (args.Length == 0)
+        {
+            reply("Usage : /party create|leave|<message>");
+            return;
+        }
+
+        var membership = db.PartyMembers.FirstOrDefault(m => m.CharacterId == CharacterId);
+
+        switch (args[0].ToLowerInvariant())
+        {
+            case "create":
+                if (membership is not null)
+                {
+                    reply("Vous êtes déjà dans un groupe.");
+                    break;
+                }
+
+                var code = Random.Shared.Next(10000, 100000).ToString();
+                var party = new PartyEntity { Id = Guid.NewGuid(), LeaderCharacterId = CharacterId, JoinCode = code };
+                db.Parties.Add(party);
+                db.PartyMembers.Add(new PartyMemberEntity { Id = Guid.NewGuid(), PartyId = party.Id, CharacterId = CharacterId });
+                db.SaveChanges();
+                reply($"Groupe créé. Code : {code}");
+                break;
+
+            case "leave":
+                if (membership is null)
+                {
+                    reply("Vous n'êtes dans aucun groupe.");
+                    break;
+                }
+
+                var remainingMembers = db.PartyMembers.Where(m => m.PartyId == membership.PartyId && m.CharacterId != CharacterId).OrderBy(m => m.JoinedAtUtc).ToList();
+                db.PartyMembers.Remove(membership);
+
+                if (remainingMembers.Count == 0)
+                {
+                    var partyToDelete = db.Parties.FirstOrDefault(p => p.Id == membership.PartyId);
+                    if (partyToDelete is not null)
+                    {
+                        db.Parties.Remove(partyToDelete);
+                    }
+                }
+                else
+                {
+                    var partyToUpdate = db.Parties.FirstOrDefault(p => p.Id == membership.PartyId);
+                    if (partyToUpdate is not null && partyToUpdate.LeaderCharacterId == CharacterId)
+                    {
+                        partyToUpdate.LeaderCharacterId = remainingMembers[0].CharacterId;
+                    }
+                }
+
+                db.SaveChanges();
+                reply("Vous avez quitté votre groupe.");
+                break;
+
+            default:
+                // Voir GDD/demande utilisateur — "/party <message>" : pas de canal de tchat dédié
+                // au groupe actuellement (voir ChatChannel — Global/Guild/Prive seulement), donc
+                // diffusé en Global aux seuls membres du groupe plutôt que d'ajouter une valeur
+                // d'enum pour ce seul usage (voir Docs/README.md pour cette limite assumée).
+                if (membership is null)
+                {
+                    reply("Vous n'êtes dans aucun groupe.");
+                    break;
+                }
+
+                var partyMemberIds = db.PartyMembers.Where(m => m.PartyId == membership.PartyId).Select(m => m.CharacterId).ToHashSet();
+                var partyOutgoing = new ChatMessagePacket { SenderName = $"[GROUPE] {CharacterName}", Message = string.Join(' ', args), Channel = ChatChannel.Global, Rank = Rank };
+                foreach (var session in registry.All().Where(s => partyMemberIds.Contains(s.CharacterId)))
+                {
+                    session.SendPacket(partyOutgoing);
+                }
+
+                break;
+        }
+    }
+
+    private void HandleKingdomCommand(AetheriaDbContext db, string subCommand, Action<string> reply)
+    {
+        var character = db.Characters.FirstOrDefault(c => c.Id == CharacterId);
+        if (character is null)
+        {
+            reply("Personnage introuvable.");
+            return;
+        }
+
+        switch (subCommand.ToLowerInvariant())
+        {
+            case "members":
+                var memberCount = db.Characters.Count(c => c.Kingdom == character.Kingdom);
+                reply($"{character.Kingdom} compte {memberCount} personnage(s).");
+                break;
+
+            case "leaderboard":
+                var standings = db.Kingdoms.OrderByDescending(k => k.WarPoints).ToList();
+                reply(string.Join(" | ", standings.Select((k, i) => $"{i + 1}. {k.Name} ({k.WarPoints} pts)")));
+                break;
+
+            case "info":
+            default:
+                var kingdom = db.Kingdoms.FirstOrDefault(k => k.Type == character.Kingdom);
+                reply(kingdom is null ? "Royaume introuvable." : $"{kingdom.Name} (capitale : {kingdom.CapitalName}) — {kingdom.WarPoints} points de guerre.");
+                break;
+        }
     }
 
     /// <summary>
@@ -479,8 +975,183 @@ public sealed class PlayerSession(
                 SetMonsterLevelByIndex(db, parts[1], monsterIndex, targetLevel, Reply);
                 break;
 
+            case "/give":
+                if (parts.Length < 4 || !int.TryParse(parts[2], out var giveItemId) || !int.TryParse(parts[3], out var giveQty))
+                {
+                    Reply("Usage : /give <pseudo> <idObjet> <quantite>");
+                    return;
+                }
+
+                GiveItem(db, parts[1], giveItemId, giveQty, Reply);
+                break;
+
+            case "/givemoney":
+            case "/addmoney":
+                if (parts.Length < 3 || !long.TryParse(parts[2], out var giveMoneyAmount))
+                {
+                    Reply($"Usage : {parts[0]} <pseudo> <montant>");
+                    return;
+                }
+
+                AdjustGold(db, parts[1], giveMoneyAmount, Reply);
+                break;
+
+            case "/removemoney":
+                if (parts.Length < 3 || !long.TryParse(parts[2], out var removeMoneyAmount))
+                {
+                    Reply("Usage : /removemoney <pseudo> <montant>");
+                    return;
+                }
+
+                AdjustGold(db, parts[1], -removeMoneyAmount, Reply);
+                break;
+
+            case "/setmoney":
+                if (parts.Length < 3 || !long.TryParse(parts[2], out var setMoneyAmount))
+                {
+                    Reply("Usage : /setmoney <pseudo> <montant>");
+                    return;
+                }
+
+                SetGold(db, parts[1], setMoneyAmount, Reply);
+                break;
+
+            case "/givexp":
+                if (parts.Length < 3 || !long.TryParse(parts[2], out var giveXpAmount))
+                {
+                    Reply("Usage : /givexp <pseudo> <montant>");
+                    return;
+                }
+
+                GiveCharacterExperience(db, parts[1], giveXpAmount, Reply);
+                break;
+
+            case "/givemonster":
+                if (parts.Length < 3)
+                {
+                    Reply("Usage : /givemonster <pseudo> <espece>");
+                    return;
+                }
+
+                GiveMonster(db, parts[1], string.Join(' ', parts[2..]), Reply);
+                break;
+
+            case "/setlevel":
+                if (parts.Length < 3 || !int.TryParse(parts[2], out var setCharLevel))
+                {
+                    Reply("Usage : /setlevel <pseudo> <niveau>");
+                    return;
+                }
+
+                SetCharacterLevel(db, parts[1], setCharLevel, Reply);
+                break;
+
+            case "/resetlevel":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /resetlevel <pseudo>");
+                    return;
+                }
+
+                SetCharacterLevel(db, parts[1], 1, Reply);
+                break;
+
+            case "/setclass":
+                if (parts.Length < 3 || !Enum.TryParse<CharacterClass>(parts[2], true, out var newClass))
+                {
+                    Reply($"Usage : /setclass <pseudo> <{string.Join('|', Enum.GetNames<CharacterClass>())}>");
+                    return;
+                }
+
+                SetCharacterField(db, parts[1], c => c.Class = newClass, $"classe {newClass}", Reply);
+                break;
+
+            case "/setkingdom":
+                if (parts.Length < 3 || !Enum.TryParse<KingdomType>(parts[2], true, out var newKingdom))
+                {
+                    Reply($"Usage : /setkingdom <pseudo> <{string.Join('|', Enum.GetNames<KingdomType>())}>");
+                    return;
+                }
+
+                SetCharacterField(db, parts[1], c => c.Kingdom = newKingdom, $"royaume {newKingdom}", Reply);
+                break;
+
+            case "/clearinventory":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /clearinventory <pseudo>");
+                    return;
+                }
+
+                ClearInventory(db, parts[1], Reply);
+                break;
+
+            case "/deletemonster":
+                if (parts.Length < 3 || !int.TryParse(parts[2], out var deleteMonsterIndex))
+                {
+                    Reply("Usage : /deletemonster <pseudo> <numero>");
+                    return;
+                }
+
+                DeleteMonsterByIndex(db, parts[1], deleteMonsterIndex, Reply);
+                break;
+
+            case "/invsee":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /invsee <pseudo>");
+                    return;
+                }
+
+                InspectInventory(db, parts[1], Reply);
+                break;
+
+            case "/unban":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /unban <pseudo>");
+                    return;
+                }
+
+                SetBanned(db, parts[1], false, Reply);
+                break;
+
+            case "/ipban":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /ipban <pseudo>");
+                    return;
+                }
+
+                BanCharacterIp(db, parts[1], Reply);
+                break;
+
+            case "/unbanip":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /unbanip <adresse IP>");
+                    return;
+                }
+
+                UnbanIp(db, parts[1], Reply);
+                break;
+
+            // Voir GDD/demande utilisateur — "réservé au fonda/dev" : un cran au-dessus des autres
+            // commandes admin (même logique que /toggle-admin, voir Server/Program.cs), donc
+            // revérifié spécifiquement ici plutôt que de se contenter du garde commun en haut de
+            // cette méthode.
+            case "/dev":
+                if (rank != UserRank.Fondateur)
+                {
+                    Reply("Commande réservée au Fondateur.");
+                    return;
+                }
+
+                HandleDevCommand(db, parts.Length > 1 ? parts[1..] : [], Reply);
+                break;
+
             default:
-                Reply("Commande inconnue. Commandes disponibles : /ban, /mute, /unmute, /nick, /monster-lvl.");
+                Reply("Commande inconnue. Tapez /help pour la liste des commandes disponibles.");
                 break;
         }
     }
@@ -596,5 +1267,334 @@ public sealed class PlayerSession(
         monster.Experience = 0;
         db.SaveChanges();
         reply($"{(monster.Nickname.Length > 0 ? monster.Nickname : "Créature")} (#{monsterIndex} de {targetCharacterName}) est maintenant niveau {monster.Level}.");
+    }
+
+    private static CharacterEntity? FindCharacter(AetheriaDbContext db, string name, Action<string> reply)
+    {
+        var target = db.Characters.FirstOrDefault(c => c.Name == name);
+        if (target is null)
+        {
+            reply($"Personnage introuvable : {name}");
+        }
+
+        return target;
+    }
+
+    private static void GiveItem(AetheriaDbContext db, string targetCharacterName, int itemId, int quantity, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var item = db.Items.FirstOrDefault(i => i.Id == itemId);
+        if (item is null)
+        {
+            reply("Objet introuvable.");
+            return;
+        }
+
+        var quantityClamped = Math.Max(1, quantity);
+        var existing = db.InventoryItems.FirstOrDefault(i => i.CharacterId == target.Id && i.ItemId == itemId);
+        if (existing is not null)
+        {
+            existing.Quantity += quantityClamped;
+        }
+        else
+        {
+            db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = target.Id, ItemId = itemId, Quantity = quantityClamped });
+        }
+
+        db.SaveChanges();
+        reply($"{quantityClamped}x {item.Name} donné(s) à {target.Name}.");
+    }
+
+    private static void AdjustGold(AetheriaDbContext db, string targetCharacterName, long delta, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Gold = Math.Max(0, target.Gold + delta);
+        db.SaveChanges();
+        reply($"{target.Name} a maintenant {target.Gold} or.");
+    }
+
+    private static void SetGold(AetheriaDbContext db, string targetCharacterName, long amount, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Gold = Math.Max(0, amount);
+        db.SaveChanges();
+        reply($"{target.Name} a maintenant {target.Gold} or.");
+    }
+
+    private static void GiveCharacterExperience(AetheriaDbContext db, string targetCharacterName, long amount, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        CharacterProgressionService.GrantExperience(target, amount);
+        db.SaveChanges();
+        reply($"{target.Name} est maintenant niveau {target.Level}.");
+    }
+
+    private static void SetCharacterLevel(AetheriaDbContext db, string targetCharacterName, int level, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Level = Math.Max(1, level);
+        target.Experience = 0;
+        db.SaveChanges();
+        reply($"{target.Name} est maintenant niveau {target.Level}.");
+    }
+
+    private static void SetCharacterField(AetheriaDbContext db, string targetCharacterName, Action<CharacterEntity> setter, string description, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        setter(target);
+        db.SaveChanges();
+        reply($"{target.Name} : {description}.");
+    }
+
+    private static void GiveMonster(AetheriaDbContext db, string targetCharacterName, string speciesName, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var species = db.MonsterSpecies.FirstOrDefault(s => s.Name == speciesName);
+        if (species is null)
+        {
+            reply($"Espèce introuvable : {speciesName}");
+            return;
+        }
+
+        db.Monsters.Add(new MonsterEntity { Id = Guid.NewGuid(), OwnerCharacterId = target.Id, SpeciesId = species.Id, Variant = MonsterVariant.Normal, Nickname = species.Name, Level = 1 });
+        db.SaveChanges();
+        reply($"{species.Name} donné à {target.Name}.");
+    }
+
+    private static void ClearInventory(AetheriaDbContext db, string targetCharacterName, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var items = db.InventoryItems.Where(i => i.CharacterId == target.Id).ToList();
+        db.InventoryItems.RemoveRange(items);
+        db.SaveChanges();
+        reply($"Inventaire de {target.Name} vidé ({items.Count} objet(s) retiré(s)).");
+    }
+
+    private static void DeleteMonsterByIndex(AetheriaDbContext db, string targetCharacterName, int monsterIndex, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var monsters = db.Monsters.Where(m => m.OwnerCharacterId == target.Id).OrderBy(m => m.CapturedAtUtc).ToList();
+        if (monsterIndex < 1 || monsterIndex > monsters.Count)
+        {
+            reply($"Numéro invalide : {target.Name} a {monsters.Count} créature(s).");
+            return;
+        }
+
+        var monster = monsters[monsterIndex - 1];
+        db.Monsters.Remove(monster);
+        db.SaveChanges();
+        reply($"Créature #{monsterIndex} de {target.Name} supprimée.");
+    }
+
+    private static void InspectInventory(AetheriaDbContext db, string targetCharacterName, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var items = db.InventoryItems.Where(i => i.CharacterId == target.Id).Join(db.Items, i => i.ItemId, it => it.Id, (i, it) => $"{it.Name} x{i.Quantity}").ToList();
+        reply(items.Count == 0 ? $"{target.Name} n'a aucun objet." : $"Inventaire de {target.Name} : {string.Join(", ", items)}");
+    }
+
+    private static void SetBanned(AetheriaDbContext db, string targetCharacterName, bool banned, Action<string> reply)
+    {
+        var target = db.Characters.Include(c => c.User).FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target?.User is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        target.User.IsBanned = banned;
+        if (!banned)
+        {
+            target.User.BanReason = null;
+        }
+
+        db.SaveChanges();
+        reply($"{targetCharacterName} est {(banned ? "banni" : "débanni")}.");
+    }
+
+    private static void BanCharacterIp(AetheriaDbContext db, string targetCharacterName, Action<string> reply)
+    {
+        var target = db.Characters.Include(c => c.User).FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target?.User is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        if (target.User.LastKnownIp is not { Length: > 0 } ip)
+        {
+            reply($"Aucune adresse IP connue pour {targetCharacterName}.");
+            return;
+        }
+
+        if (!db.BannedIps.Any(b => b.IpAddress == ip))
+        {
+            db.BannedIps.Add(new BannedIpEntity { Id = Guid.NewGuid(), IpAddress = ip, Reason = $"IP de {targetCharacterName} bannie via commande en jeu." });
+            db.SaveChanges();
+        }
+
+        reply($"Adresse IP de {targetCharacterName} bannie.");
+    }
+
+    private static void UnbanIp(AetheriaDbContext db, string ipAddress, Action<string> reply)
+    {
+        var bans = db.BannedIps.Where(b => b.IpAddress == ipAddress).ToList();
+        if (bans.Count == 0)
+        {
+            reply($"{ipAddress} n'est pas bannie.");
+            return;
+        }
+
+        db.BannedIps.RemoveRange(bans);
+        db.SaveChanges();
+        reply($"{ipAddress} débannie.");
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — namespace "/dev", réservé au Fondateur. Volontairement
+    /// restreint par rapport à la liste demandée : pas de commandes destructrices pour le serveur
+    /// entier (crash/stopserver/wipeworld/resetserver), pas d'exécution de code arbitraire
+    /// (console/execute) — voir le résumé donné au joueur pour le détail de ce qui a été refusé
+    /// et pourquoi (risque de sécurité/destruction irréversible plutôt qu'une limite technique).
+    /// </summary>
+    private void HandleDevCommand(AetheriaDbContext db, string[] args, Action<string> reply)
+    {
+        if (args.Length == 0)
+        {
+            reply("Usage : /dev giveall|unlockall <pseudo> ; /dev memory ; /dev gc");
+            return;
+        }
+
+        switch (args[0].ToLowerInvariant())
+        {
+            case "giveall":
+                if (args.Length < 2)
+                {
+                    reply("Usage : /dev giveall <pseudo>");
+                    return;
+                }
+
+                DevGiveAll(db, args[1], reply);
+                break;
+
+            case "unlockall":
+                if (args.Length < 2)
+                {
+                    reply("Usage : /dev unlockall <pseudo>");
+                    return;
+                }
+
+                DevUnlockAll(db, args[1], reply);
+                break;
+
+            case "memory":
+                reply($"Mémoire gérée : {GC.GetTotalMemory(false) / 1024 / 1024} Mo.");
+                break;
+
+            case "gc":
+                GC.Collect();
+                reply("Garbage collection forcée.");
+                break;
+
+            default:
+                reply("Commande /dev inconnue ou non disponible.");
+                break;
+        }
+    }
+
+    private static void DevGiveAll(AetheriaDbContext db, string targetCharacterName, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var items = db.Items.Where(i => i.IsObtainable).ToList();
+        foreach (var item in items)
+        {
+            var existing = db.InventoryItems.FirstOrDefault(i => i.CharacterId == target.Id && i.ItemId == item.Id);
+            if (existing is not null)
+            {
+                existing.Quantity++;
+            }
+            else
+            {
+                db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = target.Id, ItemId = item.Id, Quantity = 1 });
+            }
+        }
+
+        db.SaveChanges();
+        reply($"{items.Count} objet(s) du catalogue donné(s) à {target.Name}.");
+    }
+
+    private static void DevUnlockAll(AetheriaDbContext db, string targetCharacterName, Action<string> reply)
+    {
+        var target = db.Characters.FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        var unlockedKeys = db.Achievements.Where(a => a.UserId == target.UserId).Select(a => a.AchievementKey).ToHashSet();
+        var missingKeys = AchievementCatalog.All.Select(a => a.Key).Where(k => !unlockedKeys.Contains(k)).ToList();
+        foreach (var key in missingKeys)
+        {
+            db.Achievements.Add(new AchievementEntity { Id = Guid.NewGuid(), UserId = target.UserId, AchievementKey = key });
+        }
+
+        db.SaveChanges();
+        reply($"{missingKeys.Count} succès débloqué(s) pour {targetCharacterName}.");
     }
 }
