@@ -155,6 +155,15 @@ var questRecipeCursor = 0;
 string? questMessage = null;
 Task<List<RecipeSummary>>? questRecipeTask = null;
 
+// Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui
+// expliquent le jeu" et "une histoire avec des dialogues cohérents" : la quête d'histoire/tuto
+// active occupe le même panneau de gauche que la liste de craft du Forgeron (voir
+// ShowStoryQuestIfIdle) — jamais les deux en même temps, la liste de craft reprend le dessus
+// tant qu'ouverte, puis la quête d'histoire revient à la fermeture (touche Q).
+QuestSummary? activeStoryQuest = null;
+var combatVictoryQuestFired = false;
+var lastSubmittedCombatAction = CombatActionType.Pass;
+
 // Sélection du starter (voir Server/World/StarterService.cs) : Introduction (texte narratif) ->
 // Choosing (grille de ~10 créatures communes) -> Confirming (gros plan animé + lore) -> Sending
 // (appel HTTP en cours) -> retour à Confirming en cas d'échec, ou Outdoor en cas de succès.
@@ -436,9 +445,18 @@ host.Update += deltaTime =>
     {
         if (keyboard.WasJustPressed(Key.Q))
         {
+            var wasShowingCraftList = forgeronRecipes.Count > 0;
             questTitle = null;
             questLines = [];
             forgeronRecipes = [];
+
+            // Voir GDD/demande utilisateur — fermer la liste de craft du Forgeron révèle à nouveau
+            // la quête d'histoire/tuto en cours (si elle existe) plutôt que de laisser le panneau
+            // vide ; un second Q la masque complètement (déjà géré : questTitle est déjà null ici).
+            if (wasShowingCraftList)
+            {
+                ShowStoryQuestIfIdle();
+            }
         }
         else if (forgeronRecipes.Count > 0)
         {
@@ -516,6 +534,7 @@ host.Update += deltaTime =>
             combatMessage = null;
             combatPollClock = 0f;
             combatPollTask = null;
+            combatVictoryQuestFired = false;
             sceneMode = SceneMode.Combat;
         }
         else
@@ -791,6 +810,9 @@ host.Update += deltaTime =>
                 {
                     dungeonFloorTask = gameDataApi.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
                 }
+
+                // Voir GDD/demande utilisateur — quête 6 "Les échos du donjon".
+                _ = CompleteStoryQuestAsync("Les échos du donjon");
                 break;
         }
     }
@@ -1078,6 +1100,12 @@ async Task CraftSelectedRecipeAsync()
         questMessage = result?.Message ?? "Connexion au serveur impossible.";
         await LoadInventoryAsync();
         RebuildForgeronQuestLines();
+
+        // Voir GDD/demande utilisateur — quête 4 "Le forgeron a besoin de bras".
+        if (result?.Message is not null)
+        {
+            _ = CompleteStoryQuestAsync("Le forgeron a besoin de bras");
+        }
     }
     catch (HttpRequestException)
     {
@@ -1253,7 +1281,12 @@ void OnDialogueFinished(string npcName)
 {
     // "Apprenti forgeron" (intérieur de la Forge, voir GDD/demande utilisateur — "si on rentre
     // dans la maison du forgeron") plutôt que "Forgeron" (extérieur, simple PNJ décoratif).
-    if (npcName == "Apprenti forgeron")
+    if (npcName == "Garde royal")
+    {
+        // Voir GDD/demande utilisateur — quête 1 "Une arrivée remarquée".
+        _ = CompleteStoryQuestAsync("Une arrivée remarquée");
+    }
+    else if (npcName == "Apprenti forgeron")
     {
         questRecipeTask = gameDataApi?.GetRecipesAsync();
     }
@@ -1472,6 +1505,7 @@ void ConnectAndEnterWorld(Guid characterId)
 
         Console.WriteLine($"[Réseau] Entrée dans le monde acceptée en ({packet.PositionX}, {packet.PositionY}).");
         _ = RefreshDungeonPositionAsync();
+        _ = RefreshActiveQuestAsync();
     };
     connection.EnterWorldRejected += packet =>
     {
@@ -1603,6 +1637,58 @@ void ConnectAndEnterWorld(Guid characterId)
 /// périodique pour cette première intégration (le joueur doit se reconnecter pour voir un
 /// déplacement de donjon survenu en cours de session) — voir Docs/README.md.
 /// </summary>
+/// <summary>Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui expliquent le jeu". Appelé à la connexion et après chaque complétion.</summary>
+async Task RefreshActiveQuestAsync()
+{
+    if (gameDataApi is null || chosenCharacterId is null)
+    {
+        return;
+    }
+
+    try
+    {
+        activeStoryQuest = await gameDataApi.GetActiveQuestAsync(chosenCharacterId.Value);
+        ShowStoryQuestIfIdle();
+    }
+    catch (HttpRequestException)
+    {
+    }
+}
+
+/// <summary>Affiche la quête d'histoire/tuto dans le panneau de gauche si rien d'autre (la liste de craft du Forgeron) ne l'occupe déjà.</summary>
+void ShowStoryQuestIfIdle()
+{
+    if (questTitle is null && activeStoryQuest is { } quest)
+    {
+        questTitle = quest.Name;
+        questLines = [quest.Description, "", "Q POUR MASQUER"];
+    }
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — points d'ancrage de la progression (parler au garde, gagner un
+/// combat, capturer, fabriquer, échanger avec la marchande, entrer en donjon) : le serveur
+/// n'accepte la complétion que si le nom correspond bien à l'étape courante (voir
+/// QuestService.CompleteIfActiveAsync), donc appeler ceci "au cas où" à chaque action concernée
+/// est sans risque même si ce n'est pas (ou plus) l'étape active.
+/// </summary>
+async Task CompleteStoryQuestAsync(string questName)
+{
+    if (gameDataApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return;
+    }
+
+    try
+    {
+        await gameDataApi.CompleteQuestAsync(options.SessionToken, chosenCharacterId.Value, questName);
+        await RefreshActiveQuestAsync();
+    }
+    catch (HttpRequestException)
+    {
+    }
+}
+
 async Task RefreshDungeonPositionAsync()
 {
     if (gameDataApi is null)
@@ -2412,6 +2498,7 @@ void UpdateArenaPanel(float deltaTime)
             combatReturnScene = SceneMode.Outdoor;
             arenaQueued = false;
             activePanel = PanelKind.None;
+            combatVictoryQuestFired = false;
             sceneMode = SceneMode.Combat;
         }
         else
@@ -2608,6 +2695,8 @@ void UpdatePanel(float deltaTime)
             // Voir GDD/demande utilisateur — la liste de vente reflète l'inventaire courant :
             // rafraîchi après un achat/une vente pour ne pas afficher des quantités périmées.
             _ = LoadInventoryAsync();
+            // Voir GDD/demande utilisateur — quête 5 "Les rouages du commerce".
+            _ = CompleteStoryQuestAsync("Les rouages du commerce");
         }
 
         shopBuyTask = null;
@@ -2955,6 +3044,7 @@ void SendCombatAction(CombatActionType actionType, int x, int y, int? captureIte
     }
 
     combatActionTask = combatApi.SubmitActionAsync(options.SessionToken, combatState.CombatId, actionType, x, y, captureItemId);
+    lastSubmittedCombatAction = actionType;
     combatSelectedAction = null;
 }
 
@@ -2970,6 +3060,15 @@ void UpdateCombat(float deltaTime)
         {
             combatState = task.Result.State;
             combatMessage = null;
+
+            // Voir GDD/demande utilisateur — quête 3 "Un allié à quatre pattes" : approximation
+            // assumée (la capture réussit selon un jet côté serveur, non exposé tel quel ici) —
+            // déclenché dès qu'une Carte de capture est utilisée avec succès (action acceptée),
+            // le serveur ignore silencieusement l'appel si ce n'est pas/plus l'étape active.
+            if (lastSubmittedCombatAction == CombatActionType.Capture)
+            {
+                _ = CompleteStoryQuestAsync("Un allié à quatre pattes");
+            }
         }
 
         combatActionTask = null;
@@ -2996,6 +3095,15 @@ void UpdateCombat(float deltaTime)
 
     if (combatState.IsFinished)
     {
+        // Voir GDD/demande utilisateur — quête 2 "Faire ses preuves" : déclenché une seule fois
+        // par combat (combatVictoryQuestFired réinitialisé à chaque nouveau combat démarré) pour
+        // ne pas spammer l'appel serveur tant que l'écran de résultat reste affiché.
+        if (combatState.WinningTeam == 0 && !combatVictoryQuestFired)
+        {
+            combatVictoryQuestFired = true;
+            _ = CompleteStoryQuestAsync("Faire ses preuves");
+        }
+
         UpdateLoot(deltaTime);
         return;
     }

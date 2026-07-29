@@ -10,4 +10,12 @@ public sealed class QuestEntity
 
     public long RewardGold { get; set; }
     public long RewardExperience { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui
+    /// expliquent le jeu" et "une histoire avec des dialogues cohérents" : chaîne strictement
+    /// linéaire (une seule quête "active" à la fois, la première non complétée par ordre
+    /// croissant) plutôt qu'un journal à embranchements — voir QuestService.GetActiveQuestAsync.
+    /// </summary>
+    public int SequenceOrder { get; set; }
 }
