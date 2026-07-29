@@ -30,6 +30,10 @@ public static class BattlePassService
     public const int MaxRewardLevel = 50;
     public const long PremiumCostGems = 500;
 
+    /// <summary>Voir demande utilisateur — "dans le pass premium au palier 10 ajoute l'obtention du titre 'premier arrivé premier servie'" : réutilise le système de titres existant (voir TitleCatalog/CharacterTitleEntity/ProfileService.ActiveTitle).</summary>
+    private const int PremiumTitleLevel = 10;
+    private const string PremiumTitleKey = "Premier arrivé premier servi";
+
     /// <summary>Récompense objet gratuite tous les 5 paliers (Commun/PeuCommun — voir Docs/Items.md).</summary>
     private static readonly string[] FreeMilestoneItems =
     [
@@ -128,6 +132,20 @@ public static class BattlePassService
         {
             character.Gold += level * 40L;
             await GrantGemsAsync(db, character, 5, ct);
+        }
+
+        if (level == PremiumTitleLevel)
+        {
+            await GrantTitleAsync(db, character, PremiumTitleKey, ct);
+        }
+    }
+
+    private static async Task GrantTitleAsync(AetheriaDbContext db, CharacterEntity character, string titleKey, CancellationToken ct)
+    {
+        var alreadyOwned = await db.CharacterTitles.AnyAsync(t => t.CharacterId == character.Id && t.TitleKey == titleKey, ct);
+        if (!alreadyOwned)
+        {
+            db.CharacterTitles.Add(new CharacterTitleEntity { Id = Guid.NewGuid(), CharacterId = character.Id, TitleKey = titleKey });
         }
     }
 

@@ -2150,6 +2150,131 @@ app.MapPost("/api/admin/game/max-level-team", async (AdminMaxLevelTeamRequest re
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monsters.Count} créature(s) de {target.Name} au niveau {MonsterProgressionService.MaxLevel}." });
 });
 
+// Voir retour utilisateur — "il manque des commandes dans les commandes admin (F2)" : ces cinq
+// actions existaient déjà comme commandes de tchat (/givemoney, /givexp, /setlevel, /unban,
+// /givegems) mais pas dans le panel en jeu (F2) — équivalents HTTP dédiés, comme le reste du
+// panel (voir /api/admin/game/ban ci-dessus, même choix de ne pas dupliquer PlayerSession).
+app.MapPost("/api/admin/game/give-money", async (AdminGiveMoneyRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    target.Gold = Math.Max(0, target.Gold + request.Amount);
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{target.Name} a maintenant {target.Gold} pièces." });
+});
+
+app.MapPost("/api/admin/game/give-xp", async (AdminGiveXpRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    CharacterProgressionService.GrantExperience(target, request.Amount);
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{target.Name} est maintenant niveau {target.Level}." });
+});
+
+app.MapPost("/api/admin/game/set-level", async (AdminSetLevelRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    target.Level = Math.Max(1, request.Level);
+    target.Experience = 0;
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{target.Name} est maintenant niveau {target.Level}." });
+});
+
+app.MapPost("/api/admin/game/unban", async (AdminUnbanCharacterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target?.User is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    target.User.IsBanned = false;
+    target.User.BanReason = null;
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a été débanni." });
+});
+
+// Voir GDD/demande utilisateur — "/givegems" est réservé au Fondateur (économie premium) : même
+// restriction que la commande de tchat, revérifiée ici (pas seulement IsAdmin).
+app.MapPost("/api/admin/game/give-gems", async (AdminGiveGemsRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    if (!app.Services.GetRequiredService<SessionTokenStore>().TryValidate(request.SessionToken, out var callerUserId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var caller = await db.Users.FirstOrDefaultAsync(u => u.Id == callerUserId);
+    if (caller is not { Rank: UserRank.Fondateur })
+    {
+        return Results.Json(new ApiError { Message = "Action réservée au grade Fondateur." }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target?.User is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    target.User.Gems = Math.Max(0, target.User.Gems + request.Amount);
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a maintenant {target.User.Gems} gemmes." });
+});
+
 using var shutdownCts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
 {
