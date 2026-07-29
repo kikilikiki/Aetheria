@@ -202,6 +202,12 @@ var chatTextInput = string.Empty;
 var chatMessages = new List<ChatLine>();
 const int MaxChatLines = 100;
 
+// Voir GDD/demande utilisateur — "afficher les messages du tchat transmis en bas à droite" :
+// notifications éphémères en plus du panneau Tchat (T), affichées même si celui-ci est fermé.
+var chatToasts = new List<(ChatLine Line, DateTime ExpiresAtUtc)>();
+const int MaxChatToasts = 5;
+var chatToastLifetime = TimeSpan.FromSeconds(6);
+
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
 var guildTextInput = string.Empty;
@@ -756,6 +762,10 @@ host.Render += _ =>
             break;
     }
 
+    // Voir GDD/demande utilisateur — "afficher les messages du tchat transmis en bas à droite" :
+    // superposé à toutes les scènes (pas seulement le panneau Tchat), pour être vu même fermé.
+    DrawChatToasts(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+
     spriteBatch.End();
 };
 
@@ -1115,10 +1125,17 @@ void ConnectAndEnterWorld(Guid characterId)
     {
         lock (stateLock)
         {
-            chatMessages.Add(new ChatLine(packet.Channel, packet.SenderName, packet.Rank, packet.Message));
+            var line = new ChatLine(packet.Channel, packet.SenderName, packet.Rank, packet.Message);
+            chatMessages.Add(line);
             if (chatMessages.Count > MaxChatLines)
             {
                 chatMessages.RemoveAt(0);
+            }
+
+            chatToasts.Add((line, DateTime.UtcNow + chatToastLifetime));
+            if (chatToasts.Count > MaxChatToasts)
+            {
+                chatToasts.RemoveAt(0);
             }
         }
     };
@@ -3074,7 +3091,11 @@ void DrawMonstersPanel(int w, int h)
             DrawStarterPortrait(portraitCenter, 22f, portraitColor);
 
             var textX = topLeft.X + 78f;
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()} - NIV. {monster.Level}", new Vector2(textX, y), 2f, color);
+            // Voir GDD/demande utilisateur — "chaque monstre a un type affiché (archer, soigneur,
+            // etc.)" : déjà déterminant pour les capacités/portées en combat (CombatEngine), donc
+            // affiché ici en toutes lettres plutôt que par la seule couleur du portrait.
+            var typeLabel = species is not null ? $" [{species.Type}]".ToUpperInvariant() : "";
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()}{typeLabel} - NIV. {monster.Level}", new Vector2(textX, y), 2f, color);
 
             var xpForNextLevel = monster.Level * 100;
             var xpRatio = Math.Clamp((float)monster.Experience / Math.Max(1, xpForNextLevel), 0f, 1f);
@@ -3203,6 +3224,42 @@ void DrawArenaPanel(int w, int h)
     if (!arenaQueued)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "afficher les messages du tchat transmis en bas à droite" :
+/// notifications éphémères empilées (les plus récentes en bas), disparaissant après quelques
+/// secondes (voir chatToastLifetime), visibles quelle que soit la scène/le panneau actif
+/// contrairement à <see cref="DrawChatPanel"/> qui n'existe que derrière la touche T.
+/// </summary>
+void DrawChatToasts(int w, int h)
+{
+    List<(ChatLine Line, DateTime ExpiresAtUtc)> toasts;
+    lock (stateLock)
+    {
+        var now = DateTime.UtcNow;
+        chatToasts.RemoveAll(t => t.ExpiresAtUtc <= now);
+        toasts = [.. chatToasts];
+    }
+
+    if (toasts.Count == 0)
+    {
+        return;
+    }
+
+    const float pad = 10f;
+    var y = h - pad;
+    for (var i = toasts.Count - 1; i >= 0; i--)
+    {
+        var (line, _) = toasts[i];
+        var text = $"{ChatRankTag(line.Rank)}{line.SenderName} : {line.Message}";
+        var width = TextRenderer.MeasureWidth(text, 1.5f);
+        var height = TextRenderer.LineHeight(1.5f);
+        var topLeft = new Vector2(w - pad - width - 12f, y - height);
+        DrawPanel(topLeft, new Vector2(width + 12f, height + 6f), new Vector4(0.08f, 0.08f, 0.12f, 0.85f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, text, topLeft + new Vector2(6f, 3f), 1.5f, ChatRankColor(line.Rank));
+        y -= height + 8f;
     }
 }
 
@@ -3735,6 +3792,9 @@ void DrawCombat()
         DrawPanel(barTop, new Vector2(barWidth * hpRatio, 6f), new Vector4(0.3f, 0.8f, 0.3f, 1f));
 
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatant.Name.ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f), 1.1f, Vector4.One);
+        // Voir GDD/demande utilisateur — "chaque monstre a un type affiché" : en plus de la
+        // couleur du portrait (déjà par type), le nom du type en toutes lettres sous le nom.
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatant.Type.ToString().ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f + 14f), 0.9f, typeColor);
     }
 
     if (combatState.IsFinished)
