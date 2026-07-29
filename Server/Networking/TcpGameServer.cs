@@ -11,12 +11,18 @@ namespace Aetheria.Server.Networking;
 public sealed class TcpGameServer(
     SessionTokenStore tokenStore,
     IDbContextFactory<AetheriaDbContext> dbContextFactory,
-    ILoggerFactory loggerFactory)
+    ILoggerFactory loggerFactory,
+    WorldSessionRegistry registry)
 {
     private readonly ILogger<TcpGameServer> _logger = loggerFactory.CreateLogger<TcpGameServer>();
 
-    /// <summary>Partagé par toutes les <see cref="PlayerSession"/> acceptées par ce serveur (voir GDD — visibilité globale des joueurs).</summary>
-    private readonly WorldSessionRegistry _registry = new();
+    /// <summary>
+    /// Injecté (voir Program.cs) plutôt qu'instancié ici : les actions admin en jeu (voir
+    /// GDD/demande utilisateur — "panel admin... peuvent afficher un message en haut de l'écran
+    /// à tous les joueurs, kick, etc.") passent par des endpoints HTTP qui doivent atteindre la
+    /// même instance que celle utilisée par les <see cref="PlayerSession"/> TCP.
+    /// </summary>
+    private readonly WorldSessionRegistry _registry = registry;
 
     public async Task RunAsync(int port, CancellationToken ct)
     {

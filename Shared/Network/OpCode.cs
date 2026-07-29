@@ -20,4 +20,6 @@ public enum OpCode : byte
     PlayerLeft = 23,
 
     ChatMessage = 30,
+
+    AdminEffect = 40,
 }

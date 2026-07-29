@@ -20,6 +20,7 @@ public static class PacketRegistry
         [OpCode.PlayerJoined] = PlayerJoinedPacket.Read,
         [OpCode.PlayerLeft] = PlayerLeftPacket.Read,
         [OpCode.ChatMessage] = ChatMessagePacket.Read,
+        [OpCode.AdminEffect] = AdminEffectPacket.Read,
     };
 
     public static IPacket Read(OpCode opCode, BinaryReader reader)
