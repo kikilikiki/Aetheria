@@ -74,12 +74,13 @@ public sealed class WorldMap
         var teleporter = (X: size / 2 - 3, Y: size / 2 - 4);
         var pension = (X: size / 2 + 3, Y: size / 2 - 4);
         var mine = (X: size / 2 - 8, Y: size / 2 + 3);
+        var shop = (X: auctionHouse.X + 3, Y: auctionHouse.Y + 2);
 
         SpawnPosition = (capital.X, capital.Y + 2);
         DungeonEntrance = (size - 4, size - 4);
 
         var pathTiles = new HashSet<(int X, int Y)>();
-        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, mine, DungeonEntrance })
+        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, mine, shop, DungeonEntrance })
         {
             MarkPath(pathTiles, capital, target);
         }
@@ -119,6 +120,10 @@ public sealed class WorldMap
             // KingdomBiome.MineName, mêmes noms que Server/Persistence/TerritorySeeder.cs) —
             // peut appartenir à un autre royaume si celui-ci a gagné la dernière guerre.
             new Building(biome.MineName, mine.X, mine.Y, 1.4f, new Vector4(0.5f, 0.45f, 0.4f, 1f) * tint, new Vector4(0.3f, 0.26f, 0.22f, 1f) * tint, new Vector4(0.6f, 0.55f, 0.5f, 1f) * tint),
+            // Voir GDD/demande utilisateur — "ajoute un bâtiment d'un marchand où on peut acheter/
+            // vendre au lieu de l'UI Boutique en haut à droite" : bâtiment dédié à la Marchande
+            // plutôt qu'un simple raccourci clavier/HUD.
+            new Building("Boutique", shop.X, shop.Y, 1.3f, new Vector4(0.55f, 0.42f, 0.2f, 1f) * tint, new Vector4(0.35f, 0.25f, 0.1f, 1f) * tint, new Vector4(0.7f, 0.55f, 0.3f, 1f) * tint),
         ];
 
         Npcs =

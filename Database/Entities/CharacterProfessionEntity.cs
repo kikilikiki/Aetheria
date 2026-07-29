@@ -13,4 +13,7 @@ public sealed class CharacterProfessionEntity
     public ProfessionType Profession { get; set; }
     public int Level { get; set; } = 1;
     public long Experience { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown après extraction à un endroit (mine par exemple)" — voir ProfessionService.GatherAsync.</summary>
+    public DateTime? LastGatheredAtUtc { get; set; }
 }

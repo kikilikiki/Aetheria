@@ -393,6 +393,10 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> KickPlayerAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/kick", new AdminKickRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
 
+    /// <summary>Voir GDD/demande utilisateur — bouton exclusif au Fondateur.</summary>
+    public async Task<AdminGameActionResponse> ToggleAdminAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/toggle-admin", new AdminToggleAdminRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
+
     public async Task<AdminGameActionResponse> LevelUpMonsterAsync(string sessionToken, Guid monsterId, int levels, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/level-up-monster", new AdminLevelUpMonsterRequest { SessionToken = sessionToken, MonsterId = monsterId, Levels = levels }, ct);
 
