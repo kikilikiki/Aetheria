@@ -58,8 +58,14 @@ public sealed class DiscordAnnouncer
     /// <summary>Limite Discord au nombre d'embeds par message.</summary>
     private const int MaxEmbedsPerMessage = 10;
 
-    /// <summary>Poste dans tous les salons configurés (voir demande utilisateur — plusieurs salons) ; retourne vrai si l'envoi a réussi dans au moins un salon.</summary>
-    public async Task<bool> PostUpdateAsync(string title, string description, IReadOnlyList<string> changes, CancellationToken ct = default)
+    /// <summary>
+    /// Poste dans tous les salons configurés (voir demande utilisateur — plusieurs salons) ;
+    /// retourne vrai si l'envoi a réussi dans au moins un salon. Voir GDD/demande utilisateur —
+    /// "désactive le ping [sur] les récapitulatifs" : le ping de rôle reste activé par défaut
+    /// (annonces manuelles/importantes, voir <c>/api/admin/discord/announce</c>) mais
+    /// <see cref="DigestScheduler"/> le désactive explicitement pour son récapitulatif horaire.
+    /// </summary>
+    public async Task<bool> PostUpdateAsync(string title, string description, IReadOnlyList<string> changes, bool pingRole = true, CancellationToken ct = default)
     {
         if (!IsConfigured)
         {
@@ -99,7 +105,7 @@ public sealed class DiscordAnnouncer
             for (var offset = 0; offset < embeds.Count; offset += MaxEmbedsPerMessage)
             {
                 var batch = embeds.Skip(offset).Take(MaxEmbedsPerMessage).ToArray();
-                if (await PostToChannelAsync(channelId, batch, includeContent: offset == 0, ct))
+                if (await PostToChannelAsync(channelId, batch, includeContent: pingRole && offset == 0, ct))
                 {
                     anySucceeded = true;
                 }
