@@ -41,6 +41,9 @@ appsettings.*.local.json
 .discord-last-digest-hour
 .kingdom-war-last-week
 
+# Brouillon de description itch.io (voir demande utilisateur — pas destiné au dépôt public)
+Docs/itch.md
+
 # Divers OS
 .DS_Store
 Thumbs.db
