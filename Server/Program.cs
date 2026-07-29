@@ -802,6 +802,83 @@ app.MapGet("/api/leaderboard/{category}", async (LeaderboardCategory category, i
     return Results.Ok(top);
 });
 
+// Voir GDD/demande utilisateur — "un endroit pour modifier son profil".
+app.MapGet("/api/profile/{characterId:guid}", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var profile = await new ProfileService(db, app.Services.GetRequiredService<SessionTokenStore>()).GetAsync(characterId);
+    return profile is null ? Results.NotFound(new ApiError { Message = "Personnage introuvable." }) : Results.Ok(profile);
+});
+
+app.MapPost("/api/profile/update", async (UpdateProfileRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        var profile = await new ProfileService(db, app.Services.GetRequiredService<SessionTokenStore>()).UpdateAsync(request);
+        return Results.Ok(profile);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+
+// Voir GDD/demande utilisateur — "ajouter les amis".
+FriendService CreateFriendService(AetheriaDbContext friendDb) =>
+    new(friendDb, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<WorldSessionRegistry>());
+
+app.MapPost("/api/friends/request", async (FriendActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = true, Message = await CreateFriendService(db).SendRequestAsync(request) });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+
+app.MapPost("/api/friends/respond", async (FriendRespondRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = true, Message = await CreateFriendService(db).RespondAsync(request) });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+
+app.MapPost("/api/friends/remove", async (FriendActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = true, Message = await CreateFriendService(db).RemoveAsync(request) });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+
+app.MapGet("/api/friends/{characterId:guid}", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    return Results.Ok(await CreateFriendService(db).GetFriendsAsync(characterId));
+});
+
+app.MapGet("/api/friends/{characterId:guid}/pending", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    return Results.Ok(await CreateFriendService(db).GetPendingRequestsAsync(characterId));
+});
+
 app.MapPost("/api/combat/start", async (StartCombatRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();

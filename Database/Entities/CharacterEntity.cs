@@ -29,7 +29,17 @@ public sealed class CharacterEntity
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    // Voir GDD/demande utilisateur — "un endroit pour modifier son profil (description, item que
+    // l'on veut montrer, titre, grade)" : le grade affiché est UserEntity.Rank (lecture seule,
+    // pas dupliqué ici) ; ces trois champs sont les seuls réellement éditables par le joueur.
+    public string ProfileDescription { get; set; } = string.Empty;
+    public int? ShowcaseItemId { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "des titres que l'on peut obtenir en pvp dans des classements" : doit correspondre à un <see cref="CharacterTitleEntity.TitleKey"/> déjà possédé (voir ProfileService.UpdateAsync), sinon ignoré.</summary>
+    public string? ActiveTitle { get; set; }
+
     public List<MonsterEntity> Monsters { get; set; } = new();
     public List<InventoryItemEntity> InventoryItems { get; set; } = new();
     public StatisticsEntity? Statistics { get; set; }
+    public List<CharacterTitleEntity> Titles { get; set; } = new();
 }

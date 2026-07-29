@@ -18,12 +18,16 @@ public sealed class ChatMessagePacket : IPacket
     public ChatChannel Channel { get; init; } = ChatChannel.Global;
     public UserRank Rank { get; init; } = UserRank.Joueur;
 
+    /// <summary>Destinataire d'un message privé (voir <see cref="ChatChannel.Prive"/>) — envoyé par le client (le nom du destinataire choisi), ignoré pour les autres canaux.</summary>
+    public string TargetCharacterName { get; init; } = string.Empty;
+
     public void Write(BinaryWriter writer)
     {
         writer.Write(SenderName);
         writer.Write(Message);
         writer.Write((byte)Channel);
         writer.Write((byte)Rank);
+        writer.Write(TargetCharacterName);
     }
 
     public static IPacket Read(BinaryReader reader) => new ChatMessagePacket
@@ -32,5 +36,6 @@ public sealed class ChatMessagePacket : IPacket
         Message = reader.ReadString(),
         Channel = (ChatChannel)reader.ReadByte(),
         Rank = (UserRank)reader.ReadByte(),
+        TargetCharacterName = reader.ReadString(),
     };
 }

@@ -271,7 +271,25 @@ public sealed class PlayerSession(
             Message = trimmed,
             Channel = chat.Channel,
             Rank = self.Rank,
+            TargetCharacterName = chat.TargetCharacterName,
         };
+
+        if (chat.Channel == ChatChannel.Prive)
+        {
+            // Voir GDD/demande utilisateur — "discussion privée" avec un ami : envoyé uniquement
+            // au destinataire et renvoyé à l'expéditeur (pour que son propre client affiche le
+            // message envoyé), jamais diffusé au reste du monde comme Global/Guild.
+            var target = registry.FindByCharacterName(chat.TargetCharacterName);
+            if (target is null)
+            {
+                SendPacket(new ChatMessagePacket { SenderName = "Système", Message = $"{chat.TargetCharacterName} n'est pas connecté(e).", Channel = ChatChannel.Prive, TargetCharacterName = chat.TargetCharacterName });
+                return;
+            }
+
+            target.SendPacket(outgoing);
+            SendPacket(outgoing);
+            return;
+        }
 
         if (chat.Channel == ChatChannel.Guild)
         {

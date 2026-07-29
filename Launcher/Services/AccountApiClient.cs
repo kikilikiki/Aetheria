@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Account;
 
 namespace Aetheria.Launcher.Services;
@@ -103,6 +104,27 @@ public sealed class AccountApiClient : IDisposable
         catch (HttpRequestException ex)
         {
             return ApiResult<SessionInfoResponse>.Failure($"Impossible de contacter le serveur : {ex.Message}");
+        }
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".</summary>
+    public async Task<ApiResult<List<Aetheria.Shared.Models.LeaderboardRow>>> GetLeaderboardAsync(LeaderboardCategory category, int limit = 10)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"/api/leaderboard/{category}?limit={limit}");
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
+                return ApiResult<List<Aetheria.Shared.Models.LeaderboardRow>>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<List<Aetheria.Shared.Models.LeaderboardRow>>(JsonOptions);
+            return ApiResult<List<Aetheria.Shared.Models.LeaderboardRow>>.Success(body ?? []);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ApiResult<List<Aetheria.Shared.Models.LeaderboardRow>>.Failure($"Impossible de contacter le serveur : {ex.Message}");
         }
     }
 

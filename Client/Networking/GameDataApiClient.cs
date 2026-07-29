@@ -420,5 +420,54 @@ public sealed class GameDataApiClient : IDisposable
         return body!;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".</summary>
+    public async Task<List<LeaderboardRow>> GetLeaderboardAsync(LeaderboardCategory category, int limit = 10, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<LeaderboardRow>>($"/api/leaderboard/{category}?limit={limit}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public Task RefreshLeaderboardAsync(LeaderboardCategory category, CancellationToken ct = default) =>
+        _http.PostAsync($"/api/leaderboard/{category}/refresh", null, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — "un endroit pour modifier son profil".</summary>
+    public async Task<ProfileSummary?> GetProfileAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/profile/{characterId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ProfileSummary>(JsonOptions, ct) : null;
+    }
+
+    public async Task<ProfileSummary?> UpdateProfileAsync(string sessionToken, Guid characterId, string description, int? showcaseItemId, string? activeTitle, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/profile/update", new UpdateProfileRequest
+        {
+            SessionToken = sessionToken, CharacterId = characterId, Description = description, ShowcaseItemId = showcaseItemId, ActiveTitle = activeTitle,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ProfileSummary>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajouter les amis".</summary>
+    public async Task<List<FriendSummary>> GetFriendsAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<FriendSummary>>($"/api/friends/{characterId}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<List<FriendRequestSummary>> GetPendingFriendRequestsAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<FriendRequestSummary>>($"/api/friends/{characterId}/pending", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<AdminGameActionResponse> SendFriendRequestAsync(string sessionToken, Guid characterId, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/friends/request", new FriendActionRequest { SessionToken = sessionToken, CharacterId = characterId, TargetCharacterName = targetCharacterName }, ct);
+
+    public async Task<AdminGameActionResponse> RespondFriendRequestAsync(string sessionToken, Guid characterId, string requesterCharacterName, bool accept, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/friends/respond", new FriendRespondRequest { SessionToken = sessionToken, CharacterId = characterId, RequesterCharacterName = requesterCharacterName, Accept = accept }, ct);
+
+    public async Task<AdminGameActionResponse> RemoveFriendAsync(string sessionToken, Guid characterId, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/friends/remove", new FriendActionRequest { SessionToken = sessionToken, CharacterId = characterId, TargetCharacterName = targetCharacterName }, ct);
+
     public void Dispose() => _http.Dispose();
 }

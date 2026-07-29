@@ -649,6 +649,8 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             loserStats.Pvp.Losses++;
             loserStats.Pvp.WinStreak = 0;
             loserStats.Pvp.CurrentRank = Math.Max(0, ComputeNewElo(loserRatingBefore, winnerRatingBefore, won: false));
+
+            await TitleCatalog.AwardForBestRankAsync(db, winnerCharacterId, winnerStats.Pvp.BestRank, ct);
         }
 
         await db.SaveChangesAsync(ct);
@@ -717,6 +719,8 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 stats.Pvp.Losses++;
                 stats.Pvp.WinStreak = 0;
             }
+
+            await TitleCatalog.AwardForBestRankAsync(db, characterId, stats.Pvp.BestRank, ct);
         }
 
         await db.SaveChangesAsync(ct);
