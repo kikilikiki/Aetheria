@@ -71,7 +71,9 @@ public sealed class QuestService(AetheriaDbContext db, SessionTokenStore tokenSt
         // TemporaryBoostService) : les deux se cumulent.
         var gradeMultiplier = await PremiumService.GetXpGoldMultiplierAsync(db, userId, ct);
         character.Gold += (long)Math.Round(quest.RewardGold * gradeMultiplier * TemporaryBoostService.GoldMultiplier(character));
-        CharacterProgressionService.GrantExperience(character, (long)Math.Round(quest.RewardExperience * gradeMultiplier * TemporaryBoostService.XpMultiplier(character)));
+        var xpGained = (long)Math.Round(quest.RewardExperience * gradeMultiplier * TemporaryBoostService.XpMultiplier(character));
+        CharacterProgressionService.GrantExperience(character, xpGained);
+        await BattlePassService.GrantExperienceAsync(db, character, xpGained, ct);
         await db.SaveChangesAsync(ct);
     }
 }

@@ -6,6 +6,7 @@ using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
+using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Premium;
 
 namespace Aetheria.Client.Networking;
@@ -318,6 +319,38 @@ public sealed class GameDataApiClient : IDisposable
 
         var body = await response.Content.ReadFromJsonAsync<AuctionResponse>(cancellationToken: ct);
         return body!;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier".</summary>
+    public async Task<List<ProfessionSummary>> GetProfessionsAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<ProfessionSummary>>($"/api/professions/{characterId}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "un pass de niveaux de joueur ... si il paie le pass premium alors il auront accès à des trucs plus exclusif".</summary>
+    public async Task<BattlePassStatus?> GetBattlePassStatusAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/battlepass/{characterId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<BattlePassStatus>(JsonOptions, ct) : null;
+    }
+
+    public async Task<ShopPurchaseResponse> PurchaseBattlePassPremiumAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/battlepass/premium/purchase", new PurchaseBattlePassPremiumRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new ShopPurchaseResponse { Success = false, Message = error?.Message ?? $"Erreur serveur ({(int)response.StatusCode})." };
+        }
+
+        var status = await response.Content.ReadFromJsonAsync<BattlePassStatus>(JsonOptions, ct);
+        return new ShopPurchaseResponse { Success = true, Message = "Pass premium débloqué.", RemainingGold = status?.Level ?? 0 };
     }
 
     /// <summary>Voir GDD/demande utilisateur — "liste des items que l'on peut craft et ce qu'il faut".</summary>
