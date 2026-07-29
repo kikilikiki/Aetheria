@@ -309,6 +309,8 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "MODE PANNEAU 5 MIN (aucune saisie)",
         "DONNER UN OBJET (perso;id;qte)",
         "EXPULSER (nom du personnage)",
+        "BANNIR (nom du personnage)",
+        "TRANSFORMER EN PANNEAU (nom du personnage)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
     ]
     :
@@ -317,6 +319,8 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "MODE PANNEAU 5 MIN (aucune saisie)",
         "DONNER UN OBJET (perso;id;qte)",
         "EXPULSER (nom du personnage)",
+        "BANNIR (nom du personnage)",
+        "TRANSFORMER EN PANNEAU (nom du personnage)",
     ];
 
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
@@ -1347,6 +1351,12 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             adminPanelActionTask = gameDataApi!.KickPlayerAsync(options.SessionToken!, input);
             break;
         case 4:
+            adminPanelActionTask = gameDataApi!.BanPlayerAsync(options.SessionToken!, input);
+            break;
+        case 5:
+            adminPanelActionTask = gameDataApi!.TransformPlayerAsync(options.SessionToken!, input);
+            break;
+        case 6:
             // Voir GDD/demande utilisateur — bouton exclusif au Fondateur ; le serveur revérifie
             // de toute façon le grade de l'appelant (voir /api/admin/game/toggle-admin).
             adminPanelActionTask = gameDataApi!.ToggleAdminAsync(options.SessionToken!, input);
@@ -4557,8 +4567,8 @@ void DrawQuestPanel(int w, int h)
 /// <summary>Panel admin en jeu (touche F2, comptes IsAdmin et grade Fondateur) — voir <see cref="UpdateAdminGamePanel"/>.</summary>
 void DrawAdminGamePanel(int w, int h)
 {
-    const float boxWidth = 560f;
-    const float boxHeight = 330f;
+    const float boxWidth = 600f;
+    const float boxHeight = 420f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
