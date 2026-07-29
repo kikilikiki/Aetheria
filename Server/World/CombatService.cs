@@ -239,6 +239,17 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     {
         var species = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
 
+        // Voir GDD/demande utilisateur — "ajoute un leaderboard pour la personne qui est arrivée
+        // le plus haut [en donjon]" : mis à jour ici (pas au simple chargement de l'étage, qui
+        // n'a pas d'identité de personnage) — engager un combat sur cet étage prouve qu'il a
+        // vraiment été atteint, pas seulement prévisualisé.
+        var stats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == request.CharacterId, ct);
+        if (stats is not null && floorNumber > stats.Exploration.DeepestFloorReached)
+        {
+            stats.Exploration.DeepestFloorReached = floorNumber;
+            await db.SaveChangesAsync(ct);
+        }
+
         return await StartAsync(new StartCombatRequest
         {
             SessionToken = request.SessionToken,

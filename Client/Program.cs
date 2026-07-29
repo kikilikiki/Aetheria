@@ -179,7 +179,8 @@ List<string> questLines = [];
 // (PanelKind.Craft, ouvert seulement en parlant à l'Apprenti forgeron), complètement découplée du
 // panneau de quête d'histoire — voir UpdateCraftPanel/DrawCraftPanel.
 List<RecipeSummary> forgeronRecipes = [];
-List<string> craftLines = [];
+List<(string Text, int RecipeIndex)> craftRows = [];
+const float CraftPanelWidth = 460f;
 var questRecipeCursor = 0;
 string? questMessage = null;
 string? craftMessage = null;
@@ -191,6 +192,14 @@ QuestSummary? activeStoryQuest = null;
 
 /// <summary>Voir GDD/demande utilisateur — masquage explicite du panneau de quête par le joueur (touche Q), distinct de "rien à afficher" — voir <see cref="ToggleQuestPanel"/>.</summary>
 var isQuestPanelHidden = false;
+
+// Voir GDD/demande utilisateur — "un UI pour afficher TOUTES les quêtes en cours et en choisir 1
+// à épingler pour qu'elle soit affichée à gauche" (touche J). Le système de quêtes ne suit qu'une
+// seule quête d'histoire à la fois (voir QuestService — chaîne linéaire, GDD/README.md pour cette
+// limite assumée), donc cette liste ne contient jamais plus d'une entrée pour l'instant — mais
+// c'est déjà une vraie liste (pas juste renommée), prête pour plusieurs quêtes simultanées si ce
+// système évolue.
+var questListCursor = 0;
 var combatVictoryQuestFired = false;
 var lastSubmittedCombatAction = CombatActionType.Pass;
 
@@ -359,7 +368,7 @@ var leaderboardCategoryCursor = 0;
 Task<List<LeaderboardRow>>? leaderboardLoadTask = null;
 LeaderboardCategory[] leaderboardCategories =
 [
-    LeaderboardCategory.Pvp, LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures,
+    LeaderboardCategory.Pvp, LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures, LeaderboardCategory.Donjons,
 ];
 
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
@@ -751,6 +760,7 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.F)) OpenPanel(PanelKind.Friends);
     else if (keyboard.WasJustPressed(Key.U)) OpenPanel(PanelKind.Profile);
     else if (keyboard.WasJustPressed(Key.K)) OpenPanel(PanelKind.Leaderboard);
+    else if (keyboard.WasJustPressed(Key.J)) OpenPanel(PanelKind.QuestList);
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -906,6 +916,14 @@ host.Update += deltaTime =>
     {
         switch (interaction.Kind)
         {
+            // Voir GDD/demande utilisateur — "l'UI de fabrication, affiche-la dans le bâtiment, pas
+            // seulement quand on rentre dedans" : E ouvre directement le panneau Craft à chaque
+            // fois qu'on interagit avec l'Apprenti forgeron (pas seulement à la première visite
+            // via le dialogue) — même logique de raccourci que les bâtiments à accès direct
+            // (Pension/Boutique/Hôtel des ventes) plus bas.
+            case InteractionKind.Npc when interaction.Npc!.Name == "Apprenti forgeron":
+                OpenPanel(PanelKind.Craft);
+                break;
             case InteractionKind.Npc:
                 activeDialogueNpc = interaction.Npc;
                 dialogueLineIndex = 0;
@@ -1240,16 +1258,26 @@ bool UpdateActiveDialogueIfAny()
 /// </summary>
 void BuildForgeronRecipeLines()
 {
-    craftLines = [];
+    craftRows = [];
 
     if (forgeronRecipes.Count == 0)
     {
-        craftLines.Add("Rien à fabriquer pour l'instant.");
+        craftRows.Add(("Rien à fabriquer pour l'instant.", -1));
         return;
     }
 
-    foreach (var recipe in forgeronRecipes)
+    // Voir GDD/demande utilisateur — "l'UI du forgeron, le texte dépasse, fait en sorte que ça
+    // ne dépasse pas" : les recettes à plusieurs ingrédients (voir catalogue étendu, H40) peuvent
+    // largement dépasser la largeur de la boîte sur une seule ligne. Seul le nom+statut reste une
+    // ligne cliquable (déclenche le craft) ; la liste d'ingrédients est repliée sur plusieurs
+    // lignes simples en dessous, à la largeur réelle du panneau (voir DrawCraftPanel).
+    for (var recipeIndex = 0; recipeIndex < forgeronRecipes.Count; recipeIndex++)
     {
+        var recipe = forgeronRecipes[recipeIndex];
+        var canCraft = recipe.Ingredients.All(i => (inventoryItems.FirstOrDefault(inv => inv.ItemId == i.ItemId)?.Quantity ?? 0) >= i.Quantity);
+        var status = canCraft ? "[PRET]" : "[MANQUE]";
+        craftRows.Add(($"{recipe.Name} {status}", recipeIndex));
+
         var ingredientText = string.Join(", ", recipe.Ingredients.Select(i =>
         {
             var have = inventoryItems.FirstOrDefault(inv => inv.ItemId == i.ItemId)?.Quantity ?? 0;
@@ -1257,9 +1285,10 @@ void BuildForgeronRecipeLines()
             return $"{i.Quantity}x {name} ({have}/{i.Quantity})";
         }));
 
-        var canCraft = recipe.Ingredients.All(i => (inventoryItems.FirstOrDefault(inv => inv.ItemId == i.ItemId)?.Quantity ?? 0) >= i.Quantity);
-        var status = canCraft ? "[PRET]" : "[MANQUE]";
-        craftLines.Add($"{recipe.Name} {status} : {ingredientText}");
+        foreach (var line in WrapTextToLines(ingredientText, CraftPanelWidth - 48f, 1.4f))
+        {
+            craftRows.Add(($"   {line}", -1));
+        }
     }
 }
 
@@ -1320,32 +1349,42 @@ void UpdateCraftPanel()
 
 void DrawCraftPanel(int w, int h)
 {
-    const float boxWidth = 460f;
-    var lineHeight = TextRenderer.LineHeight(1.5f);
-    var displayLines = craftMessage is not null ? [.. craftLines, "", craftMessage] : craftLines;
-    var boxHeight = 100f + displayLines.Count * (lineHeight + 6f);
-    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+    var lineHeight = TextRenderer.LineHeight(1.4f);
+    var displayRows = craftMessage is not null ? [.. craftRows, ("", -1), (craftMessage, -1)] : craftRows;
+    var boxHeight = Math.Min(h * 0.85f, 100f + displayRows.Count * (lineHeight + 6f));
+    var topLeft = new Vector2(w / 2f - CraftPanelWidth / 2f, h / 2f - boxHeight / 2f);
 
-    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.05f, 0.95f));
-    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.6f, 0.3f, 1f));
+    DrawPanel(topLeft, new Vector2(CraftPanelWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.05f, 0.95f));
+    DrawPanel(topLeft, new Vector2(CraftPanelWidth, 4f), new Vector4(0.85f, 0.6f, 0.3f, 1f));
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "LE FORGERON PROPOSE :", new Vector2(w / 2f, topLeft.Y + 24f), 2f, new Vector4(0.95f, 0.75f, 0.4f, 1f));
 
+    // Voir GDD/demande utilisateur — "le texte dépasse, fait en sorte que ça ne dépasse pas" :
+    // au-delà de la hauteur disponible (boxHeight plafonnée ci-dessus), défile plutôt que de
+    // continuer à dessiner hors du panneau — bien plus probable maintenant qu'un recette peut
+    // avoir 5 ingrédients (voir catalogue étendu, H40).
     var y = topLeft.Y + 60f;
-    for (var i = 0; i < displayLines.Count; i++)
+    var bottomLimit = topLeft.Y + boxHeight - 40f;
+    for (var i = 0; i < displayRows.Count; i++)
     {
-        var isRecipeRow = i < forgeronRecipes.Count;
-        var color = isRecipeRow && i == questRecipeCursor ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : new Vector4(0.85f, 0.85f, 0.9f, 1f);
+        if (y > bottomLimit)
+        {
+            break;
+        }
 
-        if (isRecipeRow && DrawClickableRow(displayLines[i], topLeft + new Vector2(16f, y - topLeft.Y), boxWidth - 32f, 1.5f, color)
+        var (text, recipeIndex) = displayRows[i];
+        var isRecipeRow = recipeIndex >= 0;
+        var color = isRecipeRow && recipeIndex == questRecipeCursor ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : new Vector4(0.85f, 0.85f, 0.9f, 1f);
+
+        if (isRecipeRow && DrawClickableRow(text, topLeft + new Vector2(16f, y - topLeft.Y), CraftPanelWidth - 32f, 1.5f, color)
             && chosenCharacterId is not null && gameDataApi is not null)
         {
-            questRecipeCursor = i;
+            questRecipeCursor = recipeIndex;
             craftMessage = null;
             _ = CraftSelectedRecipeAsync();
         }
         else if (!isRecipeRow)
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, displayLines[i], topLeft + new Vector2(16f, y - topLeft.Y), 1.5f, color);
+            TextRenderer.Draw(spriteBatch, whiteTexture, text, topLeft + new Vector2(16f, y - topLeft.Y), 1.4f, color);
         }
 
         y += lineHeight + 6f;
@@ -1733,6 +1772,7 @@ string LeaderboardCategoryLabel(LeaderboardCategory category) => category switch
     LeaderboardCategory.Richesse => "RICHESSE",
     LeaderboardCategory.Metiers => "METIERS",
     LeaderboardCategory.MonstresCaptures => "CREATURES CAPTUREES",
+    LeaderboardCategory.Donjons => "ETAGE DE DONJON MAX",
     _ => category.ToString().ToUpperInvariant(),
 };
 
@@ -2055,16 +2095,13 @@ void DrawMinePanel(int w, int h)
 
 void OnDialogueFinished(string npcName)
 {
-    // "Apprenti forgeron" (intérieur de la Forge, voir GDD/demande utilisateur — "si on rentre
-    // dans la maison du forgeron") plutôt que "Forgeron" (extérieur, simple PNJ décoratif).
+    // Voir GDD/demande utilisateur — "l'Apprenti forgeron" ouvre maintenant directement le
+    // panneau Craft sur E (voir ComputeNearbyInteraction/le switch d'interaction), sans passer
+    // par un dialogue — ce cas n'arrive donc plus jamais ici.
     if (npcName == "Garde royal")
     {
         // Voir GDD/demande utilisateur — quête 1 "Une arrivée remarquée".
         _ = CompleteStoryQuestAsync("Une arrivée remarquée");
-    }
-    else if (npcName == "Apprenti forgeron")
-    {
-        OpenPanel(PanelKind.Craft);
     }
     else if (npcName == "Marchande")
     {
@@ -2241,6 +2278,28 @@ static Vector4 ElementColor(Element element) => element switch
     Element.Lumiere => new Vector4(0.95f, 0.90f, 0.65f, 1f),
     Element.Ombre => new Vector4(0.40f, 0.30f, 0.50f, 1f),
     _ => new Vector4(0.65f, 0.65f, 0.65f, 1f),
+};
+
+/// <summary>Voir GDD/demande utilisateur — "affiche [le butin] d'une couleur différente en fonction de sa rareté".</summary>
+static Vector4 RarityColor(Rarity rarity) => rarity switch
+{
+    Rarity.Commun => new Vector4(0.75f, 0.75f, 0.78f, 1f),
+    Rarity.PeuCommun => new Vector4(0.4f, 0.85f, 0.45f, 1f),
+    Rarity.Rare => new Vector4(0.35f, 0.6f, 0.95f, 1f),
+    Rarity.Epique => new Vector4(0.65f, 0.4f, 0.9f, 1f),
+    Rarity.Legendaire => new Vector4(0.95f, 0.65f, 0.25f, 1f),
+    Rarity.Mythique => new Vector4(0.9f, 0.3f, 0.35f, 1f),
+    Rarity.Ancestral => new Vector4(0.9f, 0.35f, 0.75f, 1f),
+    Rarity.Divin => new Vector4(0.95f, 0.9f, 0.5f, 1f),
+    Rarity.Admin => new Vector4(0.95f, 0.15f, 0.15f, 1f),
+    _ => Vector4.One,
+};
+
+/// <summary>Voir GDD/demande utilisateur — "affiche la rareté à la fin du nom de l'objet".</summary>
+static string RarityLabel(Rarity rarity) => rarity switch
+{
+    Rarity.PeuCommun => "Peu Commun",
+    _ => rarity.ToString(),
 };
 
 /// <summary>
@@ -2527,6 +2586,66 @@ void ToggleQuestPanel()
 
     isQuestPanelHidden = false;
     RefreshStoryQuestPanel();
+}
+
+/// <summary>
+/// Panneau Liste de quêtes (touche J, voir GDD/demande utilisateur — "un UI pour afficher TOUTES
+/// les quêtes en cours et en choisir 1 à épingler"). Une seule entrée possible pour l'instant
+/// (voir déclaration de <see cref="questListCursor"/>) — Entrée épingle/désépingle celle
+/// sélectionnée, ce qui revient à afficher/masquer le panneau de quête de gauche.
+/// </summary>
+void UpdateQuestListPanel()
+{
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (activeStoryQuest is null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Enter))
+    {
+        ToggleQuestPanel();
+    }
+}
+
+void DrawQuestListPanel(int w, int h)
+{
+    const float boxWidth = 420f;
+    const float boxHeight = 220f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.07f, 0.07f, 0.1f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.8f, 0.4f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "QUETES EN COURS", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+
+    if (activeStoryQuest is not { } quest)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE QUETE EN COURS", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawPromptBanner("ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+        return;
+    }
+
+    var isPinned = !isQuestPanelHidden;
+    var rowColor = questListCursor == 0 ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : Vector4.One;
+    var pinLabel = isPinned ? "[EPINGLEE A GAUCHE]" : "[NON EPINGLEE]";
+    if (DrawClickableRow($"{quest.Name.ToUpperInvariant()} {pinLabel}", topLeft + new Vector2(20f, 66f), boxWidth - 40f, 1.8f, rowColor))
+    {
+        ToggleQuestPanel();
+    }
+
+    var y = topLeft.Y + 100f;
+    foreach (var line in WrapTextToLines(quest.Description, boxWidth - 40f, 1.4f))
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.4f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        y += 20f;
+    }
+
+    DrawPromptBanner("ENTREE OU CLIC : EPINGLER/DESEPINGLER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
 }
 
 /// <summary>
@@ -2950,7 +3069,7 @@ void OpenPanel(PanelKind kind)
             break;
         case PanelKind.Craft:
             forgeronRecipes = [];
-            craftLines = [];
+            craftRows = [];
             questRecipeCursor = 0;
             craftMessage = null;
             questRecipeTask = gameDataApi?.GetRecipesAsync();
@@ -2973,6 +3092,9 @@ void OpenPanel(PanelKind kind)
         case PanelKind.Leaderboard:
             leaderboardRows = [];
             leaderboardLoadTask = gameDataApi?.GetLeaderboardAsync(leaderboardCategories[leaderboardCategoryCursor]);
+            break;
+        case PanelKind.QuestList:
+            questListCursor = 0;
             break;
     }
 }
@@ -3724,6 +3846,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Leaderboard)
     {
         UpdateLeaderboardPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.QuestList)
+    {
+        UpdateQuestListPanel();
         return;
     }
 
@@ -4781,6 +4909,7 @@ void DrawOutdoorHud()
             case PanelKind.Friends: DrawFriendsPanel(w, h); break;
             case PanelKind.Profile: DrawProfilePanel(w, h); break;
             case PanelKind.Leaderboard: DrawLeaderboardPanel(w, h); break;
+            case PanelKind.QuestList: DrawQuestListPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -4827,6 +4956,8 @@ void DrawOutdoorHud()
     ("PROFIL (U)", PanelKind.Profile),
     // Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
     ("CLASSEMENT (K)", PanelKind.Leaderboard),
+    // Voir GDD/demande utilisateur — "un UI pour afficher toutes les quêtes en cours".
+    ("QUETES (J)", PanelKind.QuestList),
 ];
 
 /// <summary>
@@ -5078,7 +5209,7 @@ void DrawMonstersPanel(int w, int h)
             }
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawPromptBanner("ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
         return;
     }
     else if (monsterEquipMode)
@@ -5112,7 +5243,7 @@ void DrawMonstersPanel(int w, int h)
             }
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawPromptBanner("ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
         return;
     }
     else
@@ -5170,10 +5301,13 @@ void DrawMonstersPanel(int w, int h)
             y += isSelected ? 62f : 48f;
         }
 
+        // Voir GDD/demande utilisateur — "pour les indications de touche, fais comme Amis/Profil"
+        // : bannière pulsante en bas (DrawPromptBanner) plutôt qu'un texte simple dans la boîte,
+        // pour rester cohérent avec les panneaux plus récents.
         var hint = myRank == UserRank.Fondateur
             ? "D:OBJET - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
             : "D:DONNER OBJET - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight - 44f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawPromptBanner(hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
     }
 
     if (monsterMessage is not null)
@@ -6297,8 +6431,12 @@ void DrawLootClaim(int w, int h)
             DrawPanel(rowTopLeft, new Vector2(4f, rowHeight), new Vector4(0.95f, 0.8f, 0.3f, 1f));
         }
 
-        var textColor = isSelected ? new Vector4(0.98f, 0.9f, 0.5f, 1f) : Vector4.One;
-        TextRenderer.Draw(spriteBatch, whiteTexture, loot.Items[i].Name.ToUpperInvariant(), rowTopLeft + new Vector2(16f, 8f), 1.9f, textColor);
+        // Voir GDD/demande utilisateur — "% de drop plus ou moins rare selon la rareté, affichée
+        // d'une couleur différente, rareté ajoutée à la fin du nom" : couleur toujours celle de la
+        // rareté (pas écrasée par la sélection), pour rester visible d'un coup d'œil.
+        var textColor = RarityColor(loot.Items[i].Rarity);
+        var label = $"{loot.Items[i].Name.ToUpperInvariant()} ({RarityLabel(loot.Items[i].Rarity).ToUpperInvariant()})";
+        TextRenderer.Draw(spriteBatch, whiteTexture, label, rowTopLeft + new Vector2(16f, 8f), 1.9f, textColor);
 
         if (loot.ClaimCountsByItemIndex.TryGetValue(i, out var claimCount) && claimCount > 0)
         {
@@ -6343,8 +6481,9 @@ void DrawLootResult(LootSessionState resolved, int w, int h)
     {
         var item = resolved.Items[itemIndex];
         var wonByMe = mine == winnerCharacterId;
-        var label = wonByMe ? $"VOUS REMPORTEZ : {item.Name.ToUpperInvariant()}" : $"{item.Name.ToUpperInvariant()} : ATTRIBUE";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, label, new Vector2(w / 2f, y), 1.9f, wonByMe ? new Vector4(0.5f, 0.9f, 0.5f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        var itemLabel = $"{item.Name.ToUpperInvariant()} ({RarityLabel(item.Rarity).ToUpperInvariant()})";
+        var label = wonByMe ? $"VOUS REMPORTEZ : {itemLabel}" : $"{itemLabel} : ATTRIBUE";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, label, new Vector2(w / 2f, y), 1.9f, RarityColor(item.Rarity));
         y += 24f;
     }
 }
@@ -6619,7 +6758,8 @@ void DrawStarterGrid(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, species.Name.ToUpperInvariant(), cellCenter + new Vector2(0, 56f), 2f, Vector4.One);
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES POUR CHOISIR - ENTREE POUR VALIDER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+    // Voir GDD/demande utilisateur — "pour les indications de touche, fais comme Amis/Profil".
+    DrawPromptBanner("FLECHES POUR CHOISIR - ENTREE POUR VALIDER", new Vector2(w / 2f, h - 40f));
 }
 
 void DrawStarterConfirm(int w, int h)
@@ -6719,6 +6859,7 @@ enum PanelKind
     Friends,
     Profile,
     Leaderboard,
+    QuestList,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>

@@ -2,6 +2,7 @@ using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models.Combat;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +21,26 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
 {
     private const int ItemsPerDrop = 4;
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute des % de drop des items après un combat, plus ou
+    /// moins rare en fonction de la rareté" : auparavant un tirage strictement uniforme sur tout
+    /// le catalogue (un objet Mythique avait exactement la même chance qu'un objet Commun).
+    /// Poids décroissant par palier plutôt qu'un pourcentage fixe par objet — reste correct quel
+    /// que soit le nombre d'objets ajoutés à un palier donné (voir GDD/H40 — catalogue étendu).
+    /// </summary>
+    private static readonly Dictionary<Rarity, int> RarityWeight = new()
+    {
+        [Rarity.Commun] = 100,
+        [Rarity.PeuCommun] = 55,
+        [Rarity.Rare] = 30,
+        [Rarity.Epique] = 15,
+        [Rarity.Legendaire] = 7,
+        [Rarity.Mythique] = 3,
+        [Rarity.Ancestral] = 1,
+        [Rarity.Divin] = 1,
+        [Rarity.Admin] = 0,
+    };
+
     public async Task<LootSessionState?> CreateFromVictoryAsync(Guid winnerCharacterId, CancellationToken ct = default)
     {
         // Voir GDD/demande utilisateur — "objets que l'on ne peut pas obtenir ni fabriquer" :
@@ -34,8 +55,8 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
         var items = new List<LootItemEntry>();
         for (var i = 0; i < ItemsPerDrop; i++)
         {
-            var picked = catalog[random.Next(catalog.Count)];
-            items.Add(new LootItemEntry { Index = i, ItemId = picked.Id, Name = picked.Name });
+            var picked = PickWeightedRandom(catalog, random);
+            items.Add(new LootItemEntry { Index = i, ItemId = picked.Id, Name = picked.Name, Rarity = picked.Rarity });
         }
 
         var party = await partyService.GetForCharacterAsync(winnerCharacterId, ct);
@@ -45,6 +66,29 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
         lootStore.Add(session);
 
         return ToState(session);
+    }
+
+    /// <summary>Tirage pondéré par rareté (voir <see cref="RarityWeight"/>) — retombe sur un tirage uniforme si tout le catalogue avait un poids nul (cas limite improbable, ex. catalogue réduit aux seuls objets Admin).</summary>
+    private static ItemEntity PickWeightedRandom(IReadOnlyList<ItemEntity> catalog, Random random)
+    {
+        var totalWeight = catalog.Sum(i => RarityWeight.GetValueOrDefault(i.Rarity, 1));
+        if (totalWeight <= 0)
+        {
+            return catalog[random.Next(catalog.Count)];
+        }
+
+        var roll = random.Next(totalWeight);
+        var cumulative = 0;
+        foreach (var item in catalog)
+        {
+            cumulative += RarityWeight.GetValueOrDefault(item.Rarity, 1);
+            if (roll < cumulative)
+            {
+                return item;
+            }
+        }
+
+        return catalog[^1];
     }
 
     public async Task<LootSessionState> ClaimAsync(Guid lootId, LootClaimRequest request, SessionTokenStore tokenStore, CancellationToken ct = default)
