@@ -162,13 +162,23 @@ public sealed partial class MainViewModel : ObservableObject
         {
             new()
             {
+                Title = "Grosse mise à jour : économie, guerres de royaumes et plus",
+                ShortDescription = "Gemmes, grades, boosts, guerre de royaumes en direct, starters, duel PvP en équipe et bien plus.",
+                FullContent = "Une vague de mises à jour vient d'arriver : une économie premium avec gemmes, grades " +
+                    "et pass personnel, la guerre de royaumes désormais suivie en direct, des consommables de boost, " +
+                    "de nouveaux starters, le duel PvP en équipe, ainsi que de nombreux fixes d'interface. La base de " +
+                    "données est aussi persistée par défaut pour éviter toute perte de progression.",
+                PublishedAtUtc = new DateTime(2026, 7, 29, 9, 0, 0, DateTimeKind.Utc),
+            },
+            new()
+            {
                 Title = "Le monde d'Aetheria s'agrandit",
                 ShortDescription = "Nouvelle carte, bâtiments visitables, PNJ et donjon de test à explorer dès aujourd'hui.",
                 FullContent = "La carte du monde a été agrandie et redessinée en isométrique 2D. Les bâtiments " +
                     "(capitale, village, hôtel des ventes, forge, guilde) sont désormais visitables, des PNJ vous " +
                     "accueillent avec leurs propres dialogues, et un premier donjon de test est accessible via son " +
                     "portail animé aux abords de la carte.",
-                PublishedAtUtc = new DateTime(2026, 7, 20, 10, 0, 0, DateTimeKind.Utc),
+                PublishedAtUtc = new DateTime(2026, 7, 27, 10, 0, 0, DateTimeKind.Utc),
             },
             new()
             {
@@ -178,7 +188,7 @@ public sealed partial class MainViewModel : ObservableObject
                     "l'apparence de votre personnage, puis rencontrez un vieux gardien qui vous proposera de choisir " +
                     "votre premier compagnon parmi une dizaine de créatures communes, chacune avec son élément et " +
                     "son histoire. Ce choix est définitif, alors observez bien avant de valider !",
-                PublishedAtUtc = new DateTime(2026, 7, 24, 14, 30, 0, DateTimeKind.Utc),
+                PublishedAtUtc = new DateTime(2026, 7, 27, 9, 30, 0, DateTimeKind.Utc),
             },
             new()
             {
@@ -188,7 +198,7 @@ public sealed partial class MainViewModel : ObservableObject
                     "depuis l'entrée d'un donjon, déplacez vos combattants sur une grille 7x7, attaquez, capturez ou " +
                     "passez votre tour. Une boutique accessible à tout moment (touche B en jeu) vous permet " +
                     "d'acheter potions, armes et armures de départ contre de l'or.",
-                PublishedAtUtc = new DateTime(2026, 7, 28, 9, 15, 0, DateTimeKind.Utc),
+                PublishedAtUtc = new DateTime(2026, 7, 27, 9, 15, 0, DateTimeKind.Utc),
             },
             new()
             {
@@ -197,7 +207,7 @@ public sealed partial class MainViewModel : ObservableObject
                 FullContent = "Chaque semaine, les royaumes s'affrontent pour le contrôle de mines, villages, forts " +
                     "et donjons rares. Le royaume qui contrôle un territoire en tire des bonus passifs pour tous ses " +
                     "citoyens. Choisissez votre camp à la création de votre personnage et faites pencher la balance.",
-                PublishedAtUtc = new DateTime(2026, 7, 15, 18, 0, 0, DateTimeKind.Utc),
+                PublishedAtUtc = new DateTime(2026, 7, 27, 9, 0, 0, DateTimeKind.Utc),
             },
         };
 
