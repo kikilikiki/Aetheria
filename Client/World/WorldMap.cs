@@ -71,12 +71,14 @@ public sealed class WorldMap
         var auctionHouse = (X: size / 2 + 8, Y: size / 2 - 6);
         var forge = (X: size / 2 - 6, Y: size / 2 + 9);
         var guild = (X: size / 2 + 9, Y: size / 2 + 8);
+        var teleporter = (X: size / 2 - 3, Y: size / 2 - 4);
+        var pension = (X: size / 2 + 3, Y: size / 2 - 4);
 
         SpawnPosition = (capital.X, capital.Y + 2);
         DungeonEntrance = (size - 4, size - 4);
 
         var pathTiles = new HashSet<(int X, int Y)>();
-        foreach (var target in new[] { village, auctionHouse, forge, guild, DungeonEntrance })
+        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, DungeonEntrance })
         {
             MarkPath(pathTiles, capital, target);
         }
@@ -103,6 +105,14 @@ public sealed class WorldMap
             new Building("Hôtel des ventes", auctionHouse.X, auctionHouse.Y, 1.6f, SteelBlue * tint, DarkBlue * tint, SteelBlue * tint * 0.8f),
             new Building("Forge", forge.X, forge.Y, 1.5f, Ember * tint, DarkEmber * tint, Ember * tint * 0.8f),
             new Building("Guilde", guild.X, guild.Y, 1.8f, Purple * tint, DarkPurple * tint, Purple * tint * 0.8f),
+            // Voir GDD/demande utilisateur — "ajoute un téléporteur pour se déplacer de ville en
+            // ville mais notre team ne change pas" : violet/mystique plutôt que teinté par royaume,
+            // pour rester visuellement identique dans toutes les villes (repère facile à trouver).
+            new Building("Téléporteur", teleporter.X, teleporter.Y, 1.2f, new Vector4(0.55f, 0.35f, 0.85f, 1f), new Vector4(0.32f, 0.18f, 0.55f, 1f), new Vector4(0.7f, 0.5f, 0.95f, 1f)),
+            // Voir GDD/demande utilisateur — "un bâtiment où l'on peut voir tout nos monstres et
+            // déplacer ce que l'on a dans notre team" : ouvre directement le panneau Monstres
+            // existant (touche M) plutôt qu'une scène d'intérieur dédiée.
+            new Building("Pension", pension.X, pension.Y, 1.3f, new Vector4(0.35f, 0.65f, 0.45f, 1f), new Vector4(0.18f, 0.38f, 0.24f, 1f), new Vector4(0.5f, 0.8f, 0.6f, 1f)),
         ];
 
         Npcs =

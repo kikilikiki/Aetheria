@@ -229,6 +229,13 @@ var adminBannerExpiresAtUtc = DateTime.MinValue;
 var signModeExpiresAtUtc = DateTime.MinValue;
 var woodPanelColor = new Vector4(0.55f, 0.38f, 0.22f, 1f);
 var woodPanelOutline = new Vector4(0.35f, 0.22f, 0.12f, 1f);
+// Voir GDD/demande utilisateur — "un téléporteur pour se déplacer de ville en ville mais notre
+// team ne change pas" : liste des royaumes autres que le nôtre (voir currentKingdom, mis à jour
+// par RebuildWorldMapForKingdom), l'équipe/l'inventaire restent des données serveur inchangées.
+var isTeleportPanelOpen = false;
+var teleportCursor = 0;
+var currentKingdom = KingdomType.Nature;
+
 var isAdminPanelOpen = false;
 var adminPanelCursor = 0;
 var adminPanelTyping = false;
@@ -293,6 +300,7 @@ var monstersLoaded = false;
 var monsterGiveItemMode = false;
 var monsterGiveItemCursor = 0;
 Task<MonsterInstanceData?>? monsterGiveItemTask = null;
+Task<MonsterInstanceData?>? monsterTeamToggleTask = null;
 string? monsterMessage = null;
 
 // Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
@@ -459,6 +467,12 @@ host.Update += deltaTime =>
     if (isAdminPanelOpen)
     {
         UpdateAdminGamePanel();
+        return;
+    }
+
+    if (isTeleportPanelOpen)
+    {
+        UpdateTeleportPanel();
         return;
     }
 
@@ -732,6 +746,21 @@ host.Update += deltaTime =>
                 activeDialogueNpc = interaction.Npc;
                 dialogueLineIndex = 0;
                 break;
+            case InteractionKind.Building when interaction.Building!.Name == "Téléporteur":
+                // Voir GDD/demande utilisateur — "un téléporteur pour se déplacer de ville en
+                // ville mais notre team ne change pas" : panneau dédié plutôt qu'une scène
+                // d'intérieur, la téléportation elle-même ne touche à rien de plus que le
+                // WorldMap affiché côté client (voir UpdateTeleportPanel) — personnage, équipe et
+                // inventaire restent des données serveur, jamais réinitialisées ici.
+                isTeleportPanelOpen = true;
+                teleportCursor = 0;
+                break;
+            case InteractionKind.Building when interaction.Building!.Name == "Pension":
+                // Voir GDD/demande utilisateur — bâtiment "où l'on peut voir tout nos monstres et
+                // déplacer ce que l'on a dans notre team" : réutilise le panneau Monstres existant
+                // (touche M), qui a maintenant la gestion d'équipe (touche T).
+                OpenPanel(PanelKind.Monsters);
+                break;
             case InteractionKind.Building:
                 sceneMode = SceneMode.Interior;
                 interiorTitle = interaction.Building!.Name;
@@ -885,6 +914,11 @@ host.Render += _ =>
     if (isAdminPanelOpen)
     {
         DrawAdminGamePanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
+    if (isTeleportPanelOpen)
+    {
+        DrawTeleportPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
     }
 
     spriteBatch.End();
@@ -1153,6 +1187,60 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
     }
 }
 
+/// <summary>Royaumes accessibles depuis le téléporteur (voir <see cref="UpdateTeleportPanel"/>) : tous sauf celui où l'on se trouve déjà.</summary>
+List<KingdomType> TeleportDestinations() => Enum.GetValues<KingdomType>().Where(k => k != currentKingdom).ToList();
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "un téléporteur pour se déplacer de ville en ville mais notre
+/// team ne change pas" : reconstruit juste la carte locale (<see cref="RebuildWorldMapForKingdom"/>,
+/// déjà utilisée à la connexion) sur un autre royaume et repositionne au point d'apparition —
+/// personnage/équipe/inventaire sont des données serveur, jamais touchées ici.
+/// </summary>
+void UpdateTeleportPanel()
+{
+    var destinations = TeleportDestinations();
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        isTeleportPanelOpen = false;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) teleportCursor = Math.Min(teleportCursor + 1, destinations.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) teleportCursor = Math.Max(teleportCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter) && destinations.Count > 0)
+    {
+        RebuildWorldMapForKingdom(destinations[teleportCursor]);
+        _ = RefreshDungeonPositionAsync();
+        isTeleportPanelOpen = false;
+    }
+}
+
+void DrawTeleportPanel(int w, int h)
+{
+    var destinations = TeleportDestinations();
+
+    const float boxWidth = 420f;
+    const float boxHeight = 260f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.12f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.7f, 0.5f, 0.95f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TELEPORTEUR", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
+
+    var y = topLeft.Y + 64f;
+    for (var i = 0; i < destinations.Count; i++)
+    {
+        var selected = i == teleportCursor;
+        var color = selected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
+        var prefix = selected ? "> " : "  ";
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{KingdomBiome.For(destinations[i]).CapitalName} ({destinations[i]})", new Vector2(topLeft.X + 24f, y), 2f, color);
+        y += 32f;
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : VOYAGER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
 void OnDialogueFinished(string npcName)
 {
     // "Apprenti forgeron" (intérieur de la Forge, voir GDD/demande utilisateur — "si on rentre
@@ -1352,6 +1440,7 @@ static Vector4 ElementColor(Element element) => element switch
 void RebuildWorldMapForKingdom(KingdomType kingdom)
 {
     worldMap = new WorldMap(size: 50, kingdom: kingdom);
+    currentKingdom = kingdom;
     lock (stateLock)
     {
         gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
@@ -2190,6 +2279,27 @@ void UpdateMonstersPanel()
         return;
     }
 
+    if (monsterTeamToggleTask is { IsCompleted: true } teamTask)
+    {
+        if (!teamTask.IsFaulted && teamTask.Result is { } updatedMonster)
+        {
+            var index = ownedMonsters.FindIndex(m => m.Id == updatedMonster.Id);
+            if (index >= 0)
+            {
+                ownedMonsters[index] = updatedMonster;
+            }
+
+            monsterMessage = updatedMonster.IsInActiveTeam ? "Ajouté à l'équipe active." : "Retiré de l'équipe active.";
+        }
+        else
+        {
+            monsterMessage = "Équipe déjà complète (4 maximum) ou action impossible.";
+        }
+
+        monsterTeamToggleTask = null;
+        return;
+    }
+
     if (monsterGiveItemMode)
     {
         if (keyboard.WasJustPressed(Key.Escape))
@@ -2241,6 +2351,24 @@ void UpdateMonstersPanel()
         monsterMessage = null;
         monsterGiveItemTask = LevelUpAndRefreshAsync(monster.Id);
     }
+    else if (keyboard.WasJustPressed(Key.T) && gameDataApi is not null && monsterTeamToggleTask is null)
+    {
+        var monster = ownedMonsters[monsterCursor];
+        monsterMessage = null;
+        monsterTeamToggleTask = gameDataApi.SetMonsterActiveTeamAsync(options.SessionToken!, monster.Id, !monster.IsInActiveTeam);
+    }
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "déplacer ce que l'on a dans notre team" (panneau Monstres,
+/// touche T) : jusqu'à 4 créatures marquées <see cref="MonsterInstanceData.IsInActiveTeam"/>
+/// combattent. Si aucune n'est marquée (comptes existants avant cette fonctionnalité), retombe
+/// sur les 4 premières comme avant — pas de changement de comportement pour qui n'y touche pas.
+/// </summary>
+static List<Guid> SelectActiveTeamIds(List<MonsterInstanceData> monsters)
+{
+    var active = monsters.Where(m => m.IsInActiveTeam).Select(m => m.Id).Take(4).ToList();
+    return active.Count > 0 ? active : monsters.Select(m => m.Id).Take(4).ToList();
 }
 
 async Task<MonsterInstanceData?> LevelUpAndRefreshAsync(Guid monsterId)
@@ -2622,7 +2750,7 @@ async Task<CombatResult> StartWildCombatAsync()
         captureSphereItemId = inventory.FirstOrDefault(i => i.ItemType == ItemType.ObjetDeCapture)?.ItemId;
 
         var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
-        var monsterIds = monsters.Select(m => m.Id).Take(4).ToList();
+        var monsterIds = SelectActiveTeamIds(monsters);
 
         var species = await starterApi.GetStarterSpeciesAsync();
         if (species.Count == 0)
@@ -2772,7 +2900,7 @@ async Task<CombatResult> StartDungeonRoomCombatAsync(int floorNumber, int roomIn
         captureSphereItemId = inventory.FirstOrDefault(i => i.ItemType == ItemType.ObjetDeCapture)?.ItemId;
 
         var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
-        var monsterIds = monsters.Select(m => m.Id).Take(4).ToList();
+        var monsterIds = SelectActiveTeamIds(monsters);
 
         return await combatApi.StartDungeonCombatAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, worldMap.DungeonId, floorNumber, roomIndex);
     }
@@ -2801,7 +2929,7 @@ async Task<CombatResult> StartWildEncounterOutdoorAsync()
         captureSphereItemId = inventory.FirstOrDefault(i => i.ItemType == ItemType.ObjetDeCapture)?.ItemId;
 
         var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
-        var monsterIds = monsters.Select(m => m.Id).Take(4).ToList();
+        var monsterIds = SelectActiveTeamIds(monsters);
 
         return await combatApi.StartWildEncounterAsync(options.SessionToken, chosenCharacterId.Value, monsterIds);
     }
@@ -3612,7 +3740,9 @@ void DrawMonstersPanel(int w, int h)
             // etc.)" : déjà déterminant pour les capacités/portées en combat (CombatEngine), donc
             // affiché ici en toutes lettres plutôt que par la seule couleur du portrait.
             var typeLabel = species is not null ? $" [{species.Type}]".ToUpperInvariant() : "";
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()}{typeLabel} - NIV. {monster.Level}", new Vector2(textX, y), 2f, color);
+            // Voir GDD/demande utilisateur — bâtiment pour "déplacer ce que l'on a dans notre team".
+            var teamLabel = monster.IsInActiveTeam ? " [EQUIPE]" : "";
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()}{typeLabel}{teamLabel} - NIV. {monster.Level}", new Vector2(textX, y), 2f, color);
 
             var xpForNextLevel = monster.Level * 100;
             var xpRatio = Math.Clamp((float)monster.Experience / Math.Max(1, xpForNextLevel), 0f, 1f);
@@ -3625,8 +3755,8 @@ void DrawMonstersPanel(int w, int h)
         }
 
         var hint = myRank == UserRank.Fondateur
-            ? "D : DONNER UN OBJET - L (ADMIN) : +5 NIVEAUX"
-            : "D : DONNER UN OBJET A LA CREATURE SELECTIONNEE";
+            ? "D : OBJET - T : EQUIPE (4 MAX) - L (ADMIN) : +5 NIVEAUX"
+            : "D : DONNER UN OBJET - T : AJOUTER/RETIRER DE L'EQUIPE (4 MAX)";
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight - 44f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
     }
 
