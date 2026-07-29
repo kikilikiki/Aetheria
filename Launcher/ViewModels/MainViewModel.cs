@@ -241,7 +241,7 @@ public sealed partial class MainViewModel : ObservableObject
     private LeaderboardCategory _selectedLeaderboardCategory = LeaderboardCategory.Pvp;
 
     public IReadOnlyList<LeaderboardCategory> AvailableLeaderboardCategories { get; } =
-        [LeaderboardCategory.Pvp, LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures];
+        [LeaderboardCategory.Pvp, LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures, LeaderboardCategory.Donjons];
 
     public ObservableCollection<LeaderboardRowDisplay> LeaderboardRows { get; } = [];
 

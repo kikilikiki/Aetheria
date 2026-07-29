@@ -22,6 +22,7 @@ public sealed class LeaderboardService(AetheriaDbContext db)
         LeaderboardCategory.Metiers,
         LeaderboardCategory.MonstresCaptures,
         LeaderboardCategory.Pvp,
+        LeaderboardCategory.Donjons,
     ];
 
     public async Task RefreshAsync(LeaderboardCategory category, CancellationToken ct = default)
@@ -71,6 +72,18 @@ public sealed class LeaderboardService(AetheriaDbContext db)
                 foreach (var stats in pvpStats)
                 {
                     scores[stats.CharacterId] = stats.Pvp.BestRank;
+                }
+
+                break;
+
+            // Voir GDD/demande utilisateur — "ajoute un leaderboard pour la personne qui est
+            // arrivée le plus haut [en donjon]" (voir CombatService.StartFromDungeonAsync, qui
+            // renseigne DeepestFloorReached).
+            case LeaderboardCategory.Donjons:
+                var explorationStats = await db.Statistics.ToListAsync(ct);
+                foreach (var stats in explorationStats)
+                {
+                    scores[stats.CharacterId] = stats.Exploration.DeepestFloorReached;
                 }
 
                 break;

@@ -336,7 +336,9 @@ app.MapGet("/api/monsters/species/starters", async () =>
 app.MapGet("/api/characters/{id:guid}/monsters", async (Guid id) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var monsters = await db.Monsters.Where(m => m.OwnerCharacterId == id).ToListAsync();
+    // Voir GDD/demande utilisateur — "/monster-lvl pseudo (n° où est son monstre) lvl" : ordre
+    // explicite et stable (voir PlayerSession.SetMonsterLevelByIndex, qui suppose le même tri).
+    var monsters = await db.Monsters.Where(m => m.OwnerCharacterId == id).OrderBy(m => m.CapturedAtUtc).ToListAsync();
 
     // Voir GDD/demande utilisateur — équipement affiché par nom (pas seulement par ID) dans le
     // panneau Monstres côté client.

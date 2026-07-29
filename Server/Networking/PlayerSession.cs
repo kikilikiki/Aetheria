@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using Aetheria.Database.Context;
 using Aetheria.Server.Persistence;
+using Aetheria.Server.World;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
@@ -464,8 +465,22 @@ public sealed class PlayerSession(
                 RenameTarget(db, parts[1], parts[2], Reply);
                 break;
 
+            // Voir GDD/demande utilisateur — "ajoute les commandes pour les niveaux des montres
+            // (/monster-lvl pseudo (n° où est son monstre) lvl)" : cible une créature précise
+            // d'un joueur par son numéro d'ordre (voir SetMonsterLevelByIndex), contrairement au
+            // panel admin ("NIVEAU MAX EQUIPE") qui agit sur toute la collection d'un coup.
+            case "/monster-lvl":
+                if (parts.Length < 4 || !int.TryParse(parts[2], out var monsterIndex) || !int.TryParse(parts[3], out var targetLevel))
+                {
+                    Reply("Usage : /monster-lvl <pseudo> <numero> <niveau>");
+                    return;
+                }
+
+                SetMonsterLevelByIndex(db, parts[1], monsterIndex, targetLevel, Reply);
+                break;
+
             default:
-                Reply("Commande inconnue. Commandes disponibles : /ban, /mute, /unmute, /nick.");
+                Reply("Commande inconnue. Commandes disponibles : /ban, /mute, /unmute, /nick, /monster-lvl.");
                 break;
         }
     }
@@ -552,5 +567,34 @@ public sealed class PlayerSession(
                 Rank = targetSession.Rank,
             });
         }
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "/monster-lvl pseudo (n° où est son monstre) lvl" : le
+    /// numéro correspond à l'ordre d'affichage du panneau Monstres côté client (voir
+    /// <c>DrawMonstersPanel</c>), lui-même dans l'ordre de capture — d'où le tri explicite
+    /// identique ici, sans quoi l'ordre EF Core par défaut n'est pas garanti stable.
+    /// </summary>
+    private static void SetMonsterLevelByIndex(AetheriaDbContext db, string targetCharacterName, int monsterIndex, int level, Action<string> reply)
+    {
+        var target = db.Characters.FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        var monsters = db.Monsters.Where(m => m.OwnerCharacterId == target.Id).OrderBy(m => m.CapturedAtUtc).ToList();
+        if (monsterIndex < 1 || monsterIndex > monsters.Count)
+        {
+            reply($"Numéro invalide : {targetCharacterName} a {monsters.Count} créature(s) (1 à {monsters.Count}).");
+            return;
+        }
+
+        var monster = monsters[monsterIndex - 1];
+        monster.Level = Math.Clamp(level, 1, MonsterProgressionService.MaxLevel);
+        monster.Experience = 0;
+        db.SaveChanges();
+        reply($"{(monster.Nickname.Length > 0 ? monster.Nickname : "Créature")} (#{monsterIndex} de {targetCharacterName}) est maintenant niveau {monster.Level}.");
     }
 }
