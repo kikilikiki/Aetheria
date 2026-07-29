@@ -4,96 +4,150 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Aetheria.Launcher"
+        xmlns:behaviors="clr-namespace:Aetheria.Launcher.Behaviors"
         mc:Ignorable="d"
         Title="{Binding Title}"
-        Height="680" Width="1040"
-        MinHeight="620" MinWidth="960"
+        Height="700" Width="1080"
+        MinHeight="640" MinWidth="980"
         WindowStartupLocation="CenterScreen"
-        Background="#0B0D13"
+        Background="#05060B"
         FontFamily="Segoe UI">
 
+    <!--
+        Refonte totale du launcher (voir demande utilisateur — "refonte total du launcher avec des
+        animations") : structure conservée (barre latérale + zone principale sur 3 lignes) mais
+        entrée en scène animée au démarrage (fondu + glissement en cascade, voir Window.Triggers),
+        transitions de survol/pression animées sur tous les boutons (échelle + couleur, plutôt que
+        des changements instantanés), pulsations d'ambiance en boucle sur les lueurs de fond, le
+        logo et le voyant de statut serveur, et apparition en fondu de tous les panneaux superposés
+        (voir FadeInBehavior.Enable, Behaviors/FadeInBehavior.cs — Loaded ne se redéclenche pas
+        quand Visibility repasse de Collapsed à Visible). Palette 100% en aplats (pas de dégradés,
+        voir demande utilisateur précédente). Aucun binding/Command n'a été renommé — voir
+        MainViewModel.cs, inchangé par cette passe. La Boutique reste volontairement un Border (pas
+        un Button, pas de Command) : visible mais impossible à atteindre (voir demande utilisateur
+        — "garde la partie shop mais laisse la impossible à accéder"), avec un badge cadenas en
+        renfort visuel de ce verrouillage.
+    -->
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
         <local:UsernameToAvatarColorConverter x:Key="AvatarColorConverter" />
         <local:UsernameToInitialConverter x:Key="AvatarInitialConverter" />
 
-        <SolidColorBrush x:Key="PanelBrush" Color="#151822" />
-        <SolidColorBrush x:Key="PanelBorderBrush" Color="#262B3A" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#E8A93C" />
+        <SolidColorBrush x:Key="PanelBrush" Color="#141826" />
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#2E3348" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#F0B355" />
         <SolidColorBrush x:Key="AccentDarkBrush" Color="#B87F1E" />
-        <SolidColorBrush x:Key="TextMutedBrush" Color="#8A8FA3" />
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#8E93AC" />
+        <SolidColorBrush x:Key="DangerBrush" Color="#E2685F" />
+        <SolidColorBrush x:Key="SuccessBrush" Color="#5FD98A" />
+        <SolidColorBrush x:Key="FieldBrush" Color="#1B2033" />
+        <SolidColorBrush x:Key="FieldHoverBrush" Color="#222842" />
+        <SolidColorBrush x:Key="SidebarBrush" Color="#05060D" />
+        <SolidColorBrush x:Key="AccentGradientBrush" Color="#F0B355" />
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#0B0E1C" />
 
-        <!-- Champs de saisie sombres cohérents avec le reste du thème (les contrôles WPF par
-             défaut sont clairs et jureraient avec un launcher façon Ankama/Dofus). -->
+        <!-- Champs de saisie : gabarit arrondi avec halo doré au focus/survol. -->
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#1B1F2C" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="8,7" />
-            <Setter Property="CaretBrush" Value="#E8E8F0" />
+            <Setter Property="BorderThickness" Value="1.4" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="CaretBrush" Value="#EDEEF7" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="FieldBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="FieldBorder" Property="Background" Value="{StaticResource FieldHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="FieldBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="FieldBorder" Property="Background" Value="{StaticResource FieldHoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="PasswordBox">
-            <Setter Property="Background" Value="#1B1F2C" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="8,7" />
-            <Setter Property="CaretBrush" Value="#E8E8F0" />
+            <Setter Property="BorderThickness" Value="1.4" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="CaretBrush" Value="#EDEEF7" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="FieldBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="FieldBorder" Property="Background" Value="{StaticResource FieldHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="FieldBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="FieldBorder" Property="Background" Value="{StaticResource FieldHoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
-        <!-- Voir GDD/demande utilisateur — "dans le classement, le fond est blanc et le texte
-             aussi dans la liste déroulante" : le cadre du popup déroulant par défaut de ComboBox
-             (pas ComboBoxItem, déjà stylé plus bas) lit ses couleurs via
-             {DynamicResource SystemColors.WindowBrushKey/WindowTextBrushKey} — jamais stylé
-             explicitement jusqu'ici, d'où un fond clair hérité du thème Windows quel que soit le
-             Foreground du ComboBox fermé. Réassigne ces clés système (portée fenêtre) plutôt que
-             de réécrire tout le ControlTemplate par défaut (plus risqué, beaucoup de détails
-             d'interaction à reproduire à l'identique).-->
-        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#1B1F2C" />
-        <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#E8E8F0" />
-        <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#1B1F2C" />
-        <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#E8E8F0" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#1B2033" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#EDEEF7" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#1B2033" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#EDEEF7" />
         <Style TargetType="ComboBox">
-            <Setter Property="Background" Value="#1B1F2C" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="BorderThickness" Value="1.4" />
+            <Setter Property="Padding" Value="10,7" />
         </Style>
         <Style TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="#1B1F2C" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
-            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
+            <Setter Property="Padding" Value="10,7" />
             <Style.Triggers>
                 <Trigger Property="IsHighlighted" Value="True">
-                    <Setter Property="Background" Value="#2A3040" />
+                    <Setter Property="Background" Value="#2A3049" />
                 </Trigger>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#333A4D" />
+                    <Setter Property="Background" Value="#363D57" />
                     <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
         <Style TargetType="ListBox">
-            <Setter Property="Background" Value="#1B1F2C" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
         <Style TargetType="DataGrid">
-            <Setter Property="Background" Value="#1B1F2C" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="RowBackground" Value="#1B1F2C" />
-            <Setter Property="AlternatingRowBackground" Value="#20253400" />
+            <Setter Property="RowBackground" Value="{StaticResource FieldBrush}" />
+            <Setter Property="AlternatingRowBackground" Value="#1F253C" />
             <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="VerticalGridLinesBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="HeadersVisibility" Value="Column" />
         </Style>
         <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#151822" />
+            <Setter Property="Background" Value="#141826" />
             <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
             <Setter Property="Padding" Value="6,4" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
@@ -101,38 +155,122 @@
         </Style>
         <Style TargetType="DataGridCell">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="6,4" />
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#2A3040" />
+                    <Setter Property="Background" Value="#2A3049" />
                 </Trigger>
             </Style.Triggers>
         </Style>
 
-        <!-- Bouton standard (secondaire) : coins arrondis, sobre. -->
+        <!-- Bouton standard (secondaire) : échelle + couleur animées au survol/pression, plutôt
+             qu'un changement instantané. -->
         <Style x:Key="SecondaryButton" TargetType="Button">
-            <Setter Property="Background" Value="#1F2330" />
-            <Setter Property="Foreground" Value="#E8E8F0" />
+            <Setter Property="Background" Value="#1E2338" />
+            <Setter Property="Foreground" Value="#EDEEF7" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="16,9" />
+            <Setter Property="BorderThickness" Value="1.2" />
+            <Setter Property="Padding" Value="18,10" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="BgScale" ScaleX="1" ScaleY="1" />
+                            </Border.RenderTransform>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                                Margin="{TemplateBinding Padding}" />
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#272E48" />
+                                <Setter TargetName="Bg" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="BgScale" Storyboard.TargetProperty="ScaleX" To="1.035" Duration="0:0:0.12" />
+                                            <DoubleAnimation Storyboard.TargetName="BgScale" Storyboard.TargetProperty="ScaleY" To="1.035" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="BgScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.12" />
+                                            <DoubleAnimation Storyboard.TargetName="BgScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#181C2C" />
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="BgScale" Storyboard.TargetProperty="ScaleX" To="0.97" Duration="0:0:0.08" />
+                                            <DoubleAnimation Storyboard.TargetName="BgScale" Storyboard.TargetProperty="ScaleY" To="0.97" Duration="0:0:0.08" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!-- Gros bouton d'action principal ("JOUER" façon Ankama) : dégradé doré, très arrondi. -->
+        <!-- Bouton "lien" sans fond (fiche créateur, liens sociaux) : glissement + couleur dorée
+             animés au survol. -->
+        <Style x:Key="LinkButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#C7CBE0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}"
+                                RenderTransformOrigin="0,0.5">
+                            <Border.RenderTransform>
+                                <TranslateTransform x:Name="LinkOffset" X="0" />
+                            </Border.RenderTransform>
+                            <ContentPresenter x:Name="Cp" TextBlock.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="LinkOffset" Storyboard.TargetProperty="X" To="4" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="LinkOffset" Storyboard.TargetProperty="X" To="0" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Gros bouton d'action principal ("JOUER"/"MISE À JOUR") : halo + échelle animés au
+             survol, léger enfoncement à la pression. -->
         <Style x:Key="PrimaryActionButton" TargetType="Button">
             <Setter Property="Foreground" Value="#241704" />
             <Setter Property="FontWeight" Value="Bold" />
@@ -141,15 +279,52 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border CornerRadius="28" Padding="{TemplateBinding Padding}">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                    <GradientStop Color="#F5C15C" Offset="0" />
-                                    <GradientStop Color="#DB9A2E" Offset="1" />
-                                </LinearGradientBrush>
-                            </Border.Background>
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
+                        <Grid RenderTransformOrigin="0.5,0.5">
+                            <Grid.RenderTransform>
+                                <ScaleTransform x:Name="RootScale" ScaleX="1" ScaleY="1" />
+                            </Grid.RenderTransform>
+                            <Border x:Name="Glow" CornerRadius="30" Opacity="0.18" Margin="-4" Background="#F5C15C">
+                                <Border.Effect>
+                                    <BlurEffect Radius="14" />
+                                </Border.Effect>
+                            </Border>
+                            <Border x:Name="Bg" CornerRadius="28" Padding="{TemplateBinding Padding}" Background="#F0B355">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0.85" Duration="0:0:0.18" />
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" Storyboard.TargetProperty="ScaleX" To="1.03" Duration="0:0:0.18" />
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" Storyboard.TargetProperty="ScaleY" To="1.03" Duration="0:0:0.18" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0.18" Duration="0:0:0.25" />
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.2" />
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.2" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg" Property="Padding" Value="0,2,0,0" />
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" Storyboard.TargetProperty="ScaleX" To="0.98" Duration="0:0:0.08" />
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" Storyboard.TargetProperty="ScaleY" To="0.98" Duration="0:0:0.08" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -160,54 +335,110 @@
             </Style.Triggers>
         </Style>
 
-        <!-- Icône décorative de la barre latérale (cosmétique, pas de navigation multi-page dans
-             cette première version — voir Docs/README.md). -->
+        <!-- Icône décorative de la barre latérale (cosmétique — pas de navigation multi-page dans
+             cette version, voir Docs/README.md). -->
         <Style x:Key="SidebarIcon" TargetType="Border">
-            <Setter Property="Width" Value="40" />
-            <Setter Property="Height" Value="40" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Background" Value="#1B1F2C" />
-            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Background" Value="#12162400" />
+            <Setter Property="Margin" Value="0,0,0,10" />
         </Style>
 
-        <!-- Même look que SidebarIcon, mais cliquable (utilisé pour Paramètres). -->
+        <!-- Même look que SidebarIcon, mais cliquable — surbrillance + échelle animées au survol. -->
         <Style x:Key="SidebarIconButton" TargetType="Button">
-            <Setter Property="Width" Value="40" />
-            <Setter Property="Height" Value="40" />
-            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="Margin" Value="0,0,0,10" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="8">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="10"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="IconScale" ScaleX="1" ScaleY="1" />
+                            </Border.RenderTransform>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1B2033" />
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="IconScale" Storyboard.TargetProperty="ScaleX" To="1.1" Duration="0:0:0.12" />
+                                            <DoubleAnimation Storyboard.TargetName="IconScale" Storyboard.TargetProperty="ScaleY" To="1.1" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="IconScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.12" />
+                                            <DoubleAnimation Storyboard.TargetName="IconScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.12" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!-- Carte actualité cliquable (voir GDD — détail au clic). -->
+        <!-- Carte actualité cliquable : bande d'accent + léger soulèvement animés au survol. -->
         <Style x:Key="NewsCardButton" TargetType="Button">
-            <Setter Property="Background" Value="#1B1F2C" />
+            <Setter Property="Background" Value="#171C2E" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Margin" Value="0,0,0,12" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="14">
-                            <ContentPresenter HorizontalAlignment="Stretch" />
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="8" Padding="14"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <TranslateTransform x:Name="CardOffset" Y="0" />
+                            </Border.RenderTransform>
+                            <Border.BorderBrush>
+                                <SolidColorBrush Color="#2E3348" />
+                            </Border.BorderBrush>
+                            <Border.BorderThickness>1</Border.BorderThickness>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="AccentBar" Grid.Column="0" Width="3" CornerRadius="2" Margin="0,0,12,0"
+                                        Background="{StaticResource AccentGradientBrush}" Opacity="0.55" />
+                                <ContentPresenter Grid.Column="1" HorizontalAlignment="Stretch" />
+                            </Grid>
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1D2338" />
+                                <Setter TargetName="AccentBar" Property="Opacity" Value="1" />
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="CardOffset" Storyboard.TargetProperty="Y" To="-2" Duration="0:0:0.14" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="CardOffset" Storyboard.TargetProperty="Y" To="0" Duration="0:0:0.14" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#232838" />
-                </Trigger>
-            </Style.Triggers>
         </Style>
 
         <DataTemplate x:Key="NewsCardTemplate">
@@ -215,137 +446,270 @@
                     Command="{Binding DataContext.OpenNewsDetailCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                     CommandParameter="{Binding}">
                 <StackPanel HorizontalAlignment="Stretch">
-                    <TextBlock Text="{Binding Title}" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Title}" FontWeight="Bold" Foreground="#EDEEF7" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding ShortDescription}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" />
                     <TextBlock Text="{Binding PublishedLabel}" Foreground="{StaticResource AccentBrush}" FontSize="10" Margin="0,8,0,0" />
                 </StackPanel>
             </Button>
         </DataTemplate>
+
+        <!-- En-tête réutilisé par tous les panneaux superposés : icône + titre + liseré doré. -->
+        <Style x:Key="OverlayCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1.2" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="6" BlurRadius="24" Opacity="0.55" />
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
-    <Grid>
+    <!-- Entrée en scène : cascade fondu + glissement sur la barre latérale, la barre du haut, le
+         corps puis la barre du bas (voir noms ci-dessous). Ne concerne que le premier affichage de
+         la fenêtre — les panneaux superposés utilisent FadeInBehavior pour rejouer leur propre
+         fondu à chaque ouverture. -->
+    <Window.Triggers>
+        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="SidebarBorder" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.4" BeginTime="0:0:0" />
+                    <DoubleAnimation Storyboard.TargetName="SidebarTransform" Storyboard.TargetProperty="X" From="-24" To="0" Duration="0:0:0.4" BeginTime="0:0:0">
+                        <DoubleAnimation.EasingFunction>
+                            <QuadraticEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+
+                    <DoubleAnimation Storyboard.TargetName="TopBarBorder" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.4" BeginTime="0:0:0.08" />
+                    <DoubleAnimation Storyboard.TargetName="TopBarTransform" Storyboard.TargetProperty="Y" From="-16" To="0" Duration="0:0:0.4" BeginTime="0:0:0.08">
+                        <DoubleAnimation.EasingFunction>
+                            <QuadraticEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+
+                    <DoubleAnimation Storyboard.TargetName="BodyGrid" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.45" BeginTime="0:0:0.16" />
+                    <DoubleAnimation Storyboard.TargetName="BodyTransform" Storyboard.TargetProperty="Y" From="18" To="0" Duration="0:0:0.45" BeginTime="0:0:0.16">
+                        <DoubleAnimation.EasingFunction>
+                            <QuadraticEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+
+                    <DoubleAnimation Storyboard.TargetName="BottomBarBorder" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.4" BeginTime="0:0:0.24" />
+                    <DoubleAnimation Storyboard.TargetName="BottomBarTransform" Storyboard.TargetProperty="Y" From="16" To="0" Duration="0:0:0.4" BeginTime="0:0:0.24">
+                        <DoubleAnimation.EasingFunction>
+                            <QuadraticEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+
+                    <!-- Lueurs d'ambiance : pulsation douce en boucle infinie. -->
+                    <DoubleAnimation Storyboard.TargetName="GlowTopLeft" Storyboard.TargetProperty="Opacity"
+                                     From="0.25" To="0.42" Duration="0:0:4.5" AutoReverse="True" RepeatBehavior="Forever" BeginTime="0:0:0.4" />
+                    <DoubleAnimation Storyboard.TargetName="GlowBottomRight" Storyboard.TargetProperty="Opacity"
+                                     From="0.32" To="0.5" Duration="0:0:5.5" AutoReverse="True" RepeatBehavior="Forever" BeginTime="0:0:0.6" />
+                    <DoubleAnimation Storyboard.TargetName="LogoGlowEffect" Storyboard.TargetProperty="BlurRadius"
+                                     From="10" To="18" Duration="0:0:2.2" AutoReverse="True" RepeatBehavior="Forever" BeginTime="0:0:0.4" />
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </Window.Triggers>
+
+    <Grid Background="{StaticResource WindowBackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="72" />
+            <ColumnDefinition Width="76" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- Barre latérale façon Ankama : logo + icônes décoratives. -->
-        <Border Grid.Column="0" Background="#05060A">
-            <StackPanel VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,20,0,0">
-                <Border Width="40" Height="40" CornerRadius="8" Margin="0,0,0,28">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#F5C15C" Offset="0" />
-                            <GradientStop Color="#B87F1E" Offset="1" />
-                        </LinearGradientBrush>
-                    </Border.Background>
-                    <TextBlock Text="A" FontWeight="Bold" FontSize="20" Foreground="#241704"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Border>
+        <!-- Lueurs décoratives en fond : ellipses floutées pulsant doucement (voir Window.Triggers
+             ci-dessus), purement cosmétique, IsHitTestVisible désactivé pour ne jamais intercepter
+             un clic. Grid.ColumnSpan="2" pour couvrir toute la largeur malgré les deux colonnes. -->
+        <Ellipse x:Name="GlowTopLeft" Grid.ColumnSpan="2" Width="520" Height="520" Fill="#241708" Opacity="0.35" HorizontalAlignment="Left" VerticalAlignment="Top"
+                  Margin="-220,-260,0,0" IsHitTestVisible="False">
+            <Ellipse.Effect>
+                <BlurEffect Radius="90" />
+            </Ellipse.Effect>
+        </Ellipse>
+        <Ellipse x:Name="GlowBottomRight" Grid.ColumnSpan="2" Width="600" Height="600" Fill="#150A28" Opacity="0.45" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                  Margin="0,0,-260,-300" IsHitTestVisible="False">
+            <Ellipse.Effect>
+                <BlurEffect Radius="100" />
+            </Ellipse.Effect>
+        </Ellipse>
 
-                <Border Style="{StaticResource SidebarIcon}" ToolTip="Accueil">
-                    <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
-                </Border>
-                <!-- Réservé aux comptes admin/fondateur (voir GDD/demande utilisateur — panneau
-                     d'administration accessible depuis le Launcher, "seulement pour les admin/
-                     fonda") : masqué pour tout le monde d'autre. -->
-                <Button Style="{StaticResource SidebarIconButton}" ToolTip="Communauté (administration)"
-                        Command="{Binding ToggleAdminPanelCommand}"
-                        Visibility="{Binding IsAdminAccount, Converter={StaticResource BoolToVis}}">
-                    <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
-                </Button>
-                <!-- Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher". -->
-                <Button Style="{StaticResource SidebarIconButton}" ToolTip="Classement" Command="{Binding ToggleLeaderboardCommand}">
-                    <TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
-                </Button>
-                <Border Style="{StaticResource SidebarIcon}" ToolTip="Boutique">
-                    <TextBlock Text="&#xE719;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
-                </Border>
-                <Button Style="{StaticResource SidebarIconButton}" ToolTip="Paramètres" Command="{Binding ToggleSettingsCommand}">
-                    <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="16" />
-                </Button>
-                <!-- Voir GDD/demande utilisateur — "une page sur le launcher avec un i pour accéder au à propos". -->
-                <Button Style="{StaticResource SidebarIconButton}" ToolTip="À propos" Command="{Binding ToggleAboutCommand}">
-                    <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="16" />
-                </Button>
-            </StackPanel>
+        <!-- Barre latérale : logo + icônes, liseré doré vertical à droite. -->
+        <Border x:Name="SidebarBorder" Grid.Column="0" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                BorderThickness="0,0,1,0" RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="SidebarTransform" X="0" />
+            </Border.RenderTransform>
+            <DockPanel>
+                <Border DockPanel.Dock="Bottom" Height="1" Background="Transparent" />
+                <StackPanel VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,22,0,0">
+                    <Border Width="44" Height="44" CornerRadius="10" Margin="0,0,0,30" Background="#F0B355">
+                        <Border.Effect>
+                            <DropShadowEffect x:Name="LogoGlowEffect" Color="#F5C15C" Direction="0" ShadowDepth="0" BlurRadius="14" Opacity="0.55" />
+                        </Border.Effect>
+                        <TextBlock Text="A" FontWeight="Bold" FontSize="21" Foreground="#241704"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarIcon}" ToolTip="Accueil">
+                        <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
+                    </Border>
+                    <!-- Réservé aux comptes admin/fondateur (voir GDD/demande utilisateur — panneau
+                         d'administration accessible depuis le Launcher, "seulement pour les admin/
+                         fonda") : masqué pour tout le monde d'autre. -->
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Communauté (administration)"
+                            Command="{Binding ToggleAdminPanelCommand}"
+                            Visibility="{Binding IsAdminAccount, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
+                    </Button>
+                    <!-- Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher". -->
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Classement" Command="{Binding ToggleLeaderboardCommand}">
+                        <TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
+                    </Button>
+                    <!-- Voir demande utilisateur — "garde la partie shop mais laisse la impossible à
+                         accéder" : reste un Border décoratif (jamais un Button, aucune Command) —
+                         badge cadenas ajouté pour rendre ce verrouillage explicite visuellement. -->
+                    <Border Style="{StaticResource SidebarIcon}" ToolTip="Boutique (bientôt disponible ici)">
+                        <Grid>
+                            <TextBlock Text="&#xE719;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" Opacity="0.5" />
+                            <Border Width="16" Height="16" CornerRadius="8" Background="#05060D"
+                                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,-2"
+                                    BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1">
+                                <TextBlock Text="&#xE72E;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
+                    </Border>
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Paramètres" Command="{Binding ToggleSettingsCommand}">
+                        <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="17" />
+                    </Button>
+                    <!-- Voir GDD/demande utilisateur — "une page sur le launcher avec un i pour accéder au à propos". -->
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="À propos" Command="{Binding ToggleAboutCommand}">
+                        <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="17" />
+                    </Button>
+                </StackPanel>
+            </DockPanel>
         </Border>
 
         <!-- Zone principale. -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
-                <RowDefinition Height="60" />
+                <RowDefinition Height="66" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="112" />
+                <RowDefinition Height="118" />
             </Grid.RowDefinitions>
 
-            <!-- Barre du haut : titre + statut serveur. -->
-            <Grid Grid.Row="0" Margin="24,0">
-                <TextBlock Text="AETHERIA" FontSize="20" FontWeight="Bold" Foreground="#E8E8F0"
-                           VerticalAlignment="Center" HorizontalAlignment="Left" />
+            <!-- Barre du haut : titre + statut serveur, liseré doré en pied de zone. -->
+            <Border x:Name="TopBarBorder" Grid.Row="0" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1"
+                    RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="TopBarTransform" Y="0" />
+                </Border.RenderTransform>
+                <Grid Margin="28,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left">
+                        <TextBlock Text="AETHERIA" FontSize="21" FontWeight="Bold" Foreground="#EDEEF7" VerticalAlignment="Center" />
+                        <Border Width="1" Height="18" Background="{StaticResource PanelBorderBrush}" Margin="14,0" />
+                        <TextBlock Text="{Binding Title}" FontSize="12" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Ellipse Width="9" Height="9" Margin="0,0,8,0" VerticalAlignment="Center">
-                        <Ellipse.Style>
-                            <Style TargetType="Ellipse">
-                                <Setter Property="Fill" Value="#D95A5A" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsServerOnline}" Value="True">
-                                        <Setter Property="Fill" Value="#5AD97E" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Ellipse.Style>
-                    </Ellipse>
-                    <TextBlock Text="{Binding ServerStatusText}" Foreground="{StaticResource TextMutedBrush}"
-                               VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </Grid>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Border CornerRadius="12" Padding="10,5" Background="#0F1220" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="9" Height="9" Margin="0,0,8,0" VerticalAlignment="Center"
+                                         RenderTransformOrigin="0.5,0.5">
+                                    <Ellipse.RenderTransform>
+                                        <ScaleTransform ScaleX="1" ScaleY="1" />
+                                    </Ellipse.RenderTransform>
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsServerOnline}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+                                                    <DataTrigger.EnterActions>
+                                                        <BeginStoryboard x:Name="StatusPulseStoryboard">
+                                                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" From="1" To="1.5" Duration="0:0:0.9" />
+                                                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" From="1" To="1.5" Duration="0:0:0.9" />
+                                                            </Storyboard>
+                                                        </BeginStoryboard>
+                                                    </DataTrigger.EnterActions>
+                                                    <DataTrigger.ExitActions>
+                                                        <StopStoryboard BeginStoryboardName="StatusPulseStoryboard" />
+                                                    </DataTrigger.ExitActions>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                    <Ellipse.Effect>
+                                        <DropShadowEffect Color="#5FD98A" ShadowDepth="0" BlurRadius="8" Opacity="0.7" />
+                                    </Ellipse.Effect>
+                                </Ellipse>
+                                <TextBlock Text="{Binding ServerStatusText}" Foreground="{StaticResource TextMutedBrush}"
+                                           VerticalAlignment="Center" FontSize="12.5" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
             <!-- Corps : formulaire (connexion/personnages) à gauche, actualités à droite. -->
-            <Grid Grid.Row="1" Margin="24,8,24,8">
+            <Grid x:Name="BodyGrid" Grid.Row="1" Margin="28,20,28,10" RenderTransformOrigin="0.5,0.5">
+                <Grid.RenderTransform>
+                    <TranslateTransform x:Name="BodyTransform" Y="0" />
+                </Grid.RenderTransform>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="380" />
-                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="24" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Padding="20">
+                <Border Grid.Column="0" Style="{StaticResource OverlayCard}" Padding="24">
+                    <Border.BorderBrush>
+                        <SolidColorBrush Color="#2E3348" />
+                    </Border.BorderBrush>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <Grid>
                             <!-- Écran de connexion / inscription -->
-                            <StackPanel x:Name="LoginPanel"
+                            <StackPanel x:Name="LoginPanel" behaviors:FadeInBehavior.Enable="True"
                                         Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBoolToVis}}">
-                                <TextBlock Text="Connexion" FontSize="17" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,16" />
+                                <TextBlock Text="Connexion" FontSize="19" FontWeight="Bold" Foreground="#EDEEF7" Margin="0,0,0,4" />
+                                <TextBlock Text="Entrez dans le monde d'Aetheria" FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,20" />
 
-                                <TextBlock Text="Pseudo ou email" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
-                                <TextBox Text="{Binding UsernameOrEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
+                                <TextBlock Text="PSEUDO OU EMAIL" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                                <TextBox Text="{Binding UsernameOrEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
 
-                                <TextBlock Text="Email (inscription uniquement)" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
-                                <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
+                                <TextBlock Text="EMAIL (INSCRIPTION UNIQUEMENT)" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                                <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
 
-                                <TextBlock Text="Mot de passe" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
-                                <PasswordBox x:Name="PasswordBox" Margin="0,0,0,18" PasswordChanged="OnPasswordChanged" />
+                                <TextBlock Text="MOT DE PASSE" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                                <PasswordBox x:Name="PasswordBox" Margin="0,0,0,22" PasswordChanged="OnPasswordChanged" />
 
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                    <Button Content="Se connecter" Command="{Binding LoginCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0" />
+                                    <Button Content="Se connecter" Command="{Binding LoginCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0" />
                                     <Button Content="Créer un compte" Command="{Binding RegisterCommand}" Style="{StaticResource SecondaryButton}" />
                                 </StackPanel>
                             </StackPanel>
 
                             <!-- Compte connecté : le personnage se choisit/se crée EN JEU (voir GDD),
                                  pas ici — le Launcher n'a plus qu'à proposer de lancer le jeu. -->
-                            <StackPanel x:Name="CharacterPanel" VerticalAlignment="Center"
+                            <StackPanel x:Name="CharacterPanel" VerticalAlignment="Center" behaviors:FadeInBehavior.Enable="True"
                                         Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="Compte connecté" FontSize="17" FontWeight="Bold" Foreground="#E8E8F0"
+                                <Border Width="72" Height="72" CornerRadius="36" HorizontalAlignment="Center" Margin="0,0,0,18" Background="#F0B355">
+                                    <TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="30" Foreground="#241704"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <TextBlock Text="Compte connecté" FontSize="17" FontWeight="Bold" Foreground="#EDEEF7"
                                            HorizontalAlignment="Center" Margin="0,0,0,10" />
                                 <TextBlock Text="La sélection et la création de personnage se font en jeu, juste après le lancement."
-                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,20" />
+                                           Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,22" />
 
                                 <Button Content="Déconnexion" Command="{Binding LogoutCommand}" Style="{StaticResource SecondaryButton}"
                                         HorizontalAlignment="Center" />
@@ -355,10 +719,15 @@
                 </Border>
 
                 <!-- Actualités : cliquables pour le détail, avec accès à l'historique complet (voir GDD). -->
-                <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Padding="20">
+                <Border Grid.Column="2" Style="{StaticResource OverlayCard}" Padding="24">
+                    <Border.BorderBrush>
+                        <SolidColorBrush Color="#2E3348" />
+                    </Border.BorderBrush>
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="ACTUALITÉS" FontSize="13" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,14" />
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+                            <TextBlock Text="&#xE7C3;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}" FontSize="15" Margin="0,0,8,0" />
+                            <TextBlock Text="ACTUALITÉS" FontSize="13" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+                        </StackPanel>
                         <Button DockPanel.Dock="Bottom" Content="Voir toutes les actualités" Command="{Binding ToggleAllNewsCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,4,0,0" />
                         <ItemsControl ItemsSource="{Binding RecentNews}" ItemTemplate="{StaticResource NewsCardTemplate}" />
@@ -366,46 +735,50 @@
                 </Border>
             </Grid>
 
-            <!-- Barre du bas : message de statut + gros bouton JOUER. -->
-            <Border Grid.Row="2" Background="#05060A">
-                <Grid Margin="24,0">
+            <!-- Barre du bas : message de statut + gros bouton JOUER, liseré doré en tête de zone. -->
+            <Border x:Name="BottomBarBorder" Grid.Row="2" Background="#05060D" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0"
+                    RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="BottomBarTransform" Y="0" />
+                </Border.RenderTransform>
+                <Grid Margin="28,0">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left" Orientation="Horizontal">
-                        <TextBlock Text="{Binding StatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap"
+                        <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
                                    VerticalAlignment="Center" MaxWidth="480" />
                         <TextBlock Text="Chargement..." Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"
                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
 
                     <Button Content="JOUER" Command="{Binding PlayCommand}" Style="{StaticResource PrimaryActionButton}"
-                            HorizontalAlignment="Right" VerticalAlignment="Center" Width="180" Height="56"
+                            HorizontalAlignment="Right" VerticalAlignment="Center" Width="190" Height="58"
                             Visibility="{Binding ShowPlayButton, Converter={StaticResource BoolToVis}}" />
 
-                    <!-- Le serveur tourne une version differente de ce Launcher (voir GDD/demande
-                         utilisateur — "obligé de faire la dernière mise à jour pour lancer le
-                         jeu") : bloque JOUER, le bouton télécharge et applique la mise à jour lui-
-                         même (voir SelfUpdateService), texte "Mise à jour" / "Mise à jour en cours
-                         (X%)" pendant l'opération. -->
+                    <!-- Le serveur tourne une version différente de ce Launcher (voir GDD/demande
+                         utilisateur — "si la dernière mise à jour n'est pas faite on ne puisse pas
+                         lancer le jeu et ça nous demande de faire la mise à jour") : JOUER disparaît
+                         totalement (voir ShowPlayButton/ShowUpdateButton, MainViewModel — CanPlay()
+                         renvoie faux tant qu'une mise à jour est disponible), remplacé par ce bouton
+                         qui télécharge et applique la mise à jour lui-même (voir SelfUpdateService). -->
                     <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center"
                                 Visibility="{Binding ShowUpdateButton, Converter={StaticResource BoolToVis}}">
                         <Button Content="{Binding UpdateButtonText}" Command="{Binding UpdateCommand}"
-                                Style="{StaticResource PrimaryActionButton}" Width="220" Height="56" />
+                                Style="{StaticResource PrimaryActionButton}" Width="230" Height="58" />
                         <TextBlock Text="{Binding ServerVersion, StringFormat='Version {0} disponible'}"
                                    Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap"
-                                   MaxWidth="220" TextAlignment="Center" Margin="0,6,0,0" />
+                                   MaxWidth="230" TextAlignment="Center" Margin="0,6,0,0" />
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Panneau Paramètres : superposé à tout le reste tant qu'ouvert. -->
-            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+            <!-- Panneau Paramètres : superposé à tout le reste tant qu'ouvert, avec fondu d'apparition. -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#00000099"
                     Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}">
-                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="420" Height="340"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                <Border Style="{StaticResource OverlayCard}" Width="440" Height="360" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <StackPanel>
-                        <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,18" />
+                        <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#EDEEF7" Margin="0,0,0,18" />
 
-                        <TextBlock Text="Disposition clavier" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                        <TextBlock Text="DISPOSITION CLAVIER" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                         <ComboBox ItemsSource="{Binding AvailableKeyboardLayouts}" SelectedItem="{Binding KeyboardLayoutPreference}" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding DetectedLayoutText}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,6" />
                         <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,18" />
@@ -414,7 +787,7 @@
                              serveur ne doit pas être affichée" : tout le bloc (pas juste l'édition,
                              déjà réservée à IsAdminAccount) est masqué pour les comptes non-staff. -->
                         <StackPanel Visibility="{Binding IsStaffAccount, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="Adresse du serveur" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
+                            <TextBlock Text="ADRESSE DU SERVEUR" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                             <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding IsAdminAccount}" Margin="0,0,0,6" />
                             <TextBlock Text="IP publique ou nom de domaine du serveur — fonctionne en local comme depuis un autre réseau."
                                        Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" />
@@ -431,14 +804,13 @@
             <!-- Panneau À propos : voir GDD/demande utilisateur — "une page sur le launcher avec
                  un i pour accéder au à propos, avec un bouton pour aller sur les CGU du site" +
                  crédits (créé par/code par/logo/musique/graphisme). -->
-            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#00000099"
                     Visibility="{Binding IsAboutOpen, Converter={StaticResource BoolToVis}}">
-                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="420" Height="420"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                <Border Style="{StaticResource OverlayCard}" Width="420" Height="430" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" FontSize="18" FontWeight="Bold"
-                                   Foreground="#E8E8F0" Margin="0,0,0,4" />
+                                   Foreground="#EDEEF7" Margin="0,0,0,4" />
                         <TextBlock DockPanel.Dock="Top" Text="Un MMORPG tactique de créatures et de royaumes."
                                    Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,0,18" />
 
@@ -448,11 +820,11 @@
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,10,0,0" />
 
                         <StackPanel VerticalAlignment="Top">
-                            <TextBlock Text="Créé par feelsman" Foreground="#E8E8F0" Margin="0,0,0,8" />
-                            <TextBlock Text="Code par feelsman" Foreground="#E8E8F0" Margin="0,0,0,8" />
+                            <TextBlock Text="Créé par feelsman" Foreground="#EDEEF7" Margin="0,0,0,8" />
+                            <TextBlock Text="Code par feelsman" Foreground="#EDEEF7" Margin="0,0,0,8" />
                             <TextBlock Text="Logo par —" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" />
                             <TextBlock Text="Musique par —" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" />
-                            <TextBlock Text="Graphisme par feelsman" Foreground="#E8E8F0" Margin="0,0,0,8" />
+                            <TextBlock Text="Graphisme par feelsman" Foreground="#EDEEF7" Margin="0,0,0,8" />
                         </StackPanel>
                     </DockPanel>
                 </Border>
@@ -461,11 +833,10 @@
             <!-- Fiche créateur : voir GDD/demande utilisateur — "dans le launcher quand on appuie
                  sur un pseudo on doit avoir ses réseaux et les liens pour y accéder" (clic sur le
                  pseudo dans le panel Communauté, voir ShowCreatorInfoCommand). -->
-            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#00000099"
                     Visibility="{Binding IsCreatorInfoOpen, Converter={StaticResource BoolToVis}}">
-                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="380" Height="260"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                <Border Style="{StaticResource OverlayCard}" Width="380" Height="260" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{Binding CreatorInfo.DisplayName}" FontSize="20" FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}" Margin="0,0,0,18" />
@@ -473,23 +844,11 @@
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,14,0,0" />
                         <StackPanel VerticalAlignment="Top">
                             <Button Content="{Binding CreatorInfo.Discord, StringFormat='Discord : {0}'}" Command="{Binding OpenCreatorLinkCommand}"
-                                    CommandParameter="{Binding CreatorInfo.Discord}" Cursor="Hand" HorizontalContentAlignment="Left" Margin="0,0,0,10">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate>
-                                </Button.Template>
-                            </Button>
+                                    CommandParameter="{Binding CreatorInfo.Discord}" Style="{StaticResource LinkButton}" Margin="0,0,0,4" />
                             <Button Content="{Binding CreatorInfo.Twitch, StringFormat='Twitch : {0}'}" Command="{Binding OpenCreatorLinkCommand}"
-                                    CommandParameter="{Binding CreatorInfo.Twitch}" Cursor="Hand" HorizontalContentAlignment="Left" Margin="0,0,0,10">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate>
-                                </Button.Template>
-                            </Button>
+                                    CommandParameter="{Binding CreatorInfo.Twitch}" Style="{StaticResource LinkButton}" Margin="0,0,0,4" />
                             <Button Content="{Binding CreatorInfo.YouTube, StringFormat='YouTube : {0}'}" Command="{Binding OpenCreatorLinkCommand}"
-                                    CommandParameter="{Binding CreatorInfo.YouTube}" Cursor="Hand" HorizontalContentAlignment="Left" Margin="0,0,0,10">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate>
-                                </Button.Template>
-                            </Button>
+                                    CommandParameter="{Binding CreatorInfo.YouTube}" Style="{StaticResource LinkButton}" Margin="0,0,0,4" />
                         </StackPanel>
                     </DockPanel>
                 </Border>
@@ -497,13 +856,12 @@
 
             <!-- Panneau Classement : voir GDD/demande utilisateur — "un bouton pour le leaderboard
                  en jeu et sur le launcher". -->
-            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#00000099"
                     Visibility="{Binding IsLeaderboardOpen, Converter={StaticResource BoolToVis}}">
-                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="420" Height="420"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                <Border Style="{StaticResource OverlayCard}" Width="420" Height="420" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="Classement" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,12" />
+                        <TextBlock DockPanel.Dock="Top" Text="Classement" FontSize="18" FontWeight="Bold" Foreground="#EDEEF7" Margin="0,0,0,12" />
 
                         <ComboBox DockPanel.Dock="Top" ItemsSource="{Binding AvailableLeaderboardCategories}"
                                   SelectedItem="{Binding SelectedLeaderboardCategory}" Margin="0,0,0,12" />
@@ -514,7 +872,7 @@
                         <ListView ItemsSource="{Binding LeaderboardRows}" Background="Transparent" BorderThickness="0">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Foreground="#E8E8F0" FontSize="13" Margin="0,3">
+                                    <TextBlock Foreground="#EDEEF7" FontSize="13" Margin="0,3">
                                         <Run Text="{Binding Rank, Mode=OneWay}" FontWeight="Bold" />
                                         <Run Text=". " />
                                         <Run Text="{Binding CharacterName, Mode=OneWay}" />
@@ -531,11 +889,10 @@
             <!-- Panneau "Communauté" (administration) : voir GDD/demande utilisateur — grade,
                  mute, ban de compte/IP, réinitialisation de profil, renommage, réservés aux
                  comptes admin/fondateur (bouton masqué sinon, voir IsAdminAccount). -->
-            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#00000099"
                     Visibility="{Binding IsAdminPanelOpen, Converter={StaticResource BoolToVis}}">
-                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="900" Height="580"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20">
+                <Border Style="{StaticResource OverlayCard}" Width="920" Height="590" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="22">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -545,13 +902,13 @@
 
                         <DockPanel Grid.Column="0">
                             <TextBlock DockPanel.Dock="Top" Text="Communauté — Administration" FontSize="18" FontWeight="Bold"
-                                       Foreground="#E8E8F0" Margin="0,0,0,12" />
+                                       Foreground="#EDEEF7" Margin="0,0,0,12" />
 
                             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                                <TextBox DockPanel.Dock="Left" Width="240" Padding="6"
+                                <TextBox DockPanel.Dock="Left" Width="240" Padding="10,7"
                                          Text="{Binding AdminSearchText, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button DockPanel.Dock="Left" Content="Rechercher" Command="{Binding AdminSearchCommand}"
-                                        Padding="12,6" Margin="8,0,0,0" />
+                                        Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
                             </DockPanel>
 
                             <DataGrid ItemsSource="{Binding AdminUsers}" SelectedItem="{Binding AdminSelectedUser}"
@@ -572,15 +929,9 @@
                                     <DataGridTemplateColumn Header="Pseudo" Width="110">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
-                                                <Button Content="{Binding Username}" HorizontalContentAlignment="Left" Cursor="Hand"
+                                                <Button Content="{Binding Username}" Style="{StaticResource LinkButton}"
                                                         Command="{Binding DataContext.ShowCreatorInfoCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                        CommandParameter="{Binding Username}">
-                                                    <Button.Template>
-                                                        <ControlTemplate TargetType="Button">
-                                                            <ContentPresenter />
-                                                        </ControlTemplate>
-                                                    </Button.Template>
-                                                </Button>
+                                                        CommandParameter="{Binding Username}" />
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
@@ -607,36 +958,36 @@
 
                             <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Visible">
                                 <StackPanel>
-                                    <TextBlock Text="Bannissement" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
-                                    <TextBox Text="{Binding AdminBanReason, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,8"
+                                    <TextBlock Text="Bannissement" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBox Text="{Binding AdminBanReason, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" Margin="0,0,0,8"
                                              AcceptsReturn="True" TextWrapping="Wrap" Height="44" />
-                                    <Button Content="Bannir le compte" Command="{Binding AdminBanCommand}" Padding="14,7" Margin="0,0,0,6" />
-                                    <Button Content="Débannir le compte" Command="{Binding AdminUnbanCommand}" Padding="14,7" Margin="0,0,0,6" />
-                                    <Button Content="Bannir la dernière IP" Command="{Binding AdminBanIpCommand}" Padding="14,7" />
+                                    <Button Content="Bannir le compte" Command="{Binding AdminBanCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
+                                    <Button Content="Débannir le compte" Command="{Binding AdminUnbanCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
+                                    <Button Content="Bannir la dernière IP" Command="{Binding AdminBanIpCommand}" Style="{StaticResource SecondaryButton}" />
 
-                                    <Separator Margin="0,14,0,10" />
+                                    <Separator Margin="0,14,0,10" Background="{StaticResource PanelBorderBrush}" />
 
-                                    <TextBlock Text="Grade" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
-                                    <ComboBox ItemsSource="{Binding AdminAvailableRanks}" SelectedItem="{Binding AdminSelectedRank}" Padding="6" Margin="0,0,0,6" />
-                                    <Button Content="Définir le grade" Command="{Binding AdminSetRankCommand}" Padding="14,7" />
+                                    <TextBlock Text="Grade" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <ComboBox ItemsSource="{Binding AdminAvailableRanks}" SelectedItem="{Binding AdminSelectedRank}" Margin="0,0,0,6" />
+                                    <Button Content="Définir le grade" Command="{Binding AdminSetRankCommand}" Style="{StaticResource SecondaryButton}" />
 
-                                    <Separator Margin="0,14,0,10" />
+                                    <Separator Margin="0,14,0,10" Background="{StaticResource PanelBorderBrush}" />
 
-                                    <TextBlock Text="Modération" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
-                                    <Button Content="Basculer mute (tchat)" Command="{Binding AdminToggleMuteCommand}" Padding="14,7" Margin="0,0,0,6" />
-                                    <Button Content="Réinitialiser le profil de jeu" Command="{Binding AdminResetProfileCommand}" Padding="14,7" />
+                                    <TextBlock Text="Modération" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <Button Content="Basculer mute (tchat)" Command="{Binding AdminToggleMuteCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
+                                    <Button Content="Réinitialiser le profil de jeu" Command="{Binding AdminResetProfileCommand}" Style="{StaticResource SecondaryButton}" />
 
-                                    <Separator Margin="0,14,0,10" />
+                                    <Separator Margin="0,14,0,10" Background="{StaticResource PanelBorderBrush}" />
 
-                                    <TextBlock Text="Renommer / changer l'email" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
-                                    <TextBox Text="{Binding AdminNewUsername, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,6" />
+                                    <TextBlock Text="Renommer / changer l'email" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBox Text="{Binding AdminNewUsername, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" Margin="0,0,0,6" />
                                     <TextBlock Text="Nouveau pseudo (laisser vide si inchangé)" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
-                                    <TextBox Text="{Binding AdminNewEmail, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,6" />
+                                    <TextBox Text="{Binding AdminNewEmail, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" Margin="0,0,0,6" />
                                     <TextBlock Text="Nouvel email (laisser vide si inchangé)" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
-                                    <Button Content="Enregistrer" Command="{Binding AdminModifyCommand}" Padding="14,7" />
+                                    <Button Content="Enregistrer" Command="{Binding AdminModifyCommand}" Style="{StaticResource SecondaryButton}" />
 
-                                    <TextBlock Text="{Binding AdminStatusMessage}" Foreground="#F0A0A0" TextWrapping="Wrap" Margin="0,14,0,0" />
-                                    <TextBlock Text="Chargement..." Foreground="#A0A0B0" Visibility="{Binding AdminIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding AdminStatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" Margin="0,14,0,0" />
+                                    <TextBlock Text="Chargement..." Foreground="{StaticResource TextMutedBrush}" Visibility="{Binding AdminIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
                                 </StackPanel>
                             </ScrollViewer>
                             <Button Grid.Row="1" Content="Fermer" Command="{Binding ToggleAdminPanelCommand}" Style="{StaticResource SecondaryButton}"
@@ -647,11 +998,10 @@
             </Border>
 
             <!-- Toutes les actualités. -->
-            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#00000099"
                     Visibility="{Binding IsAllNewsOpen, Converter={StaticResource BoolToVis}}">
-                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="560" Height="480"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                <Border Style="{StaticResource OverlayCard}" Width="560" Height="480" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="TOUTES LES ACTUALITÉS" FontSize="16" FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}" Margin="0,0,0,14" />
@@ -665,13 +1015,12 @@
             </Border>
 
             <!-- Détail d'une actualité (au-dessus de "Toutes les actualités" si ouvert depuis là). -->
-            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#00000099"
                     Visibility="{Binding IsNewsDetailOpen, Converter={StaticResource BoolToVis}}">
-                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
-                        BorderThickness="1" CornerRadius="10" Width="560" MaxHeight="480"
-                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28">
+                <Border Style="{StaticResource OverlayCard}" Width="560" MaxHeight="480" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="30">
                     <StackPanel>
-                        <TextBlock Text="{Binding SelectedNews.Title}" FontSize="20" FontWeight="Bold" Foreground="#E8E8F0" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Text="{Binding SelectedNews.Title}" FontSize="20" FontWeight="Bold" Foreground="#EDEEF7" TextWrapping="Wrap" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding SelectedNews.PublishedLabel}" Foreground="{StaticResource AccentBrush}" FontSize="12" Margin="0,0,0,16" />
                         <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
                             <TextBlock Text="{Binding SelectedNews.FullContent}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" />
