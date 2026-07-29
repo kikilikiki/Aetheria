@@ -54,11 +54,15 @@ public sealed class DigestScheduler(DiscordAnnouncer announcer, ILogger<DigestSc
         var pending = PendingChangesLog.ReadAndClear();
         if (pending.Count > 0)
         {
+            // Voir GDD/demande utilisateur — "désactive le ping [sur] les récapitulatifs" : un
+            // récapitulatif horaire automatique n'a pas besoin de notifier le rôle à chaque fois,
+            // contrairement à une annonce manuelle (voir DiscordAnnouncer.PostUpdateAsync).
             await announcer.PostUpdateAsync(
                 $"{GameInfo.Name} — récapitulatif de l'heure",
                 $"{pending.Count} changement(s) cette heure-ci.",
                 pending,
-                ct);
+                pingRole: false,
+                ct: ct);
         }
 
         await File.WriteAllTextAsync(statePath, currentHourBucket, ct);
