@@ -7,4 +7,7 @@ public enum TerritoryType
     Village,
     Fort,
     Donjon,
+
+    /// <summary>Voir GDD/demande utilisateur — "guerre de territoire... des bâtiments (mine, champs etc)" : capturable comme la Mine.</summary>
+    Champ,
 }

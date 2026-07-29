@@ -131,4 +131,29 @@ public sealed class LeaderboardService(AetheriaDbContext db)
             .Select(r => new LeaderboardRow(characterNames.GetValueOrDefault(r.CharacterId, "?"), r.Score))
             .ToList();
     }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "classement de team (le meilleur de la team ombre etc), on
+    /// peut voir le classement des joueurs seulement si on est dans la même équipe". Le filtrage
+    /// par royaume se fait ICI (pas juste masqué côté client) — voir l'endpoint HTTP, qui dérive
+    /// le royaume du personnage authentifié plutôt que de le recevoir du client.
+    /// </summary>
+    public async Task<IReadOnlyList<LeaderboardRow>> GetTopByKingdomAsync(LeaderboardCategory category, KingdomType kingdom, int limit, CancellationToken ct = default)
+    {
+        var kingdomCharacterIds = await db.Characters.Where(c => c.Kingdom == kingdom).Select(c => c.Id).ToHashSetAsync(ct);
+
+        var rows = await db.Leaderboard
+            .Where(l => l.Category == category && kingdomCharacterIds.Contains(l.CharacterId))
+            .OrderByDescending(l => l.Score)
+            .Take(limit)
+            .ToListAsync(ct);
+
+        var characterNames = await db.Characters
+            .Where(c => rows.Select(r => r.CharacterId).Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+
+        return rows
+            .Select(r => new LeaderboardRow(characterNames.GetValueOrDefault(r.CharacterId, "?"), r.Score))
+            .ToList();
+    }
 }

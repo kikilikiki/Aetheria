@@ -268,6 +268,10 @@
                 <Button Style="{StaticResource SidebarIconButton}" ToolTip="Paramètres" Command="{Binding ToggleSettingsCommand}">
                     <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="16" />
                 </Button>
+                <!-- Voir GDD/demande utilisateur — "une page sur le launcher avec un i pour accéder au à propos". -->
+                <Button Style="{StaticResource SidebarIconButton}" ToolTip="À propos" Command="{Binding ToggleAboutCommand}">
+                    <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="16" />
+                </Button>
             </StackPanel>
         </Border>
 
@@ -421,6 +425,36 @@
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
                     </StackPanel>
+                </Border>
+            </Border>
+
+            <!-- Panneau À propos : voir GDD/demande utilisateur — "une page sur le launcher avec
+                 un i pour accéder au à propos, avec un bouton pour aller sur les CGU du site" +
+                 crédits (créé par/code par/logo/musique/graphisme). -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsAboutOpen, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Width="420" Height="420"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" FontSize="18" FontWeight="Bold"
+                                   Foreground="#E8E8F0" Margin="0,0,0,4" />
+                        <TextBlock DockPanel.Dock="Top" Text="Un MMORPG tactique de créatures et de royaumes."
+                                   Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,0,18" />
+
+                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleAboutCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,14,0,0" />
+                        <Button DockPanel.Dock="Bottom" Content="Conditions générales d'utilisation" Command="{Binding OpenTermsOfServiceCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,10,0,0" />
+
+                        <StackPanel VerticalAlignment="Top">
+                            <TextBlock Text="Créé par feelsman" Foreground="#E8E8F0" Margin="0,0,0,8" />
+                            <TextBlock Text="Code par feelsman" Foreground="#E8E8F0" Margin="0,0,0,8" />
+                            <TextBlock Text="Logo par —" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" />
+                            <TextBlock Text="Musique par —" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" />
+                            <TextBlock Text="Graphisme par feelsman" Foreground="#E8E8F0" Margin="0,0,0,8" />
+                        </StackPanel>
+                    </DockPanel>
                 </Border>
             </Border>
 

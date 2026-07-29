@@ -13,6 +13,7 @@ using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.Combat;
+using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Network.Packets;
 using Aetheria.Shared.Settings;
 using Silk.NET.Input;
@@ -214,6 +215,16 @@ int? myKingdomId = null;
 string? mineMessage = null;
 Task<ProfessionActionResponse?>? mineGatherTask = null;
 
+// Voir GDD/demande utilisateur — "guerre de territoire... des bâtiments (mine, champs etc)" : le
+// Champ récolte du Blé, avec la même mécanique de capture/contrôle de territoire que la Mine
+// (voir LoadFieldInfoAsync, GameDataApiClient.GatherCropAsync).
+var isFieldPanelOpen = false;
+Task<(TerritorySummary? Territory, ShopItem? Crop)>? fieldLoadTask = null;
+TerritorySummary? fieldTerritory = null;
+ShopItem? fieldCropItem = null;
+string? fieldMessage = null;
+Task<ProfessionActionResponse?>? fieldGatherTask = null;
+
 // Sélection du starter (voir Server/World/StarterService.cs) : Introduction (texte narratif) ->
 // Choosing (grille de ~10 créatures communes) -> Confirming (gros plan animé + lore) -> Sending
 // (appel HTTP en cours) -> retour à Confirming en cas d'échec, ou Outdoor en cas de succès.
@@ -352,6 +363,20 @@ Task<List<FriendSummary>>? friendListTask = null;
 Task<List<FriendRequestSummary>>? friendPendingTask = null;
 Task<AdminGameActionResponse>? friendActionTask = null;
 
+// Voir GDD/demande utilisateur — "shop avec des gems" : gemmes (monnaie premium), conversion de
+// pièces, palier de grade (bonus XP/or cosmétique) et pass d'emplacement de personnage. L'achat
+// de gemmes contre argent réel est affiché mais désactivé (voir GDD, "bloque la page pour le
+// moment") — aucune passerelle de paiement n'est branchée.
+// Voir GDD/demande utilisateur — "quand on clique sur un pseudo on a ces informations" : fiche
+// affichée pour les pseudos reconnus comme créateurs du jeu (voir CreatorCredits) — les autres
+// joueurs restent non cliquables (pas de fiche à afficher pour eux).
+string? creatorCardTarget = null;
+
+PremiumStatus? premiumStatus = null;
+string? premiumMessage = null;
+Task<PremiumStatus?>? premiumLoadTask = null;
+Task<ShopPurchaseResponse>? premiumActionTask = null;
+
 // Voir GDD/demande utilisateur — "un endroit pour modifier son profil (description, item à
 // montrer, titre, grade)" : panneau Profil (touche U), toujours le sien propre pour cette version
 // (pas de consultation du profil d'un autre joueur — voir Docs/README.md).
@@ -437,6 +462,25 @@ string? arenaMessage = null;
 Task<bool>? arenaQueueTask = null;
 Task<ArenaQueueStatus?>? arenaPollTask = null;
 Task<CombatSessionState?>? arenaMatchStateTask = null;
+
+// Voir GDD/demande utilisateur — "il y a un bâtiment nommé Guerre... une UI pour dire quand on
+// est prêt, si on est prêt ça va chercher un match contre les autres camps". Même mécanique de
+// file d'attente sondée que l'Arène (voir KingdomWarQueueService côté serveur).
+var isWarRoomOpen = false;
+var warReady = false;
+var warPollClock = 0f;
+string? warMessage = null;
+Task<bool>? warQueueTask = null;
+Task<ArenaQueueStatus?>? warPollTask = null;
+Task<CombatSessionState?>? warMatchStateTask = null;
+List<KingdomWarStanding> warStandings = [];
+Task<List<KingdomWarStanding>>? warStandingsTask = null;
+
+// Voir GDD/demande utilisateur — "classement de team (le meilleur de la team ombre etc), visible
+// seulement si on est dans la même équipe" : royaume résolu côté serveur, jamais choisi par ce
+// client (voir GameDataApiClient.GetKingdomLeaderboardAsync).
+List<LeaderboardRow> warKingdomLeaderboard = [];
+Task<List<LeaderboardRow>>? warKingdomLeaderboardTask = null;
 
 // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp", puis "propose un
 // pvp, si la personne est en team tout les membres doivent accepter" : invitation reçue (bouton
@@ -641,6 +685,18 @@ host.Update += deltaTime =>
     if (isMinePanelOpen)
     {
         UpdateMinePanel();
+        return;
+    }
+
+    if (isFieldPanelOpen)
+    {
+        UpdateFieldPanel();
+        return;
+    }
+
+    if (isWarRoomOpen)
+    {
+        UpdateWarRoomPanel(deltaTime);
         return;
     }
 
@@ -948,6 +1004,25 @@ host.Update += deltaTime =>
                 mineOreItem = null;
                 mineLoadTask = LoadMineInfoAsync(interaction.Building.Name);
                 break;
+            case InteractionKind.Building when interaction.Building!.Name.StartsWith("Champ"):
+                // Voir GDD/demande utilisateur — "guerre de territoire... des bâtiments (mine,
+                // champs etc)" : même mécanique de capture que la Mine.
+                isFieldPanelOpen = true;
+                fieldMessage = null;
+                fieldTerritory = null;
+                fieldCropItem = null;
+                fieldLoadTask = LoadFieldInfoAsync(interaction.Building.Name);
+                break;
+            case InteractionKind.Building when interaction.Building!.Name == "Guerre":
+                // Voir GDD/demande utilisateur — "un bâtiment nommé Guerre où on rentre dedans,
+                // ça nous met une UI pour dire quand on est prêt".
+                isWarRoomOpen = true;
+                warMessage = null;
+                warStandingsTask = combatApi?.GetWarStandingsAsync();
+                warKingdomLeaderboardTask = chosenCharacterId is null || options.SessionToken is null
+                    ? null
+                    : gameDataApi?.GetKingdomLeaderboardAsync(LeaderboardCategory.Pvp, options.SessionToken, chosenCharacterId.Value);
+                break;
             case InteractionKind.Building when interaction.Building!.Name == "Pension":
                 // Voir GDD/demande utilisateur — bâtiment "où l'on peut voir tout nos monstres et
                 // déplacer ce que l'on a dans notre team" : réutilise le panneau Monstres existant
@@ -1142,6 +1217,16 @@ host.Render += _ =>
     if (isMinePanelOpen)
     {
         DrawMinePanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
+    if (isFieldPanelOpen)
+    {
+        DrawFieldPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
+    if (isWarRoomOpen)
+    {
+        DrawWarRoomPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
     }
 
     spriteBatch.End();
@@ -2094,6 +2179,271 @@ void DrawMinePanel(int w, int h)
 
     var footer = mineTerritory?.ControllingKingdomId == myKingdomId ? "R OU CLIC : RECOLTER - ECHAP : FERMER" : "ECHAP : FERMER";
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+async Task<(TerritorySummary? Territory, ShopItem? Crop)> LoadFieldInfoAsync(string fieldName)
+{
+    if (gameDataApi is null)
+    {
+        return (null, null);
+    }
+
+    var territories = await gameDataApi.GetTerritoriesAsync();
+    var territory = territories.FirstOrDefault(t => t.Name == fieldName);
+    var crop = await gameDataApi.GetGatherableCropItemAsync();
+    return (territory, crop);
+}
+
+/// <summary>Voir GDD/demande utilisateur — "guerre de territoire... des bâtiments (mine, champs etc)" : pendant de <see cref="UpdateMinePanel"/>, même mécanique de capture/contrôle de territoire — voir <see cref="LoadFieldInfoAsync"/>.</summary>
+void UpdateFieldPanel()
+{
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        isFieldPanelOpen = false;
+        return;
+    }
+
+    if (fieldLoadTask is { IsCompleted: true } loadTask)
+    {
+        (fieldTerritory, fieldCropItem) = loadTask.IsFaulted ? (null, null) : loadTask.Result;
+        fieldLoadTask = null;
+        return;
+    }
+
+    if (fieldGatherTask is { IsCompleted: true } gatherTask)
+    {
+        fieldMessage = gatherTask.IsFaulted ? "Connexion au serveur impossible." : gatherTask.Result?.Message ?? "Récolte impossible.";
+        fieldGatherTask = null;
+        return;
+    }
+
+    if (fieldLoadTask is not null || fieldGatherTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.R) && fieldTerritory is not null && fieldCropItem is not null
+        && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        fieldMessage = null;
+        fieldGatherTask = gameDataApi.GatherCropAsync(options.SessionToken!, chosenCharacterId.Value, fieldCropItem.ItemId, fieldTerritory.Id);
+    }
+}
+
+void DrawFieldPanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    const float boxHeight = 240f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.08f, 0.04f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.78f, 0.68f, 0.28f, 1f));
+
+    if (fieldLoadTask is not null || fieldTerritory is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, fieldTerritory.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.78f, 0.4f, 1f));
+
+        var isOwn = fieldTerritory.ControllingKingdomId == myKingdomId;
+        var controlColor = isOwn ? new Vector4(0.6f, 0.9f, 0.6f, 1f) : new Vector4(0.9f, 0.5f, 0.45f, 1f);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"CONTROLE PAR : {fieldTerritory.ControllingKingdomName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 70f), 1.9f, controlColor);
+
+        var status = isOwn
+            ? "Ce champ appartient à votre royaume — récolte à taux plein."
+            : "Un royaume rival contrôle ce champ — vous pouvez toujours y récolter, mais avec moins de rendement et moins de chances d'obtenir du blé.";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status, new Vector2(w / 2f, topLeft.Y + 110f), 1.5f, Vector4.One);
+
+        if (fieldMessage is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, fieldMessage, new Vector2(w / 2f, topLeft.Y + 150f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        }
+
+        if (fieldGatherTask is null && fieldCropItem is not null)
+        {
+            if (DrawClickableCentered("RECOLTER (R)", new Vector2(w / 2f, topLeft.Y + 190f), 2f, new Vector4(0.85f, 0.78f, 0.4f, 1f))
+                && chosenCharacterId is not null && gameDataApi is not null)
+            {
+                fieldMessage = null;
+                fieldGatherTask = gameDataApi.GatherCropAsync(options.SessionToken!, chosenCharacterId.Value, fieldCropItem.ItemId, fieldTerritory.Id);
+            }
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "R OU CLIC : RECOLTER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — bâtiment "Guerre", UI "prêt" : mêmes mécaniques de file
+/// d'attente sondée que <see cref="UpdateArenaPanel"/>, mais l'appairage se fait contre un
+/// personnage d'un AUTRE royaume plutôt qu'un format à effectif fixe (voir KingdomWarQueueService).
+/// </summary>
+void UpdateWarRoomPanel(float deltaTime)
+{
+    if (warMatchStateTask is { IsCompleted: true } stateTask)
+    {
+        var state = stateTask.IsFaulted ? null : stateTask.Result;
+        warMatchStateTask = null;
+
+        if (state is not null)
+        {
+            combatState = state;
+            combatSelectedAction = null;
+            combatMessage = null;
+            combatReturnScene = SceneMode.Outdoor;
+            warReady = false;
+            isWarRoomOpen = false;
+            activePanel = PanelKind.None;
+            combatVictoryQuestFired = false;
+            sceneMode = SceneMode.Combat;
+        }
+        else
+        {
+            warMessage = "Impossible de récupérer le combat appairé.";
+        }
+
+        return;
+    }
+
+    if (warPollTask is { IsCompleted: true } pollTask)
+    {
+        var status = pollTask.IsFaulted ? null : pollTask.Result;
+        warPollTask = null;
+
+        if (status is { IsMatched: true, CombatId: { } combatId })
+        {
+            warMatchStateTask = combatApi!.GetStateAsync(combatId);
+        }
+
+        return;
+    }
+
+    if (warQueueTask is { IsCompleted: true } queueTask)
+    {
+        warReady = !queueTask.IsFaulted && queueTask.Result;
+        warMessage = warReady ? null : "Connexion au serveur impossible.";
+        warQueueTask = null;
+        return;
+    }
+
+    if (warStandingsTask is { IsCompleted: true } standingsTask)
+    {
+        warStandings = standingsTask.IsFaulted ? [] : standingsTask.Result;
+        warStandingsTask = null;
+        return;
+    }
+
+    if (warKingdomLeaderboardTask is { IsCompleted: true } kingdomLeaderboardTask)
+    {
+        warKingdomLeaderboard = kingdomLeaderboardTask.IsFaulted ? [] : kingdomLeaderboardTask.Result;
+        warKingdomLeaderboardTask = null;
+        return;
+    }
+
+    if (warQueueTask is not null || warPollTask is not null || warMatchStateTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        if (warReady)
+        {
+            warReady = false;
+            warMessage = null;
+            _ = combatApi!.CancelWarQueueAsync(chosenCharacterId!.Value);
+        }
+        else
+        {
+            isWarRoomOpen = false;
+        }
+
+        return;
+    }
+
+    if (warReady)
+    {
+        warPollClock += deltaTime;
+        if (warPollClock >= 1.5f)
+        {
+            warPollClock = 0f;
+            warPollTask = combatApi!.GetWarQueueStatusAsync(chosenCharacterId!.Value);
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && options.SessionToken is not null && combatApi is not null)
+    {
+        warMessage = null;
+        warPollClock = 0f;
+        warQueueTask = combatApi.QueueForWarAsync(options.SessionToken, chosenCharacterId.Value);
+    }
+}
+
+void DrawWarRoomPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 460f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.05f, 0.05f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.75f, 0.25f, 0.22f, 1f));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GUERRE DE ROYAUMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
+
+    if (warReady)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PRET", new Vector2(w / 2f, topLeft.Y + 90f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "RECHERCHE D'UN ADVERSAIRE...", new Vector2(w / 2f, topLeft.Y + 124f), 1.9f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+    }
+    else
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Affrontez un joueur d'un autre royaume.", new Vector2(w / 2f, topLeft.Y + 90f), 1.7f, Vector4.One);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Une victoire rapporte des points de guerre a votre royaume.", new Vector2(w / 2f, topLeft.Y + 114f), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+    }
+
+    if (warMessage is { Length: > 0 })
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, warMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 150f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+    }
+
+    // Voir GDD/demande utilisateur — "ajoute un leaderboard dans l'UI pour le ready, pour
+    // afficher le nombre de points par team (meilleur a la pire)".
+    var y = topLeft.Y + 178f;
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSEMENT DES ROYAUMES", new Vector2(w / 2f, y), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    y += 30f;
+    for (var i = 0; i < warStandings.Count; i++)
+    {
+        var standing = warStandings[i];
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{i + 1}. {standing.KingdomName.ToUpperInvariant()} — {standing.WarPoints} pts", new Vector2(w / 2f, y), 1.7f, i == 0 ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
+        y += 24f;
+    }
+
+    // Voir GDD/demande utilisateur — "classement de team (le meilleur de la team ombre etc),
+    // visible seulement si on est dans la même équipe" : le serveur ne renvoie que le royaume du
+    // personnage authentifié (voir GetKingdomLeaderboardAsync), jamais un autre royaume.
+    y += 16f;
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MEILLEURS JOUEURS DE VOTRE ROYAUME (PVP)", new Vector2(w / 2f, y), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    y += 26f;
+    if (warKingdomLeaderboard.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Aucun rang PvP enregistre pour le moment.", new Vector2(w / 2f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        for (var i = 0; i < warKingdomLeaderboard.Count; i++)
+        {
+            var row = warKingdomLeaderboard[i];
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName.ToUpperInvariant()} — {row.Score}", new Vector2(w / 2f, y), 1.6f, i == 0 ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
+            y += 22f;
+        }
+    }
+
+    var footer = warReady ? "ECHAP : ANNULER" : "ENTREE : PRET - ECHAP : FERMER";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void OnDialogueFinished(string npcName)
@@ -3103,6 +3453,10 @@ void OpenPanel(PanelKind kind)
         case PanelKind.Duel:
             duelTextInput = string.Empty;
             break;
+        case PanelKind.GemShop:
+            premiumMessage = null;
+            premiumLoadTask = options.SessionToken is null ? null : gameDataApi?.GetPremiumStatusAsync(options.SessionToken);
+            break;
     }
 }
 
@@ -3733,6 +4087,19 @@ async Task<CombatSessionState?> ChallengeTeamDuelAsync(IReadOnlyList<Guid> chall
 /// </summary>
 void UpdateChatPanel()
 {
+    // Voir GDD/demande utilisateur — "quand on clique sur un pseudo on a ces informations" :
+    // bloque le reste de la saisie du tchat tant que la fiche créateur est ouverte, comme un
+    // petit panneau modal par-dessus.
+    if (creatorCardTarget is not null)
+    {
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            creatorCardTarget = null;
+        }
+
+        return;
+    }
+
     // Voir GDD/demande utilisateur — "discussion privée" avec un ami (voir DrawFriendsPanel) :
     // Tab annule le mode chuchotement et revient au canal global plutôt que de le faire
     // disparaître silencieusement.
@@ -3861,6 +4228,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Duel)
     {
         UpdateDuelPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.GemShop)
+    {
+        UpdateGemShopPanel();
         return;
     }
 
@@ -4920,6 +5293,7 @@ void DrawOutdoorHud()
             case PanelKind.Leaderboard: DrawLeaderboardPanel(w, h); break;
             case PanelKind.QuestList: DrawQuestListPanel(w, h); break;
             case PanelKind.Duel: DrawDuelPanel(w, h); break;
+            case PanelKind.GemShop: DrawGemShopPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -4971,6 +5345,8 @@ void DrawOutdoorHud()
     // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
     // son pseudo".
     ("DUEL", PanelKind.Duel),
+    // Voir GDD/demande utilisateur — "shop avec des gems".
+    ("GEMMES", PanelKind.GemShop),
 ];
 
 /// <summary>
@@ -5595,6 +5971,115 @@ void DrawDuelInvitePopup(int w, int h, string challengerName, int teamSize)
 }
 
 /// <summary>
+/// Voir GDD/demande utilisateur — "shop avec des gems" : conversion de pièces, palier de grade
+/// (bonus XP/or cosmétique) et pass d'emplacement de personnage, tous payés en gemmes. L'achat de
+/// gemmes contre argent réel est affiché mais désactivé (voir GDD, "bloque la page pour le
+/// moment") — aucune passerelle de paiement n'est branchée pour l'instant.
+/// </summary>
+void UpdateGemShopPanel()
+{
+    if (premiumLoadTask is { IsCompleted: true } loadTask)
+    {
+        premiumStatus = loadTask.IsFaulted ? null : loadTask.Result;
+        premiumLoadTask = null;
+    }
+
+    if (premiumActionTask is { IsCompleted: true } actionTask)
+    {
+        premiumMessage = actionTask.IsFaulted ? "Connexion au serveur impossible." : actionTask.Result.Message;
+        premiumActionTask = null;
+        if (chosenCharacterId is not null && options.SessionToken is not null)
+        {
+            premiumLoadTask = gameDataApi?.GetPremiumStatusAsync(options.SessionToken);
+        }
+
+        return;
+    }
+
+    if (premiumActionTask is not null || premiumLoadTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (chosenCharacterId is null || options.SessionToken is null || gameDataApi is null || premiumStatus is null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Enter))
+    {
+        premiumMessage = null;
+        premiumActionTask = gameDataApi.ExchangeGoldForGemsAsync(options.SessionToken, chosenCharacterId.Value, premiumStatus.GoldPerGemBlock);
+    }
+    else if (keyboard.WasJustPressed(Key.G) && premiumStatus.NextGradeTierCostGems is not null)
+    {
+        premiumMessage = null;
+        premiumActionTask = gameDataApi.UpgradePremiumGradeAsync(options.SessionToken, chosenCharacterId.Value);
+    }
+    else if (keyboard.WasJustPressed(Key.P) && premiumStatus.NextCharacterSlotCostGems is not null)
+    {
+        premiumMessage = null;
+        premiumActionTask = gameDataApi.UpgradeCharacterSlotAsync(options.SessionToken, chosenCharacterId.Value);
+    }
+}
+
+void DrawGemShopPanel(int w, int h)
+{
+    const float boxWidth = 520f;
+    const float boxHeight = 320f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.1f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.7f, 0.5f, 0.95f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BOUTIQUE GEMMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.85f, 0.75f, 0.98f, 1f));
+
+    if (premiumStatus is null)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, "Chargement...", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.7f, Vector4.One);
+        DrawPromptBanner("ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        return;
+    }
+
+    var y = topLeft.Y + 62f;
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"Gemmes : {premiumStatus.Gems}", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.85f, 0.75f, 0.98f, 1f));
+    y += 40f;
+
+    TextRenderer.Draw(spriteBatch, whiteTexture,
+        $"[ENTREE] Convertir {premiumStatus.GoldPerGemBlock:N0} pieces -> {premiumStatus.GemsPerGemBlock} gemmes",
+        new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.9f, 0.85f, 0.6f, 1f));
+    y += 34f;
+
+    var gradeLine = premiumStatus.NextGradeTierCostGems is { } gradeCost
+        ? $"[G] Grade (palier {premiumStatus.GradeTier}/3, +{premiumStatus.GradeBonusPercent:0.0}% xp/or) -> palier suivant : {gradeCost} gemmes"
+        : $"Grade au palier maximum (+{premiumStatus.GradeBonusPercent:0.0}% xp/or)";
+    TextRenderer.Draw(spriteBatch, whiteTexture, gradeLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
+    y += 34f;
+
+    var slotLine = premiumStatus.NextCharacterSlotCostGems is { } slotCost
+        ? $"[P] Pass personnage (max {premiumStatus.MaxCharacters}) -> palier suivant : {slotCost} gemmes"
+        : $"Emplacements de personnage au maximum ({premiumStatus.MaxCharacters})";
+    TextRenderer.Draw(spriteBatch, whiteTexture, slotLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.85f, 0.95f, 1f));
+    y += 44f;
+
+    TextRenderer.Draw(spriteBatch, whiteTexture, "Acheter des gemmes avec de l'argent reel :", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+    y += 26f;
+    TextRenderer.Draw(spriteBatch, whiteTexture, "BIENTOT DISPONIBLE", new Vector2(topLeft.X + 20f, y), 1.7f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+
+    if (premiumMessage is { } message)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, message, new Vector2(topLeft.X + 20f, topLeft.Y + boxHeight - 46f), 1.4f, new Vector4(0.95f, 0.9f, 0.5f, 1f));
+    }
+
+    DrawPromptBanner("ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+}
+
+/// <summary>
 /// Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire son
 /// pseudo" : simple saisie de pseudo, envoyée comme <c>/duel &lt;pseudo&gt;</c> (voir
 /// PlayerSession.HandleDuelCommand) — réutilise toute la logique serveur déjà en place (groupe,
@@ -5726,8 +6211,26 @@ void DrawChatPanel(int w, int h)
     for (var i = visible.Count - 1; i >= 0; i--)
     {
         var line = visible[i];
-        var text = $"{ChatRankTag(line.Rank)}{line.SenderName} : {line.Message}";
-        TextRenderer.Draw(spriteBatch, whiteTexture, text, new Vector2(topLeft.X + 20f, y), 1.6f, ChatRankColor(line.Rank));
+        var senderTag = $"{ChatRankTag(line.Rank)}{line.SenderName}";
+        var senderColor = ChatRankColor(line.Rank);
+
+        // Voir GDD/demande utilisateur — "quand on clique sur un pseudo on a ces informations" :
+        // seuls les pseudos reconnus comme créateurs (voir CreatorCredits) sont cliquables.
+        if (CreatorCredits.Find(line.SenderName) is not null)
+        {
+            var senderWidth = TextRenderer.MeasureWidth(senderTag, 1.6f);
+            if (DrawClickableRow(senderTag, new Vector2(topLeft.X + 20f, y), senderWidth, 1.6f, senderColor))
+            {
+                creatorCardTarget = line.SenderName;
+            }
+
+            TextRenderer.Draw(spriteBatch, whiteTexture, $" : {line.Message}", new Vector2(topLeft.X + 20f + senderWidth, y), 1.6f, senderColor);
+        }
+        else
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{senderTag} : {line.Message}", new Vector2(topLeft.X + 20f, y), 1.6f, senderColor);
+        }
+
         y -= 20f;
         if (y < messagesTop)
         {
@@ -5761,9 +6264,58 @@ void DrawChatPanel(int w, int h)
             break;
         }
 
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(remote.Rank)}{remote.Name}", new Vector2(listLeft, listY), 1.5f, ChatRankColor(remote.Rank));
+        var remoteTag = $"{ChatRankTag(remote.Rank)}{remote.Name}";
+        if (CreatorCredits.Find(remote.Name) is not null)
+        {
+            if (DrawClickableRow(remoteTag, new Vector2(listLeft, listY), listWidth - 10f, 1.5f, ChatRankColor(remote.Rank)))
+            {
+                creatorCardTarget = remote.Name;
+            }
+        }
+        else
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, remoteTag, new Vector2(listLeft, listY), 1.5f, ChatRankColor(remote.Rank));
+        }
+
         listY += 20f;
     }
+
+    if (creatorCardTarget is { } targetName && CreatorCredits.Find(targetName) is { } profile)
+    {
+        DrawCreatorCardPopup(w, h, profile);
+    }
+}
+
+/// <summary>Voir GDD/demande utilisateur — "quand on clique sur un pseudo on a ces informations (feelsman | Discord : ... twitch : ... youtube : ...)".</summary>
+void DrawCreatorCardPopup(int w, int h, CreatorProfile profile)
+{
+    const float boxWidth = 440f;
+    const float boxHeight = 200f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.1f, 0.97f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.95f, 0.7f, 0.35f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, profile.DisplayName, new Vector2(w / 2f, topLeft.Y + 28f), 2.4f, new Vector4(0.95f, 0.85f, 0.6f, 1f));
+
+    var y = topLeft.Y + 70f;
+    if (profile.Discord is { } discord)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"Discord : {discord}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.6f, 0.65f, 0.95f, 1f));
+        y += 26f;
+    }
+
+    if (profile.Twitch is { } twitch)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"Twitch : {twitch}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.55f, 0.95f, 1f));
+        y += 26f;
+    }
+
+    if (profile.YouTube is { } youtube)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"YouTube : {youtube}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.5f, 0.5f, 1f));
+    }
+
+    DrawPromptBanner("ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
 }
 
 /// <summary>Préfixe affiché devant le pseudo (voir GDD/demande utilisateur — "il est affiché [FONDATEUR] pseudo") : rien pour le grade de base.</summary>
@@ -6647,6 +7199,12 @@ void DrawCharacterPreview(Vector2 center, float scale, int skinIndex, int hairSt
             var spikeTop = headTop - new Vector2(3f * scale, 16f * scale);
             spriteBatch.DrawQuad(whiteTexture, spikeTop, headTop + new Vector2(9f * scale, 0), headTop + new Vector2(9f * scale, 4f * scale), spikeTop + new Vector2(0, 4f * scale), hairColor);
             break;
+        // case 3 (Chauve) : aucun trait dessiné, intentionnel.
+        case 4: // Tresses
+            spriteBatch.Draw(whiteTexture, headTop - new Vector2(headHalfWidth, 6f * scale), new Vector2(headHalfWidth * 2f, 10f * scale), hairColor);
+            spriteBatch.Draw(whiteTexture, headLeft - new Vector2(4f * scale, -4f * scale), new Vector2(5f * scale, halfWidth * 1.8f), hairColor);
+            spriteBatch.Draw(whiteTexture, headRight + new Vector2(0, 4f * scale), new Vector2(5f * scale, halfWidth * 1.8f), hairColor);
+            break;
     }
 
     switch (accessoryIndex)
@@ -6657,6 +7215,18 @@ void DrawCharacterPreview(Vector2 center, float scale, int skinIndex, int hairSt
             break;
         case 2: // Bandeau
             spriteBatch.Draw(whiteTexture, headLeft + new Vector2(0, -3f * scale), new Vector2(headHalfWidth * 2f, 6f * scale), new Vector4(0.7f, 0.2f, 0.2f, 1f));
+            break;
+        case 3: // Lunettes
+            var glassesY = eyeY - eyeSize.Y * 0.3f;
+            spriteBatch.Draw(whiteTexture, new Vector2(headCenter.X - eyeSize.X * 1.9f, glassesY), new Vector2(eyeSize.X * 1.4f, eyeSize.Y * 1.4f), new Vector4(0.1f, 0.1f, 0.1f, 0.85f));
+            spriteBatch.Draw(whiteTexture, new Vector2(headCenter.X + eyeSize.X * 0.3f, glassesY), new Vector2(eyeSize.X * 1.4f, eyeSize.Y * 1.4f), new Vector4(0.1f, 0.1f, 0.1f, 0.85f));
+            break;
+        case 4: // Couronne
+            spriteBatch.Draw(whiteTexture, headTop - new Vector2(headHalfWidth, 10f * scale), new Vector2(headHalfWidth * 2f, 6f * scale), new Vector4(0.9f, 0.75f, 0.25f, 1f));
+            spriteBatch.DrawQuad(whiteTexture,
+                headTop - new Vector2(1.5f * scale, 18f * scale), headTop + new Vector2(1.5f * scale, -10f * scale),
+                headTop + new Vector2(1.5f * scale, -4f * scale), headTop - new Vector2(1.5f * scale, -4f * scale),
+                new Vector4(0.9f, 0.75f, 0.25f, 1f));
             break;
     }
 }
@@ -6955,6 +7525,7 @@ enum PanelKind
     Leaderboard,
     QuestList,
     Duel,
+    GemShop,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>

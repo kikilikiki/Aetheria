@@ -17,6 +17,9 @@ public static class CharacterAppearancePalette
         ("Foncée", new Vector4(0.55f, 0.38f, 0.26f, 1f)),
         ("Pâle", new Vector4(0.95f, 0.90f, 0.85f, 1f)),
         ("Verte", new Vector4(0.55f, 0.72f, 0.45f, 1f)),
+        // Voir GDD/demande utilisateur — "ajoute des cosmétiques ... à la création du personnage".
+        ("Grise", new Vector4(0.62f, 0.62f, 0.65f, 1f)),
+        ("Bleutée", new Vector4(0.60f, 0.72f, 0.85f, 1f)),
     ];
 
     public static readonly (string Name, Vector4 Color)[] HairColors =
@@ -27,6 +30,8 @@ public static class CharacterAppearancePalette
         ("Roux", new Vector4(0.72f, 0.32f, 0.15f, 1f)),
         ("Blanc", new Vector4(0.92f, 0.92f, 0.92f, 1f)),
         ("Bleu", new Vector4(0.30f, 0.45f, 0.80f, 1f)),
+        ("Vert", new Vector4(0.30f, 0.62f, 0.35f, 1f)),
+        ("Rose", new Vector4(0.85f, 0.45f, 0.65f, 1f)),
     ];
 
     public static readonly (string Name, Vector4 Color)[] ClothesColors =
@@ -37,9 +42,11 @@ public static class CharacterAppearancePalette
         ("Vert", new Vector4(0.30f, 0.60f, 0.32f, 1f)),
         ("Violet", new Vector4(0.52f, 0.32f, 0.68f, 1f)),
         ("Gris", new Vector4(0.45f, 0.45f, 0.48f, 1f)),
+        ("Noir", new Vector4(0.14f, 0.14f, 0.16f, 1f)),
+        ("Blanc", new Vector4(0.90f, 0.90f, 0.92f, 1f)),
     ];
 
-    public static readonly string[] HairStyleNames = ["Court", "Long", "Crête"];
+    public static readonly string[] HairStyleNames = ["Court", "Long", "Crête", "Chauve", "Tresses"];
 
-    public static readonly string[] AccessoryNames = ["Aucun", "Chapeau", "Bandeau"];
+    public static readonly string[] AccessoryNames = ["Aucun", "Chapeau", "Bandeau", "Lunettes", "Couronne"];
 }

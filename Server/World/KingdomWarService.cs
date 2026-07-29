@@ -6,13 +6,14 @@ using Microsoft.EntityFrameworkCore;
 namespace Aetheria.Server.World;
 
 /// <summary>
-/// Guerres de royaumes (voir <c>Docs/GameDesign.md</c> — "chaque semaine, les territoires
-/// peuvent changer de propriétaire"). Les victoires PvP alimentent les points de guerre du
-/// royaume du vainqueur (voir <see cref="CombatService"/>). Simplification assumée pour
-/// cette première version : pas de contestation territoire par territoire — la résolution
-/// hebdomadaire donne TOUS les territoires au royaume qui a le plus de points de guerre.
-/// Dans une vraie exploitation, <see cref="ResolveWeeklyWarAsync"/> serait un job planifié
-/// plutôt qu'un appel manuel.
+/// Guerres de royaumes (voir <c>Docs/GameDesign.md</c> — "chaque semaine [le samedi], les
+/// royaumes s'affrontent pour le contrôle des territoires"). Les victoires en combat de guerre
+/// (voir <see cref="KingdomWarQueueService"/>, <c>CombatService.ApplyArenaResultAsync</c>)
+/// alimentent les points de guerre du royaume du vainqueur. La résolution hebdomadaire classe les
+/// 4 royaumes par points et distribue une récompense à paliers (voir GDD/demande utilisateur —
+/// "le premier gagne 2 bâtiments, le second 1, le troisième rien, le quatrième en perd 1") : voir
+/// <see cref="KingdomEntity.BonusTerritoryCount"/> pour pourquoi ceci prend la forme d'un bonus de
+/// rendement plutôt que de bâtiments apparaissant à des coordonnées aléatoires sur la carte.
 /// </summary>
 public sealed class KingdomWarService(AetheriaDbContext db)
 {
@@ -31,32 +32,42 @@ public sealed class KingdomWarService(AetheriaDbContext db)
     public async Task<IReadOnlyList<KingdomWarStanding>> GetStandingsAsync(CancellationToken ct = default)
     {
         var kingdoms = await db.Kingdoms.OrderByDescending(k => k.WarPoints).ToListAsync(ct);
-        return kingdoms.Select(k => new KingdomWarStanding(k.Name, k.WarPoints)).ToList();
+        return kingdoms.Select(k => new KingdomWarStanding(k.Name, k.WarPoints, k.BonusTerritoryCount)).ToList();
     }
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — classement final de la semaine par points de guerre : le
+    /// 1er gagne +2 au bonus de rendement, le 2e +1, le 3e rien, le 4e -1 (jamais sous zéro). En
+    /// cas d'égalité de points, l'ordre entre royaumes ex-æquo n'est pas garanti stable (voir
+    /// Docs/README.md) — simplification assumée pour cette première version.
+    /// </summary>
     public async Task<string> ResolveWeeklyWarAsync(CancellationToken ct = default)
     {
-        var kingdoms = await db.Kingdoms.ToListAsync(ct);
-        var leader = kingdoms.Where(k => k.WarPoints > 0).OrderByDescending(k => k.WarPoints).FirstOrDefault();
-
-        if (leader is null)
+        var kingdoms = await db.Kingdoms.OrderByDescending(k => k.WarPoints).ToListAsync(ct);
+        if (kingdoms.Count == 0)
         {
-            return "Aucun royaume n'a marqué de points cette semaine : aucun territoire ne change de main.";
+            return "Aucun royaume enregistré.";
         }
 
-        var territories = await db.Territories.ToListAsync(ct);
-        foreach (var territory in territories)
+        var summary = new List<string>();
+        for (var rank = 0; rank < kingdoms.Count; rank++)
         {
-            territory.ControllingKingdomId = leader.Id;
-        }
+            var kingdom = kingdoms[rank];
+            var delta = rank switch
+            {
+                0 => 2,
+                1 => 1,
+                var r when r == kingdoms.Count - 1 => -1,
+                _ => 0,
+            };
 
-        foreach (var kingdom in kingdoms)
-        {
+            kingdom.BonusTerritoryCount = Math.Max(0, kingdom.BonusTerritoryCount + delta);
+            summary.Add($"{kingdom.Name} ({kingdom.WarPoints} pts) : {(delta >= 0 ? "+" : "")}{delta} bonus de territoire");
             kingdom.WarPoints = 0;
         }
 
         await db.SaveChangesAsync(ct);
 
-        return $"{leader.Name} domine la guerre de cette semaine et contrôle désormais tous les territoires.";
+        return $"Guerre de royaumes résolue — {string.Join(", ", summary)}.";
     }
 }

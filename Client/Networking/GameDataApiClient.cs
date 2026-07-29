@@ -6,6 +6,7 @@ using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
+using Aetheria.Shared.Models.Premium;
 
 namespace Aetheria.Client.Networking;
 
@@ -236,6 +237,60 @@ public sealed class GameDataApiClient : IDisposable
         return body!;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "shop avec des gems".</summary>
+    public async Task<PremiumStatus?> GetPremiumStatusAsync(string sessionToken, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/shop/premium/status?sessionToken={Uri.EscapeDataString(sessionToken)}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<PremiumStatus>(JsonOptions, ct) : null;
+    }
+
+    public async Task<ShopPurchaseResponse> ExchangeGoldForGemsAsync(string sessionToken, Guid characterId, long goldAmount, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/shop/gems/exchange-gold", new ExchangeGoldForGemsRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            GoldAmount = goldAmount,
+        }, JsonOptions, ct);
+
+        return await ReadPremiumAsShopResponseAsync(response, ct);
+    }
+
+    public async Task<ShopPurchaseResponse> UpgradePremiumGradeAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/shop/premium/grade/upgrade", new PurchasePremiumTierRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return await ReadPremiumAsShopResponseAsync(response, ct);
+    }
+
+    public async Task<ShopPurchaseResponse> UpgradeCharacterSlotAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/shop/premium/characterslot/upgrade", new PurchasePremiumTierRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return await ReadPremiumAsShopResponseAsync(response, ct);
+    }
+
+    /// <summary>Les endpoints premium renvoient un <see cref="PremiumStatus"/> en succès — traduit en <see cref="ShopPurchaseResponse"/> pour réutiliser le même affichage de message que le reste de la boutique.</summary>
+    private async Task<ShopPurchaseResponse> ReadPremiumAsShopResponseAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new ShopPurchaseResponse { Success = false, Message = error?.Message ?? $"Erreur serveur ({(int)response.StatusCode})." };
+        }
+
+        var status = await response.Content.ReadFromJsonAsync<PremiumStatus>(JsonOptions, ct);
+        return new ShopPurchaseResponse { Success = true, Message = "Achat réussi.", RemainingGold = status?.Gems ?? 0 };
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "un HDV où les joueurs mettent en vente et achètent".</summary>
     public async Task<List<AuctionListingSummary>> GetAuctionListingsAsync(Guid viewerCharacterId, CancellationToken ct = default)
     {
@@ -362,6 +417,31 @@ public sealed class GameDataApiClient : IDisposable
         return new ProfessionActionResponse { Profession = ProfessionType.Mineur, Level = 0, Experience = 0, LeveledUp = false, Message = error?.Message ?? "Récolte impossible." };
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute des bâtiments dans les villes (mine, champs etc)" : ressource du Champ, pendant de <see cref="GetGatherableItemAsync"/> pour la Mine.</summary>
+    public async Task<ShopItem?> GetGatherableCropItemAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<ShopItem>("/api/items/gatherable-crop", JsonOptions, ct);
+
+    /// <summary>Récolte au Champ (voir GetGatherableCropItemAsync) — même mécanique de capture/contrôle de territoire que la Mine (voir GatherAsync).</summary>
+    public async Task<ProfessionActionResponse?> GatherCropAsync(string sessionToken, Guid characterId, int resourceItemId, int territoryId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/professions/gather", new GatherRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            Profession = ProfessionType.Agriculteur,
+            ResourceItemId = resourceItemId,
+            TerritoryId = territoryId,
+        }, JsonOptions, ct);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return await response.Content.ReadFromJsonAsync<ProfessionActionResponse>(JsonOptions, ct);
+        }
+
+        var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+        return new ProfessionActionResponse { Profession = ProfessionType.Agriculteur, Level = 0, Experience = 0, LeveledUp = false, Message = error?.Message ?? "Récolte impossible." };
+    }
+
     /// <summary>Donne un objet d'inventaire à une créature (voir GDD — UI de gestion des montres).</summary>
     public async Task<MonsterInstanceData?> GiveItemToMonsterAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
     {
@@ -448,6 +528,14 @@ public sealed class GameDataApiClient : IDisposable
 
     public Task RefreshLeaderboardAsync(LeaderboardCategory category, CancellationToken ct = default) =>
         _http.PostAsync($"/api/leaderboard/{category}/refresh", null, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — "classement de team, visible seulement si on est dans la même équipe" : le royaume est résolu côté serveur à partir de sessionToken/characterId, jamais envoyé par le client.</summary>
+    public async Task<List<LeaderboardRow>> GetKingdomLeaderboardAsync(LeaderboardCategory category, string sessionToken, Guid characterId, int limit = 5, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<LeaderboardRow>>(
+            $"/api/leaderboard/{category}/kingdom?sessionToken={Uri.EscapeDataString(sessionToken)}&characterId={characterId}&limit={limit}", JsonOptions, ct);
+        return result ?? [];
+    }
 
     /// <summary>Voir GDD/demande utilisateur — "un endroit pour modifier son profil".</summary>
     public async Task<ProfileSummary?> GetProfileAsync(Guid characterId, CancellationToken ct = default)

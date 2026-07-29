@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aetheria.Shared;
 using Aetheria.Shared.Enums;
+using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Combat;
 
@@ -167,6 +168,34 @@ public sealed class CombatApiClient : IDisposable
 
     public Task CancelArenaQueueAsync(Guid characterId, CancellationToken ct = default) =>
         _http.PostAsync($"/api/pvp/arena/cancel?characterId={characterId}", null, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — bâtiment "Guerre", UI "prêt" : matchmaking contre un personnage d'un autre royaume (voir KingdomWarQueueService).</summary>
+    public async Task<bool> QueueForWarAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/kingdoms/wars/queue", new QueueForWarRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<ArenaQueueStatus?> GetWarQueueStatusAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/kingdoms/wars/queue/status?characterId={characterId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ArenaQueueStatus>(JsonOptions, ct) : null;
+    }
+
+    public Task CancelWarQueueAsync(Guid characterId, CancellationToken ct = default) =>
+        _http.PostAsync($"/api/kingdoms/wars/queue/cancel?characterId={characterId}", null, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un leaderboard dans l'UI pour le ready, pour afficher le nombre de points par team".</summary>
+    public async Task<List<KingdomWarStanding>> GetWarStandingsAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<KingdomWarStanding>>("/api/kingdoms/wars/standings", JsonOptions, ct);
+        return result ?? [];
+    }
 
     public void Dispose() => _http.Dispose();
 }

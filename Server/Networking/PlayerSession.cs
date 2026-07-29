@@ -489,7 +489,8 @@ public sealed class PlayerSession(
         {
             case "/help":
                 Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /ping /version" +
-                    (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /give /givemoney /givexp /givemonster /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : ""));
+                    (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /give /givemoney /givexp /givemonster /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : "") +
+                    (rank == UserRank.Fondateur ? " — fondateur : /givegems /dev" : ""));
                 break;
 
             case "/menu":
@@ -1136,6 +1137,27 @@ public sealed class PlayerSession(
                 UnbanIp(db, parts[1], Reply);
                 break;
 
+            // Voir GDD/demande utilisateur — "shop avec des gems... argent réel" : les gemmes
+            // représentent de l'argent réel reçu hors-jeu (aucune passerelle de paiement branchée
+            // pour le moment, voir GDD) — réservé au Fondateur seul, un cran au-dessus des autres
+            // commandes admin/modérateur (même logique que /dev), pour limiter le risque de
+            // crédits frauduleux/erronés de monnaie premium.
+            case "/givegems":
+                if (rank != UserRank.Fondateur)
+                {
+                    Reply("Commande réservée au Fondateur.");
+                    return;
+                }
+
+                if (parts.Length < 3 || !long.TryParse(parts[2], out var gemsAmount))
+                {
+                    Reply("Usage : /givegems <pseudo> <montant>");
+                    return;
+                }
+
+                GiveGems(db, parts[1], gemsAmount, Reply);
+                break;
+
             // Voir GDD/demande utilisateur — "réservé au fonda/dev" : un cran au-dessus des autres
             // commandes admin (même logique que /toggle-admin, voir Server/Program.cs), donc
             // revérifié spécifiquement ici plutôt que de se contenter du garde commun en haut de
@@ -1334,6 +1356,21 @@ public sealed class PlayerSession(
         target.Gold = Math.Max(0, amount);
         db.SaveChanges();
         reply($"{target.Name} a maintenant {target.Gold} or.");
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — crédite manuellement des gemmes (monnaie premium, argent réel reçu hors-jeu) sur le COMPTE (pas le personnage) — voir <see cref="UserEntity.Gems"/>.</summary>
+    private static void GiveGems(AetheriaDbContext db, string targetCharacterName, long amount, Action<string> reply)
+    {
+        var target = db.Characters.Include(c => c.User).FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target?.User is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        target.User.Gems = Math.Max(0, target.User.Gems + amount);
+        db.SaveChanges();
+        reply($"{targetCharacterName} (compte {target.User.Username}) a maintenant {target.User.Gems} gemme(s).");
     }
 
     private static void GiveCharacterExperience(AetheriaDbContext db, string targetCharacterName, long amount, Action<string> reply)

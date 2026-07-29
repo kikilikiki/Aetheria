@@ -10,4 +10,7 @@ public enum ProfessionType
     Cuisinier,
     Enchanteur,
     Artisan,
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute des bâtiments dans les villes (mine, champs etc) pour avoir des objets" : récolte au Champ (voir WorldMap, "Champ").</summary>
+    Agriculteur,
 }

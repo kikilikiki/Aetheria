@@ -151,9 +151,13 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
             recipients = await db.Characters.Where(c => memberIds.Contains(c.Id)).ToListAsync(ct);
         }
 
+        // Voir GDD/demande utilisateur — "grade payant... 0.1%/0.2%/0.3% de gain d'xp en plus"
+        // (voir PremiumService) : calculé par destinataire, chacun ayant potentiellement un
+        // palier de grade différent.
         foreach (var recipient in recipients)
         {
-            CharacterProgressionService.GrantExperience(recipient, amount);
+            var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, recipient.UserId, ct);
+            CharacterProgressionService.GrantExperience(recipient, (long)Math.Round(amount * multiplier));
         }
 
         await db.SaveChangesAsync(ct);
