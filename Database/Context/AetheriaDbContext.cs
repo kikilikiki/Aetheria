@@ -34,6 +34,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<PartyEntity> Parties => Set<PartyEntity>();
     public DbSet<PartyMemberEntity> PartyMembers => Set<PartyMemberEntity>();
     public DbSet<BannedIpEntity> BannedIps => Set<BannedIpEntity>();
+    public DbSet<AuctionListingEntity> AuctionListings => Set<AuctionListingEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -244,6 +245,19 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             territory.HasOne(t => t.ControllingKingdom)
                 .WithMany()
                 .HasForeignKey(t => t.ControllingKingdomId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AuctionListingEntity>(listing =>
+        {
+            listing.HasOne(l => l.SellerCharacter)
+                .WithMany()
+                .HasForeignKey(l => l.SellerCharacterId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            listing.HasOne(l => l.Item)
+                .WithMany()
+                .HasForeignKey(l => l.ItemId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
     }
