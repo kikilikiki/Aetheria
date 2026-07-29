@@ -71,7 +71,13 @@ builder.Services.AddSingleton<DuelInviteService>();
 builder.Services.AddSingleton<LootSessionStore>();
 builder.Services.AddSingleton<ArenaQueueService>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
-builder.WebHost.UseUrls($"http://0.0.0.0:{GameInfo.DefaultAccountApiPort}");
+// Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le serveur de
+// dev" : les deux ne peuvent pas partager les mêmes ports sur la même machine, d'où ces
+// surcharges optionnelles (non définies = ports par défaut habituels, utilisés par la prod/le
+// paquet d'installation public — voir GameInfo).
+var accountApiPort = int.TryParse(Environment.GetEnvironmentVariable("AETHERIA_ACCOUNT_PORT"), out var configuredAccountPort) ? configuredAccountPort : GameInfo.DefaultAccountApiPort;
+var gamePort = int.TryParse(Environment.GetEnvironmentVariable("AETHERIA_GAME_PORT"), out var configuredGamePort) ? configuredGamePort : GameInfo.DefaultGamePort;
+builder.WebHost.UseUrls($"http://0.0.0.0:{accountApiPort}");
 
 // Enums échangés en toutes lettres ("Guerrier", "Feu", ...) plutôt qu'en entiers opaques :
 // plus lisible pour tout client de l'API (Launcher, outils d'admin, tests manuels).
@@ -1780,7 +1786,7 @@ var tcpGameServer = new TcpGameServer(
     app.Services.GetRequiredService<WorldSessionRegistry>(),
     app.Services.GetRequiredService<DuelInviteService>());
 
-var tcpTask = tcpGameServer.RunAsync(GameInfo.DefaultGamePort, shutdownCts.Token);
+var tcpTask = tcpGameServer.RunAsync(gamePort, shutdownCts.Token);
 var httpTask = app.RunAsync(shutdownCts.Token);
 
 // Récapitulatif Discord toutes les heures (voir GDD/demande utilisateur — "au lieu de 23h, tout

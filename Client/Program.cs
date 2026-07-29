@@ -439,7 +439,7 @@ var isConnectedMode = options.SessionToken is not null;
 
 if (isConnectedMode)
 {
-    var apiBaseUrl = $"http://{options.Host}:{GameInfo.DefaultAccountApiPort}";
+    var apiBaseUrl = $"http://{options.Host}:{options.AccountApiPort}";
     starterApi = new StarterApiClient(apiBaseUrl);
     characterApi = new CharacterApiClient(apiBaseUrl);
     gameDataApi = new GameDataApiClient(apiBaseUrl);
