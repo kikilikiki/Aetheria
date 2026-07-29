@@ -47,7 +47,12 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
             throw new AccountOperationException("Objet de capture manquant dans l'inventaire.");
         }
 
-        var successChance = ComputeSuccessChance(request.TargetHealthPercent, species.BaseRarity);
+        // Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) :
+        // compense le bonus de statistiques par un taux de capture réduit, appliqué par-dessus
+        // la pénalité de rareté existante.
+        var successChance = ComputeSuccessChance(request.TargetHealthPercent, species.BaseRarity)
+            * MonsterVariantCatalog.Get(request.Variant).CaptureRateMultiplier;
+        successChance = Math.Clamp(successChance, 0.02, 0.95);
         var success = Random.NextDouble() < successChance;
 
         // L'objet de capture est consommé que la tentative réussisse ou non.
@@ -68,7 +73,7 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
             Id = Guid.NewGuid(),
             OwnerCharacterId = character.Id,
             SpeciesId = species.Id,
-            Variant = MonsterVariant.Normal,
+            Variant = request.Variant,
             Nickname = species.Name,
             Level = 1,
         };

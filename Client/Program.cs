@@ -6127,9 +6127,13 @@ void DrawMonstersPanel(int w, int h)
             // etc.)" : déjà déterminant pour les capacités/portées en combat (CombatEngine), donc
             // affiché ici en toutes lettres plutôt que par la seule couleur du portrait.
             var typeLabel = species is not null ? $" [{species.Type}]".ToUpperInvariant() : "";
+            // Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) :
+            // affichée en toutes lettres, rien pour la variante Normal (immense majorité des
+            // créatures) pour ne pas surcharger la liste.
+            var variantLabel = monster.Variant == MonsterVariant.Normal ? "" : $" [{MonsterVariantCatalog.Get(monster.Variant).DisplayName}]".ToUpperInvariant();
             // Voir GDD/demande utilisateur — bâtiment pour "déplacer ce que l'on a dans notre team".
             var teamLabel = monster.IsInActiveTeam ? " [EQUIPE]" : "";
-            var rowText = $"{prefix}{name.ToUpperInvariant()}{typeLabel}{teamLabel} - NIV. {monster.Level}";
+            var rowText = $"{prefix}{name.ToUpperInvariant()}{variantLabel}{typeLabel}{teamLabel} - NIV. {monster.Level}";
             if (DrawClickableRow(rowText, new Vector2(textX, y), boxWidth - textX + topLeft.X - 20f, 2f, color))
             {
                 monsterCursor = i;

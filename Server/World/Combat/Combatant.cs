@@ -28,6 +28,9 @@ public sealed class Combatant
     /// <summary>Élément (voir GDD — avantages/faiblesses de type) : Neutre pour le personnage joueur.</summary>
     public Element Element { get; init; } = Element.Neutre;
 
+    /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) : bonus de statistiques déjà appliqué à Attack/Defense/Speed/MaxHealth ci-dessus, conservée ici pour l'affichage et pour être reportée sur la créature capturée (voir ResolveCaptureAsync).</summary>
+    public MonsterVariant Variant { get; init; } = MonsterVariant.Normal;
+
     /// <summary>
     /// Espèce d'origine (monstre sauvage ou créature possédée), <c>null</c> pour un combattant
     /// sans espèce. Utilisé par <c>ResolveCaptureAsync</c> pour retrouver l'espèce de façon

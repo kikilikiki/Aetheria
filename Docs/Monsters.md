@@ -72,3 +72,38 @@ Généré depuis la base de données (voir `Server/Persistence/MonsterCatalogSee
 | 53 | Le Gardien du Code | Metal | Tank | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
 | 54 | Le Développeur | Arcane | Invocateur | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
 | 55 | L'Observateur | Spectre | Controleur | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
+
+## Variantes de créature
+
+Généré depuis `Shared/Models/MonsterVariantDefinition.cs` (`MonsterVariantCatalog`) — voir
+`Server/World/CombatService.cs` (tirage à l'engagement d'une rencontre sauvage, voir
+`MonsterVariantCatalog.RollWeighted`) et `Server/World/CaptureService.cs` (taux de capture). Une
+variante s'applique à une créature (sauvage ou déjà capturée) indépendamment de son espèce : elle
+multiplie ses statistiques de combat (Attaque/Défense/Vitesse/PV, après mise à l'échelle par
+niveau) et, pour les monstres sauvages, réduit d'autant plus le taux de capture que le bonus est
+important. Le poids d'apparition ci-dessous est relatif (pas un pourcentage) : `Normal` domine très
+largement toutes les rencontres.
+
+| Variante | Nom affiché | Bonus de statistiques | Poids d'apparition | Taux de capture |
+|---|---|---|---|---|
+| Normal | Normal | +0% | 1000 | ×1.00 |
+| Shiny | Brillant | +15% | 15 | ×0.70 |
+| Alpha | Alpha | +35% | 8 | ×0.50 |
+| Corrompu | Corrompu | +25% | 10 | ×0.60 |
+| Ancestral | Ancestral | +50% | 5 | ×0.40 |
+| Cristallin | Cristallin | +20% | 12 | ×0.65 |
+| Spectral | Spectral | +30% | 9 | ×0.55 |
+| Dore | Doré | +20% | 10 | ×0.60 |
+| Maudit | Maudit | +30% | 8 | ×0.50 |
+| Eternel | Éternel | +60% | 4 | ×0.35 |
+| Divin | Divin | +80% | 2 | ×0.25 |
+| Infernal | Infernal | +50% | 5 | ×0.40 |
+| Celeste | Céleste | +60% | 3 | ×0.30 |
+| Mutant | Mutant | +40% | 6 | ×0.45 |
+| Chromatique | Chromatique | +35% | 7 | ×0.50 |
+| Primordial | Primordial | +90% | 1.5 | ×0.20 |
+| Titan | Titan | +100% | 1 | ×0.15 |
+
+Une créature capturée conserve pour toujours la variante qu'elle avait à l'état sauvage (voir
+`CombatService.ResolveCaptureAsync`, qui transmet la variante réellement rencontrée au moment de
+la capture). Affichée entre crochets à côté du nom dans le panneau Monstres (sauf pour Normal).

@@ -73,13 +73,26 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         for (var i = 0; i < enemyCount; i++)
         {
             var (x, y) = enemyPositions[i];
+            // Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) :
+            // tirée à chaque monstre sauvage engagé, indépendamment des autres (une rencontre à
+            // plusieurs ennemis peut mélanger les variantes).
+            var variant = MonsterVariantCatalog.RollWeighted(Random.Shared);
+            var variantDefinition = MonsterVariantCatalog.Get(variant);
+            var wildMaxHealth = Math.Max(1, (int)Math.Round(wildSpecies.BaseHealth * variantDefinition.StatMultiplier));
             combatants.Add(new Combatant
             {
-                Id = Guid.NewGuid(), Name = enemyCount > 1 ? $"{wildSpecies.Name} {i + 1}" : wildSpecies.Name, Team = 1, X = x, Y = y,
-                MaxHealth = Math.Max(1, wildSpecies.BaseHealth), CurrentHealth = Math.Max(1, wildSpecies.BaseHealth),
-                Attack = wildSpecies.BaseAttack, Defense = wildSpecies.BaseDefense, Speed = wildSpecies.BaseSpeed,
+                Id = Guid.NewGuid(),
+                Name = enemyCount > 1
+                    ? $"{(variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ")}{wildSpecies.Name} {i + 1}"
+                    : (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + wildSpecies.Name,
+                Team = 1, X = x, Y = y,
+                MaxHealth = wildMaxHealth, CurrentHealth = wildMaxHealth,
+                Attack = Math.Max(1, (int)Math.Round(wildSpecies.BaseAttack * variantDefinition.StatMultiplier)),
+                Defense = Math.Max(1, (int)Math.Round(wildSpecies.BaseDefense * variantDefinition.StatMultiplier)),
+                Speed = Math.Max(1, (int)Math.Round(wildSpecies.BaseSpeed * variantDefinition.StatMultiplier)),
                 MovementRange = 2, AttackRange = BaseAttackRange(wildSpecies.Type), IsPlayerControlled = false,
                 Type = wildSpecies.Type, Element = wildSpecies.Element, SpeciesId = wildSpecies.Id,
+                Variant = variant,
             });
         }
 
@@ -145,6 +158,10 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// </summary>
     /// <summary>Voir GDD/demande utilisateur — "quand notre monstre monte de niveau, ses stats augmentent (attaque, défense etc)" : croissance linéaire (pas de composition exponentielle, importante avec le plafond de niveau 1000 — voir MonsterProgressionService.MaxLevel) d'environ 10% de la stat de base par niveau au-delà du niveau 1.</summary>
     private static int ScaledStat(int baseStat, int level) => Math.Max(1, baseStat + (level - 1) * Math.Max(1, baseStat / 10));
+
+    /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) : bonus multiplicatif appliqué APRÈS la mise à l'échelle par niveau.</summary>
+    private static int ScaledStat(int baseStat, int level, MonsterVariant variant) =>
+        Math.Max(1, (int)Math.Round(ScaledStat(baseStat, level) * MonsterVariantCatalog.Get(variant).StatMultiplier));
 
     /// <summary>Voir GDD/demande utilisateur — "l'archer doit pouvoir attaquer à distance" : portée de base plutôt que réservée à la capacité spéciale (qui garde son propre bonus de portée, voir CombatEngine.ResolveSpecialAbility).</summary>
     private static int BaseAttackRange(MonsterType type) => type == MonsterType.Archer ? 3 : 1;
@@ -621,19 +638,20 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // emplacements d'équipement (arme/armure/accessoire) ajoutés par-dessus les stats
             // mises à l'échelle du niveau.
             var equipBonus = await GetEquipmentBonusAsync(monster, ct);
-            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level) + equipBonus.Health;
+            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant) + equipBonus.Health;
             var type = species?.Type ?? MonsterType.Guerrier;
 
             combatants.Add(new Combatant
             {
                 Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
                 MaxHealth = maxHealth, CurrentHealth = maxHealth,
-                Attack = ScaledStat(species?.BaseAttack ?? 5, level) + equipBonus.Attack,
-                Defense = ScaledStat(species?.BaseDefense ?? 5, level) + equipBonus.Defense,
-                Speed = ScaledStat(species?.BaseSpeed ?? 5, level) + equipBonus.Speed,
+                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant) + equipBonus.Attack,
+                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant) + equipBonus.Defense,
+                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant) + equipBonus.Speed,
                 MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
                 Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
+                Variant = monster.Variant,
             });
         }
 
@@ -668,6 +686,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             SpeciesId = species.Id,
             TargetHealthPercent = healthPercent,
             CaptureItemId = captureItemId,
+            Variant = wildCombatant.Variant,
         }, ct);
 
         session.LastMessage = result.Message;
@@ -809,7 +828,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         CombatSession.GridWidth,
         CombatSession.GridHeight,
         session.Combatants
-            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining))
+            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining, c.Variant))
             .ToList(),
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,

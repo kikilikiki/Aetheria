@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Shared.Models;
 
 /// <summary>
@@ -13,4 +15,7 @@ public sealed class CaptureAttemptRequest
     public required int SpeciesId { get; init; }
     public required int TargetHealthPercent { get; init; }
     public required int CaptureItemId { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) : la variante réellement rencontrée (voir CombatService.ResolveCaptureAsync), Normal par défaut pour compatibilité avec un éventuel appel direct de cet endpoint sans passer par le combat.</summary>
+    public MonsterVariant Variant { get; init; } = MonsterVariant.Normal;
 }
