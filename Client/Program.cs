@@ -173,16 +173,20 @@ var dialogueLineIndex = 0;
 // aux dialogues/panneaux modaux), jusqu'à fermeture explicite (touche Q) ou nouvelle quête.
 string? questTitle = null;
 List<string> questLines = [];
+
+// Voir GDD/demande utilisateur — "on doit aller voir le forgeron pour fabriquer, pas le faire en
+// une touche où on veut" : la liste de craft du Forgeron vit maintenant dans son propre panneau
+// (PanelKind.Craft, ouvert seulement en parlant à l'Apprenti forgeron), complètement découplée du
+// panneau de quête d'histoire — voir UpdateCraftPanel/DrawCraftPanel.
 List<RecipeSummary> forgeronRecipes = [];
+List<string> craftLines = [];
 var questRecipeCursor = 0;
 string? questMessage = null;
+string? craftMessage = null;
 Task<List<RecipeSummary>>? questRecipeTask = null;
 
 // Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui
-// expliquent le jeu" et "une histoire avec des dialogues cohérents" : la quête d'histoire/tuto
-// active occupe le même panneau de gauche que la liste de craft du Forgeron (voir
-// RefreshStoryQuestPanel) — jamais les deux en même temps, la liste de craft reprend le dessus
-// tant qu'ouverte, puis la quête d'histoire revient à la fermeture (touche Q).
+// expliquent le jeu" et "une histoire avec des dialogues cohérents".
 QuestSummary? activeStoryQuest = null;
 
 /// <summary>Voir GDD/demande utilisateur — masquage explicite du panneau de quête par le joueur (touche Q), distinct de "rien à afficher" — voir <see cref="ToggleQuestPanel"/>.</summary>
@@ -482,45 +486,21 @@ host.Update += deltaTime =>
         Console.WriteLine($"[Parametres] Disposition clavier : {gameSettings.KeyboardLayout} ({(isAzerty ? "ZQSD" : "WASD")}).");
     }
 
-    // Voir GDD/demande utilisateur — panneau de quête à gauche (ex. liste de craft du Forgeron) :
-    // sondé ici, en dehors de toute scène particulière, pour rester visible/interactif même après
-    // être ressorti du bâtiment (contrairement aux dialogues/panneaux modaux qui se ferment).
+    // Voir GDD/demande utilisateur — chargement des recettes du panneau Craft (voir OpenPanel,
+    // PanelKind.Craft), sondé ici pour continuer à se résoudre même si le joueur ressort du
+    // bâtiment avant que la requête HTTP ne revienne.
     if (questRecipeTask is { IsCompleted: true } recipeTask)
     {
         forgeronRecipes = recipeTask.IsFaulted ? [] : [.. recipeTask.Result.Where(r => r.Profession == ProfessionType.Forgeron)];
         questRecipeCursor = 0;
-        questMessage = null;
-        RebuildForgeronQuestLines();
+        BuildForgeronRecipeLines();
         questRecipeTask = null;
     }
 
-    if (activeDialogueNpc is null && activePanel == PanelKind.None && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
+    if (activeDialogueNpc is null && activePanel == PanelKind.None && sceneMode is SceneMode.Outdoor or SceneMode.Interior
+        && keyboard.WasJustPressed(Key.Q))
     {
-        if (keyboard.WasJustPressed(Key.Q))
-        {
-            ToggleQuestPanel();
-        }
-        else if (questTitle is not null && forgeronRecipes.Count > 0)
-        {
-            if (keyboard.WasJustPressed(Key.Down)) questRecipeCursor = Math.Min(questRecipeCursor + 1, forgeronRecipes.Count - 1);
-            else if (keyboard.WasJustPressed(Key.Up)) questRecipeCursor = Math.Max(questRecipeCursor - 1, 0);
-            else if (keyboard.WasJustPressed(Key.C) && chosenCharacterId is not null && gameDataApi is not null)
-            {
-                // Voir GDD/demande utilisateur — "pour fabriquer l'épée on doit aller voir le
-                // forgeron, pas le faire en une touche où on veut" : la liste reste consultable
-                // depuis n'importe où (elle sert de rappel, façon quête), mais fabriquer exige
-                // d'être effectivement chez l'Apprenti forgeron.
-                if (sceneMode == SceneMode.Interior && interiorNpcs.Any(n => n.Name == "Apprenti forgeron"))
-                {
-                    questMessage = null;
-                    _ = CraftSelectedRecipeAsync();
-                }
-                else
-                {
-                    questMessage = "Rendez-vous à la Forge pour fabriquer cet objet.";
-                }
-            }
-        }
+        ToggleQuestPanel();
     }
 
     // Voir GDD/demande utilisateur — "le panel admin en jeu [est] pour les admins" : F2, ouvert
@@ -1145,19 +1125,19 @@ bool UpdateActiveDialogueIfAny()
 /// juste lire les répliques sans déclencher l'action s'il ferme tout de suite).
 /// </summary>
 /// <summary>
-/// Construit les lignes du panneau de quête à partir de <see cref="forgeronRecipes"/> et de
-/// l'inventaire courant (voir GDD/demande utilisateur — exemple donné : "le forgeron te dit de
-/// ramener 3 de fer et 1 bâton pour te faire une épée en fer"). Rappelé après un craft réussi
-/// (l'inventaire ayant changé, un objet auparavant "OK" peut ne plus l'être).
+/// Construit les lignes du panneau de craft (<see cref="PanelKind.Craft"/>) à partir de
+/// <see cref="forgeronRecipes"/> et de l'inventaire courant (voir GDD/demande utilisateur —
+/// exemple donné : "le forgeron te dit de ramener 3 de fer et 1 bâton pour te faire une épée en
+/// fer"). Rappelé après un craft réussi et à chaque rechargement d'inventaire (voir
+/// LoadInventoryAsync) pour que les quantités possédées restent à jour (minage, butin de combat...).
 /// </summary>
-void RebuildForgeronQuestLines()
+void BuildForgeronRecipeLines()
 {
-    questTitle = "LE FORGERON PROPOSE :";
-    questLines = [];
+    craftLines = [];
 
     if (forgeronRecipes.Count == 0)
     {
-        questLines.Add("Rien à fabriquer pour l'instant.");
+        craftLines.Add("Rien à fabriquer pour l'instant.");
         return;
     }
 
@@ -1172,11 +1152,8 @@ void RebuildForgeronQuestLines()
 
         var canCraft = recipe.Ingredients.All(i => (inventoryItems.FirstOrDefault(inv => inv.ItemId == i.ItemId)?.Quantity ?? 0) >= i.Quantity);
         var status = canCraft ? "[PRET]" : "[MANQUE]";
-        questLines.Add($"{recipe.Name} {status} : {ingredientText}");
+        craftLines.Add($"{recipe.Name} {status} : {ingredientText}");
     }
-
-    questLines.Add("");
-    questLines.Add("HAUT/BAS : choisir - C : fabriquer - Q : fermer");
 }
 
 async Task CraftSelectedRecipeAsync()
@@ -1190,9 +1167,9 @@ async Task CraftSelectedRecipeAsync()
     try
     {
         var result = await gameDataApi.CraftAsync(options.SessionToken!, chosenCharacterId.Value, recipe.Id);
-        questMessage = result?.Message ?? "Connexion au serveur impossible.";
+        craftMessage = result?.Message ?? "Connexion au serveur impossible.";
         await LoadInventoryAsync();
-        RebuildForgeronQuestLines();
+        BuildForgeronRecipeLines();
 
         // Voir GDD/demande utilisateur — quête 4 "Le forgeron a besoin de bras".
         if (result?.Message is not null)
@@ -1202,8 +1179,72 @@ async Task CraftSelectedRecipeAsync()
     }
     catch (HttpRequestException)
     {
-        questMessage = "Connexion au serveur impossible.";
+        craftMessage = "Connexion au serveur impossible.";
     }
+}
+
+/// <summary>Panneau Craft (voir <see cref="PanelKind.Craft"/>), ouvert uniquement en parlant à l'Apprenti forgeron — voir <see cref="OnDialogueFinished"/>.</summary>
+void UpdateCraftPanel()
+{
+    if (questRecipeTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (forgeronRecipes.Count == 0)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) questRecipeCursor = Math.Min(questRecipeCursor + 1, forgeronRecipes.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) questRecipeCursor = Math.Max(questRecipeCursor - 1, 0);
+    else if ((keyboard.WasJustPressed(Key.C) || keyboard.WasJustPressed(Key.Enter)) && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        craftMessage = null;
+        _ = CraftSelectedRecipeAsync();
+    }
+}
+
+void DrawCraftPanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    var lineHeight = TextRenderer.LineHeight(1.5f);
+    var displayLines = craftMessage is not null ? [.. craftLines, "", craftMessage] : craftLines;
+    var boxHeight = 100f + displayLines.Count * (lineHeight + 6f);
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.05f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.6f, 0.3f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "LE FORGERON PROPOSE :", new Vector2(w / 2f, topLeft.Y + 24f), 2f, new Vector4(0.95f, 0.75f, 0.4f, 1f));
+
+    var y = topLeft.Y + 60f;
+    for (var i = 0; i < displayLines.Count; i++)
+    {
+        var isRecipeRow = i < forgeronRecipes.Count;
+        var color = isRecipeRow && i == questRecipeCursor ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : new Vector4(0.85f, 0.85f, 0.9f, 1f);
+
+        if (isRecipeRow && DrawClickableRow(displayLines[i], topLeft + new Vector2(16f, y - topLeft.Y), boxWidth - 32f, 1.5f, color)
+            && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            questRecipeCursor = i;
+            craftMessage = null;
+            _ = CraftSelectedRecipeAsync();
+        }
+        else if (!isRecipeRow)
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, displayLines[i], topLeft + new Vector2(16f, y - topLeft.Y), 1.5f, color);
+        }
+
+        y += lineHeight + 6f;
+    }
+
+    DrawPromptBanner("HAUT/BAS : choisir - C OU CLIC : fabriquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
 }
 
 /// <summary>
@@ -1483,7 +1524,7 @@ void OnDialogueFinished(string npcName)
     }
     else if (npcName == "Apprenti forgeron")
     {
-        questRecipeTask = gameDataApi?.GetRecipesAsync();
+        OpenPanel(PanelKind.Craft);
     }
     else if (npcName == "Marchande")
     {
@@ -1851,12 +1892,13 @@ async Task RefreshActiveQuestAsync()
 /// parler au garde" : le serveur validait pourtant bien la quête (confirmé), mais le panneau ne se
 /// rafraîchissait QUE s'il était vide (voir l'ancienne <c>ShowStoryQuestIfIdle</c>) — une fois la
 /// quête 1 affichée, elle y restait indéfiniment même après complétion côté serveur. Rafraîchit
-/// maintenant systématiquement le texte affiché (sauf liste de craft du Forgeron ouverte, ou
-/// panneau explicitement masqué par le joueur — voir <see cref="isQuestPanelHidden"/>).
+/// maintenant systématiquement le texte affiché (sauf panneau explicitement masqué par le joueur
+/// — voir <see cref="isQuestPanelHidden"/>). Complètement indépendant du craft du Forgeron (voir
+/// <see cref="PanelKind.Craft"/>) depuis que les deux ont été découplés.
 /// </summary>
 void RefreshStoryQuestPanel()
 {
-    if (forgeronRecipes.Count > 0 || isQuestPanelHidden)
+    if (isQuestPanelHidden)
     {
         return;
     }
@@ -1913,18 +1955,6 @@ static List<string> WrapTextToLines(string text, float maxWidth, float pixelSize
 /// </summary>
 void ToggleQuestPanel()
 {
-    if (forgeronRecipes.Count > 0)
-    {
-        // Ferme la liste de craft du Forgeron et révèle la quête d'histoire en cours (si masquée,
-        // la rouvre aussi — fermer le craft est un choix explicite de "revenir à la quête").
-        forgeronRecipes = [];
-        questTitle = null;
-        questLines = [];
-        isQuestPanelHidden = false;
-        RefreshStoryQuestPanel();
-        return;
-    }
-
     if (questTitle is not null)
     {
         isQuestPanelHidden = true;
@@ -2199,6 +2229,16 @@ async Task LoadInventoryAsync()
     {
         inventoryItems = [];
     }
+
+    // Voir GDD/demande utilisateur — "le minerai miné/obtenu en combat ne s'affiche pas à la
+    // quête du forgeron" : le panneau de recettes affiche des quantités possédées figées au
+    // moment du dialogue si l'inventaire change ensuite (minage, butin de combat, achat...)
+    // sans que ce panneau soit reconstruit. On le reconstruit donc à chaque rechargement
+    // d'inventaire tant qu'il est affiché.
+    if (forgeronRecipes.Count > 0)
+    {
+        BuildForgeronRecipeLines();
+    }
 }
 
 async Task LoadGuildAsync()
@@ -2345,6 +2385,13 @@ void OpenPanel(PanelKind kind)
             auctionSellPrice = 10L;
             _ = LoadInventoryAsync();
             auctionLoadTask = gameDataApi?.GetAuctionListingsAsync(chosenCharacterId ?? Guid.Empty);
+            break;
+        case PanelKind.Craft:
+            forgeronRecipes = [];
+            craftLines = [];
+            questRecipeCursor = 0;
+            craftMessage = null;
+            questRecipeTask = gameDataApi?.GetRecipesAsync();
             break;
     }
 }
@@ -2944,6 +2991,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Auction)
     {
         UpdateAuctionPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Craft)
+    {
+        UpdateCraftPanel();
         return;
     }
 
@@ -3997,6 +4050,7 @@ void DrawOutdoorHud()
             case PanelKind.Monsters: DrawMonstersPanel(w, h); break;
             case PanelKind.Chat: DrawChatPanel(w, h); break;
             case PanelKind.Auction: DrawAuctionPanel(w, h); break;
+            case PanelKind.Craft: DrawCraftPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -4493,39 +4547,9 @@ void DrawQuestPanel(int w, int h)
     }
 
     var y = topLeft.Y + 40f;
-    for (var i = 0; i < displayLines.Count; i++)
+    foreach (var line in displayLines)
     {
-        // Les recettes occupent les premières lignes de questLines, dans l'ordre de forgeronRecipes
-        // (voir RebuildForgeronQuestLines) : surligne celle actuellement sélectionnée pour C.
-        var color = i < forgeronRecipes.Count && i == questRecipeCursor
-            ? new Vector4(0.6f, 0.95f, 0.65f, 1f)
-            : new Vector4(0.85f, 0.85f, 0.9f, 1f);
-
-        if (i < forgeronRecipes.Count)
-        {
-            // Voir GDD/demande utilisateur — "tout puisse se faire au clic" : un clic sur une
-            // recette la sélectionne ET lance le craft directement, comme la touche C.
-            if (DrawClickableRow(displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), panelWidth - 24f, 1.5f, color) && chosenCharacterId is not null && gameDataApi is not null)
-            {
-                questRecipeCursor = i;
-                // Voir GDD/demande utilisateur — fabriquer exige d'être chez l'Apprenti forgeron
-                // (même règle qu'au clavier, touche C — voir plus haut).
-                if (sceneMode == SceneMode.Interior && interiorNpcs.Any(n => n.Name == "Apprenti forgeron"))
-                {
-                    questMessage = null;
-                    _ = CraftSelectedRecipeAsync();
-                }
-                else
-                {
-                    questMessage = "Rendez-vous à la Forge pour fabriquer cet objet.";
-                }
-            }
-        }
-        else
-        {
-            TextRenderer.Draw(spriteBatch, whiteTexture, displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, color);
-        }
-
+        TextRenderer.Draw(spriteBatch, whiteTexture, line, topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         y += lineHeight + 4f;
     }
 }
@@ -5882,6 +5906,10 @@ enum PanelKind
     Monsters,
     Chat,
     Auction,
+    Craft,
+    Friends,
+    Profile,
+    Leaderboard,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>

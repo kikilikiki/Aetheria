@@ -1612,7 +1612,8 @@ app.MapPost("/api/admin/game/level-up-monster", async (AdminLevelUpMonsterReques
         return Results.NotFound(new ApiError { Message = "Créature introuvable." });
     }
 
-    monster.Level = Math.Max(1, monster.Level + Math.Max(1, request.Levels));
+    // Voir GDD/demande utilisateur — "limite de niveau à 1000 pour les monstres".
+    monster.Level = Math.Clamp(monster.Level + Math.Max(1, request.Levels), 1, MonsterProgressionService.MaxLevel);
     await db.SaveChangesAsync();
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monster.Nickname} est maintenant niveau {monster.Level}." });
 });
