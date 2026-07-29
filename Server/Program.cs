@@ -117,6 +117,7 @@ await using (var db = await dbFactory.CreateDbContextAsync())
     await ProfessionCatalogSeeder.SeedAsync(db);
     await TerritorySeeder.SeedAsync(db);
     await SeasonSeeder.SeedAsync(db);
+    await QuestCatalogSeeder.SeedAsync(db);
 }
 
 // Journalise les nouveaux commits Git à chaque démarrage (voir GDD/demande utilisateur — aucune
@@ -543,6 +544,25 @@ app.MapPost("/api/professions/craft", async (CraftRequest request) =>
     {
         return Results.Conflict(new ApiError { Message = ex.Message });
     }
+});
+
+// Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui
+// expliquent le jeu" et "une histoire avec des dialogues cohérents". Une seule quête active à la
+// fois (voir QuestService), déclenchée par les points d'ancrage existants côté client plutôt
+// qu'un vrai système de conditions serveur (voir Docs/README.md pour cette limite assumée).
+app.MapGet("/api/quests/active", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var questService = new QuestService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await questService.GetActiveQuestAsync(characterId));
+});
+
+app.MapPost("/api/quests/complete", async (CompleteQuestRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var questService = new QuestService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    await questService.CompleteIfActiveAsync(request.SessionToken, request.CharacterId, request.QuestName);
+    return Results.Ok();
 });
 
 app.MapPost("/api/guilds", async (CreateGuildRequest request) =>

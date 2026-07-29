@@ -305,6 +305,20 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui expliquent le jeu".</summary>
+    public async Task<QuestSummary?> GetActiveQuestAsync(Guid characterId, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<QuestSummary>($"/api/quests/active?characterId={characterId}", JsonOptions, ct);
+
+    public async Task CompleteQuestAsync(string sessionToken, Guid characterId, string questName, CancellationToken ct = default)
+    {
+        await _http.PostAsJsonAsync("/api/quests/complete", new CompleteQuestRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            QuestName = questName,
+        }, JsonOptions, ct);
+    }
+
     /// <summary>Donne un objet d'inventaire à une créature (voir GDD — UI de gestion des montres).</summary>
     public async Task<MonsterInstanceData?> GiveItemToMonsterAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
     {

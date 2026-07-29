@@ -9,11 +9,15 @@ public static class NpcDialogues
 {
     public static readonly IReadOnlyDictionary<string, string[]> Lines = new Dictionary<string, string[]>
     {
+        // Voir GDD/demande utilisateur — "une histoire avec des dialogues cohérents à suivre" :
+        // fil narratif léger tissé avec la chaîne de quêtes (voir QuestCatalogSeeder) — des
+        // créatures de plus en plus agressives sortent des donjons, le royaume manque de bras.
         ["Garde royal"] =
         [
-            "Halte, voyageur.",
-            "La capitale est sous ma protection.",
-            "Fais bon voyage, et prends garde aux donjons.",
+            "Halte, voyageur. Je ne te reconnais pas.",
+            "Les créatures qui sortent des donjons sont de plus en plus nombreuses,",
+            "et de plus en plus agressives. Le royaume a besoin de gens capables.",
+            "Si tu comptes rester, prouve ta valeur. Fais bon voyage.",
         ],
         ["Marchande"] =
         [
@@ -24,12 +28,14 @@ public static class NpcDialogues
         ["Forgeron"] =
         [
             "Le feu de la forge ne s'eteint jamais.",
-            "Apporte-moi du minerai, je t'en ferai une arme.",
+            "Avec ce qui rôde près des donjons ces temps-ci,",
+            "tout le monde a besoin d'un bon équipement.",
         ],
         ["Villageois"] =
         [
-            "La vie au village est paisible.",
-            "On raconte que le donjon cache un tresor...",
+            "La vie au village était paisible, avant.",
+            "Maintenant on entend des bruits, la nuit, du côté du donjon...",
+            "Le garde dit que ça vient de plus en plus près.",
         ],
 
         // PNJ d'intérieur (voir GDD — intérieurs de bâtiment enrichis), un par bâtiment,
@@ -37,7 +43,8 @@ public static class NpcDialogues
         ["Chambellan"] =
         [
             "Bienvenue au château, voyageur.",
-            "Sa Majesté ne reçoit personne aujourd'hui.",
+            "Sa Majesté ne reçoit personne aujourd'hui — trop occupée",
+            "à débattre de ce qu'il faut faire au sujet des donjons.",
         ],
         ["Aubergiste"] =
         [
