@@ -12,4 +12,19 @@ public enum MonsterVariant
     Alpha,
     Corrompu,
     Ancestral,
+
+    // Voir demande utilisateur — "ajoute [12 variantes]" (voir MonsterVariantCatalog pour les
+    // statistiques/taux d'apparition/taux de capture de chacune).
+    Cristallin,
+    Spectral,
+    Dore,
+    Maudit,
+    Eternel,
+    Divin,
+    Infernal,
+    Celeste,
+    Mutant,
+    Chromatique,
+    Primordial,
+    Titan,
 }

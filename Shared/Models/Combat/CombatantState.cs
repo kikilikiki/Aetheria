@@ -23,4 +23,6 @@ public sealed record CombatantState(
     /// <summary>Voir GDD — avantages/faiblesses de type.</summary>
     Element Element = Element.Neutre,
     /// <summary>Voir GDD/demande utilisateur — "cooldown pour le spécial" : 0 si utilisable ce tour-ci.</summary>
-    int SpecialAbilityCooldownRemaining = 0);
+    int SpecialAbilityCooldownRemaining = 0,
+    /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog, affichage badge côté Client).</summary>
+    MonsterVariant Variant = MonsterVariant.Normal);
