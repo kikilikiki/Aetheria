@@ -168,6 +168,15 @@ internal static class CombatEngine
         [Element.Lumiere] = [Element.Ombre],
         [Element.Ombre] = [Element.Lumiere],
         [Element.Neutre] = [],
+
+        // Voir GDD/demande utilisateur — bestiaire étendu (nouveaux "types"), même principe de
+        // triangle simple qu'au-dessus plutôt qu'un tableau exhaustif entièrement recroisé.
+        [Element.Poison] = [Element.Nature, Element.Eau],
+        [Element.Metal] = [Element.Glace, Element.Cristal],
+        [Element.Spectre] = [Element.Lumiere, Element.Metal],
+        [Element.Dragon] = [Element.Poison, Element.Metal],
+        [Element.Cristal] = [Element.Foudre, Element.Spectre],
+        [Element.Arcane] = [Element.Dragon, Element.Cristal],
     };
 
     private static float ElementalMultiplier(Element attacker, Element defender)

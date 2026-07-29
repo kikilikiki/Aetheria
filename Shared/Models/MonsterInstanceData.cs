@@ -22,5 +22,14 @@ public sealed class MonsterInstanceData
     /// <summary>Composante de l'équipe active (4 créatures maximum participent au combat).</summary>
     public bool IsInActiveTeam { get; set; }
 
+    // Voir GDD/demande utilisateur — équipement donnant des bonus de stats en combat (voir
+    // MonsterEquipmentService/CombatService.BuildTeamCombatantsAsync).
+    public int? EquippedWeaponItemId { get; set; }
+    public string? EquippedWeaponName { get; set; }
+    public int? EquippedArmorItemId { get; set; }
+    public string? EquippedArmorName { get; set; }
+    public int? EquippedAccessoryItemId { get; set; }
+    public string? EquippedAccessoryName { get; set; }
+
     public DateTime CapturedAtUtc { get; init; } = DateTime.UtcNow;
 }

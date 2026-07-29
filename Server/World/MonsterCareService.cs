@@ -90,6 +90,9 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         Personality = entity.Personality,
         PassiveTalent = entity.PassiveTalent,
         IsInActiveTeam = entity.IsInActiveTeam,
+        EquippedWeaponItemId = entity.EquippedWeaponItemId,
+        EquippedArmorItemId = entity.EquippedArmorItemId,
+        EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
         CapturedAtUtc = entity.CapturedAtUtc,
     };
 }

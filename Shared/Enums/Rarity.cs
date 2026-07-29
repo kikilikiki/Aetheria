@@ -9,4 +9,9 @@ public enum Rarity
     Epique,
     Legendaire,
     Mythique,
+    Ancestral,
+    Divin,
+
+    /// <summary>Voir GDD/demande utilisateur — "OBJETS ADMIN (IMPOSSIBLES À OBTENIR)" : jamais choisie par le tirage aléatoire de rencontre sauvage/donjon (voir CombatService.RarityForLevel et ResolveDungeonEncounterSpeciesAsync, qui ne la référencent jamais), seulement distribuable via le panel admin.</summary>
+    Admin,
 }

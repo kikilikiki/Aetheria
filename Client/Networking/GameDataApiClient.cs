@@ -375,6 +375,19 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos monstres".</summary>
+    public async Task<MonsterInstanceData?> EquipItemAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/monsters/{monsterId}/equip", new EquipItemRequest { SessionToken = sessionToken, ItemId = itemId }, JsonOptions, ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
+    }
+
+    public async Task<MonsterInstanceData?> UnequipItemAsync(string sessionToken, Guid monsterId, EquipmentSlot slot, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/monsters/{monsterId}/unequip", new UnequipItemRequest { SessionToken = sessionToken, Slot = slot }, JsonOptions, ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
+    }
+
     // Voir GDD/demande utilisateur — "panel admin en jeu (pouvoirs, skins, ban/mute/kick)".
     // Réutilise AdminAuthService côté serveur (même jeton de session que le jeu, pas un jeton
     // admin séparé comme le Launcher) — voir Server/Persistence/AdminAuthService.cs.
@@ -405,6 +418,12 @@ public sealed class GameDataApiClient : IDisposable
 
     public async Task<AdminGameActionResponse> TransformPlayerAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/transform", new AdminTransformRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, DurationSeconds = 60 }, ct);
+
+    public async Task<AdminGameActionResponse> GiveMonsterToPlayerAsync(string sessionToken, string targetCharacterName, string speciesName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-monster", new AdminGiveMonsterRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, SpeciesName = speciesName }, ct);
+
+    public async Task<AdminGameActionResponse> MaxLevelTeamAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/max-level-team", new AdminMaxLevelTeamRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
 
     private async Task<AdminGameActionResponse> PostAdminActionAsync<TRequest>(string url, TRequest request, CancellationToken ct)
     {

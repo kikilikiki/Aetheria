@@ -26,5 +26,13 @@ public sealed class MonsterEntity
     /// <summary>Fait partie de l'équipe active (4 créatures maximum combattent — voir GDD).</summary>
     public bool IsInActiveTeam { get; set; }
 
+    // Voir GDD/demande utilisateur — "si les items équipés peuvent donner des avantages à nos
+    // monstres (exemple : une épée en fer donne plus de dégâts)" : un objet équipé est retiré de
+    // l'inventaire (voir MonsterEquipmentService) tant qu'il reste équipé, et rendu à l'inventaire
+    // au déséquipement — pas une simple référence non-exclusive.
+    public int? EquippedWeaponItemId { get; set; }
+    public int? EquippedArmorItemId { get; set; }
+    public int? EquippedAccessoryItemId { get; set; }
+
     public DateTime CapturedAtUtc { get; set; } = DateTime.UtcNow;
 }

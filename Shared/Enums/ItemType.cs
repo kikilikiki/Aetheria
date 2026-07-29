@@ -11,4 +11,7 @@ public enum ItemType
     Monture,
     Cosmetique,
     QuestObjet,
+
+    /// <summary>Voir GDD/demande utilisateur — anneaux/colliers/capes, équipables comme les armes/armures.</summary>
+    Accessoire,
 }

@@ -314,6 +314,8 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "EXPULSER (nom du personnage)",
         "BANNIR (nom du personnage)",
         "TRANSFORMER EN PANNEAU (nom du personnage)",
+        "DONNER UN MONSTRE (perso;espece)",
+        "NIVEAU MAX EQUIPE (nom du personnage)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
     ]
     :
@@ -324,6 +326,8 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "EXPULSER (nom du personnage)",
         "BANNIR (nom du personnage)",
         "TRANSFORMER EN PANNEAU (nom du personnage)",
+        "DONNER UN MONSTRE (perso;espece)",
+        "NIVEAU MAX EQUIPE (nom du personnage)",
     ];
 
 // Voir GDD/demande utilisateur — "ajouter les amis (online/offline, discussion privée, niveau,
@@ -408,6 +412,11 @@ var monsterGiveItemCursor = 0;
 Task<MonsterInstanceData?>? monsterGiveItemTask = null;
 Task<MonsterInstanceData?>? monsterTeamToggleTask = null;
 string? monsterMessage = null;
+
+// Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos monstres".
+var monsterEquipMode = false;
+var monsterEquipCursor = 0;
+Task<MonsterInstanceData?>? monsterEquipTask = null;
 
 // Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
 // (ArenaQueueService), sondée régulièrement tant que le joueur attend un appairage.
@@ -1861,6 +1870,23 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             adminPanelActionTask = gameDataApi!.TransformPlayerAsync(options.SessionToken!, input);
             break;
         case 6:
+        {
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                adminPanelActionTask = gameDataApi!.GiveMonsterToPlayerAsync(options.SessionToken!, parts[0], parts[1]);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;espece";
+            }
+
+            break;
+        }
+        case 7:
+            adminPanelActionTask = gameDataApi!.MaxLevelTeamAsync(options.SessionToken!, input);
+            break;
+        case 8:
             // Voir GDD/demande utilisateur — bouton exclusif au Fondateur ; le serveur revérifie
             // de toute façon le grade de l'appelant (voir /api/admin/game/toggle-admin).
             adminPanelActionTask = gameDataApi!.ToggleAdminAsync(options.SessionToken!, input);
@@ -3268,6 +3294,34 @@ void UpdateMonstersPanel()
         return;
     }
 
+    if (monsterEquipTask is { IsCompleted: true } equipTask)
+    {
+        if (!equipTask.IsFaulted && equipTask.Result is { } equipped)
+        {
+            var index = ownedMonsters.FindIndex(m => m.Id == equipped.Id);
+            if (index >= 0)
+            {
+                ownedMonsters[index] = equipped;
+            }
+
+            monsterMessage = "Équipement mis à jour.";
+            _ = LoadInventoryAsync();
+        }
+        else
+        {
+            monsterMessage = "Action impossible.";
+        }
+
+        monsterEquipTask = null;
+        monsterEquipMode = false;
+        return;
+    }
+
+    if (monsterEquipTask is not null)
+    {
+        return;
+    }
+
     if (monsterGiveItemMode)
     {
         if (keyboard.WasJustPressed(Key.Escape))
@@ -3284,6 +3338,30 @@ void UpdateMonstersPanel()
                 var monster = ownedMonsters[monsterCursor];
                 monsterMessage = null;
                 monsterGiveItemTask = gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, monster.Id, item.ItemId);
+            }
+        }
+
+        return;
+    }
+
+    if (monsterEquipMode)
+    {
+        var equipableItems = inventoryItems.Where(i => i.ItemType is ItemType.Arme or ItemType.Armure or ItemType.Accessoire).ToList();
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            monsterEquipMode = false;
+        }
+        else if (equipableItems.Count > 0)
+        {
+            monsterEquipCursor = Math.Clamp(monsterEquipCursor, 0, equipableItems.Count - 1);
+            if (keyboard.WasJustPressed(Key.Down)) monsterEquipCursor = Math.Min(monsterEquipCursor + 1, equipableItems.Count - 1);
+            else if (keyboard.WasJustPressed(Key.Up)) monsterEquipCursor = Math.Max(monsterEquipCursor - 1, 0);
+            else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
+            {
+                var item = equipableItems[monsterEquipCursor];
+                var monster = ownedMonsters[monsterCursor];
+                monsterMessage = null;
+                monsterEquipTask = gameDataApi!.EquipItemAsync(options.SessionToken!, monster.Id, item.ItemId);
             }
         }
 
@@ -3309,6 +3387,32 @@ void UpdateMonstersPanel()
         monsterGiveItemMode = true;
         monsterGiveItemCursor = 0;
         monsterMessage = null;
+    }
+    else if (keyboard.WasJustPressed(Key.E))
+    {
+        monsterEquipMode = true;
+        monsterEquipCursor = 0;
+        monsterMessage = null;
+    }
+    else if (keyboard.WasJustPressed(Key.R) && gameDataApi is not null)
+    {
+        // Voir GDD/demande utilisateur — retire l'équipement (arme, sinon armure, sinon
+        // accessoire) de la créature sélectionnée.
+        var monster = ownedMonsters[monsterCursor];
+        var slot = monster.EquippedWeaponItemId is not null ? EquipmentSlot.Weapon
+            : monster.EquippedArmorItemId is not null ? EquipmentSlot.Armor
+            : monster.EquippedAccessoryItemId is not null ? (EquipmentSlot?)EquipmentSlot.Accessory
+            : null;
+
+        if (slot is { } slotToRemove)
+        {
+            monsterMessage = null;
+            monsterEquipTask = gameDataApi.UnequipItemAsync(options.SessionToken!, monster.Id, slotToRemove);
+        }
+        else
+        {
+            monsterMessage = "Rien à retirer sur cette créature.";
+        }
     }
     else if (keyboard.WasJustPressed(Key.L) && myRank == UserRank.Fondateur && gameDataApi is not null)
     {
@@ -4977,6 +5081,40 @@ void DrawMonstersPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         return;
     }
+    else if (monsterEquipMode)
+    {
+        var monster = ownedMonsters[monsterCursor];
+        var monsterLabel = monster.Nickname.Length > 0 ? monster.Nickname : (speciesById.TryGetValue(monster.SpeciesId, out var s) ? s.Name : "Créature");
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EQUIPER {monsterLabel.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 62f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        var equipableItems = inventoryItems.Where(i => i.ItemType is ItemType.Arme or ItemType.Armure or ItemType.Accessoire).ToList();
+        if (equipableItems.Count == 0)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE ARME/ARMURE/ACCESSOIRE EN INVENTAIRE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            var y = topLeft.Y + 100f;
+            for (var i = 0; i < equipableItems.Count; i++)
+            {
+                var isSelected = i == monsterEquipCursor;
+                var prefix = isSelected ? "> " : "  ";
+                var color = isSelected ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : Vector4.One;
+                var text = $"{prefix}{equipableItems[i].Name.ToUpperInvariant()} x{equipableItems[i].Quantity} [{equipableItems[i].ItemType.ToString().ToUpperInvariant()}]";
+                if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color) && monsterEquipTask is null)
+                {
+                    monsterEquipCursor = i;
+                    monsterMessage = null;
+                    monsterEquipTask = gameDataApi!.EquipItemAsync(options.SessionToken!, monster.Id, equipableItems[i].ItemId);
+                }
+
+                y += 26f;
+            }
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        return;
+    }
     else
     {
         var y = topLeft.Y + 70f;
@@ -5016,12 +5154,25 @@ void DrawMonstersPanel(int w, int h)
             DrawPanel(barTop, new Vector2(190f * xpRatio, 6f), new Vector4(0.4f, 0.85f, 0.5f, 1f));
             TextRenderer.Draw(spriteBatch, whiteTexture, $"{monster.Experience}/{xpForNextLevel} XP", barTop + new Vector2(200f, -4f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
-            y += 48f;
+            // Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos
+            // monstres" : équipement affiché sous la barre d'XP, seulement pour la créature
+            // sélectionnée (sinon chaque ligne deviendrait trop chargée).
+            if (isSelected)
+            {
+                var equipParts = new List<string>();
+                if (monster.EquippedWeaponName is { } weaponName) equipParts.Add($"Arme: {weaponName}");
+                if (monster.EquippedArmorName is { } armorName) equipParts.Add($"Armure: {armorName}");
+                if (monster.EquippedAccessoryName is { } accessoryName) equipParts.Add($"Accessoire: {accessoryName}");
+                var equipText = equipParts.Count > 0 ? string.Join(" - ", equipParts) : "Aucun équipement";
+                TextRenderer.Draw(spriteBatch, whiteTexture, equipText, new Vector2(textX, y + 34f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
+            }
+
+            y += isSelected ? 62f : 48f;
         }
 
         var hint = myRank == UserRank.Fondateur
-            ? "D : OBJET - T : EQUIPE (4 MAX) - L (ADMIN) : +5 NIVEAUX"
-            : "D : DONNER UN OBJET - T : AJOUTER/RETIRER DE L'EQUIPE (4 MAX)";
+            ? "D:OBJET - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
+            : "D:DONNER OBJET - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight - 44f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
     }
 
@@ -5188,7 +5339,7 @@ void DrawQuestPanel(int w, int h)
 void DrawAdminGamePanel(int w, int h)
 {
     const float boxWidth = 600f;
-    const float boxHeight = 420f;
+    const float boxHeight = 480f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
@@ -6410,6 +6561,14 @@ static Vector4 CombatTypeColor(MonsterType type) => type switch
     MonsterType.Guerrier => new Vector4(0.82f, 0.4f, 0.22f, 1f),
     MonsterType.Archer => new Vector4(0.38f, 0.72f, 0.36f, 1f),
     MonsterType.Soigneur => new Vector4(0.92f, 0.84f, 0.4f, 1f),
+    // Voir GDD/demande utilisateur — bestiaire étendu (nouveaux "rôles").
+    MonsterType.Tank => new Vector4(0.45f, 0.45f, 0.55f, 1f),
+    MonsterType.Mage => new Vector4(0.45f, 0.35f, 0.85f, 1f),
+    MonsterType.Assassin => new Vector4(0.3f, 0.28f, 0.34f, 1f),
+    MonsterType.Support => new Vector4(0.5f, 0.85f, 0.75f, 1f),
+    MonsterType.Invocateur => new Vector4(0.65f, 0.35f, 0.65f, 1f),
+    MonsterType.Berserker => new Vector4(0.85f, 0.18f, 0.18f, 1f),
+    MonsterType.Controleur => new Vector4(0.35f, 0.6f, 0.85f, 1f),
     _ => new Vector4(0.7f, 0.7f, 0.75f, 1f),
 };
 
