@@ -67,6 +67,7 @@ builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 builder.Services.AddSingleton<SessionTokenStore>();
 builder.Services.AddSingleton<WorldSessionRegistry>();
 builder.Services.AddSingleton<CombatSessionStore>();
+builder.Services.AddSingleton<DuelInviteService>();
 builder.Services.AddSingleton<LootSessionStore>();
 builder.Services.AddSingleton<ArenaQueueService>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
@@ -1026,7 +1027,15 @@ app.MapPost("/api/pvp/challenge", async (StartPvpCombatRequest request) =>
 
     try
     {
-        return Results.Ok(await combatService.StartPvpAsync(request));
+        var state = await combatService.StartPvpAsync(request);
+
+        // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : notifie
+        // l'adversaire (celui qui a accepté l'invitation, voir PlayerSession.HandleDuelResponse)
+        // que le combat a bien été créé, avec son ID, pour qu'il puisse le récupérer lui aussi.
+        app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterId(request.OpponentCharacterId)
+            ?.SendPacket(new DuelStartedPacket { CombatId = state.CombatId });
+
+        return Results.Ok(state);
     }
     catch (AccountOperationException ex)
     {
@@ -1768,7 +1777,8 @@ var tcpGameServer = new TcpGameServer(
     app.Services.GetRequiredService<SessionTokenStore>(),
     dbFactory,
     app.Services.GetRequiredService<ILoggerFactory>(),
-    app.Services.GetRequiredService<WorldSessionRegistry>());
+    app.Services.GetRequiredService<WorldSessionRegistry>(),
+    app.Services.GetRequiredService<DuelInviteService>());
 
 var tcpTask = tcpGameServer.RunAsync(GameInfo.DefaultGamePort, shutdownCts.Token);
 var httpTask = app.RunAsync(shutdownCts.Token);

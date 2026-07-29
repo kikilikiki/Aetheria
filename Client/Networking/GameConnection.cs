@@ -24,6 +24,9 @@ public sealed class GameConnection : IDisposable
     public event Action<PlayerLeftPacket>? PlayerLeft;
     public event Action<ChatMessagePacket>? ChatMessageReceived;
     public event Action<AdminEffectPacket>? AdminEffectReceived;
+    public event Action<DuelInvitePacket>? DuelInviteReceived;
+    public event Action<DuelAcceptedPacket>? DuelAcceptedReceived;
+    public event Action<DuelStartedPacket>? DuelStartedReceived;
     public event Action? Disconnected;
 
     public void Connect(string host, int port)
@@ -76,6 +79,16 @@ public sealed class GameConnection : IDisposable
         });
     }
 
+    public void SendDuelResponse(bool accept)
+    {
+        if (_stream is null)
+        {
+            return;
+        }
+
+        PacketFraming.WritePacket(_stream, new DuelResponsePacket { Accept = accept });
+    }
+
     private void ReceiveLoop()
     {
         try
@@ -110,6 +123,15 @@ public sealed class GameConnection : IDisposable
                         break;
                     case AdminEffectPacket effect:
                         AdminEffectReceived?.Invoke(effect);
+                        break;
+                    case DuelInvitePacket duelInvite:
+                        DuelInviteReceived?.Invoke(duelInvite);
+                        break;
+                    case DuelAcceptedPacket duelAccepted:
+                        DuelAcceptedReceived?.Invoke(duelAccepted);
+                        break;
+                    case DuelStartedPacket duelStarted:
+                        DuelStartedReceived?.Invoke(duelStarted);
                         break;
                 }
             }

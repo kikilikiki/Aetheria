@@ -77,6 +77,22 @@ public sealed class CombatApiClient : IDisposable
         return await ReadResultAsync(response, ct);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : appelé par le client du défieur une fois l'invitation acceptée (voir DuelAcceptedPacket), après avoir récupéré les créatures de l'adversaire via l'endpoint public des personnages.</summary>
+    public async Task<CombatResult> ChallengeAsync(
+        string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, Guid opponentCharacterId, IReadOnlyList<Guid> opponentMonsterIds, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/pvp/challenge", new StartPvpCombatRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            MonsterIds = monsterIds,
+            OpponentCharacterId = opponentCharacterId,
+            OpponentMonsterIds = opponentMonsterIds,
+        }, JsonOptions, ct);
+
+        return await ReadResultAsync(response, ct);
+    }
+
     public async Task<CombatResult> SubmitActionAsync(
         string sessionToken, Guid combatId, CombatActionType actionType, int targetX, int targetY, int? captureItemId = null, CancellationToken ct = default)
     {

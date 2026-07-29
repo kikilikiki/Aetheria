@@ -420,6 +420,14 @@ Task<bool>? arenaQueueTask = null;
 Task<ArenaQueueStatus?>? arenaPollTask = null;
 Task<CombatSessionState?>? arenaMatchStateTask = null;
 
+// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : invitation reçue
+// (touche T -> chat -> "/duel <pseudo>" pour en envoyer une), avec une limite de temps miroir de
+// celle du serveur (voir DuelInviteService.InviteLifetime, 30s) pour ne pas laisser l'invite
+// affichée indéfiniment si la réponse s'est perdue.
+string? pendingDuelInviteFrom = null;
+var duelInviteExpiresAtUtc = DateTime.MinValue;
+Task<CombatSessionState?>? duelMatchStateTask = null;
+
 // Sélection/création de personnage (voir GDD) : ne se fait plus dans le Launcher, mais en jeu,
 // avant la connexion TCP proprement dite. `--characterId` reste accepté pour compatibilité
 // (anciens raccourcis) : dans ce cas on saute directement l'écran de sélection.
@@ -523,6 +531,48 @@ host.Update += deltaTime =>
         gameSettings.Save();
         isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
         Console.WriteLine($"[Parametres] Disposition clavier : {gameSettings.KeyboardLayout} ({(isAzerty ? "ZQSD" : "WASD")}).");
+    }
+
+    // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : sondé ici (hors
+    // de toute scène particulière) car le combat peut démarrer côté défieur (voir
+    // ChallengeDuelOpponentAsync) ou côté accepteur (voir DuelStartedReceived) alors que le joueur
+    // est n'importe où dans le monde, pas forcément dans un panneau.
+    if (duelMatchStateTask is { IsCompleted: true } duelStateTask)
+    {
+        var state = duelStateTask.IsFaulted ? null : duelStateTask.Result;
+        duelMatchStateTask = null;
+
+        if (state is not null)
+        {
+            combatState = state;
+            combatSelectedAction = null;
+            combatMessage = null;
+            combatReturnScene = SceneMode.Outdoor;
+            activePanel = PanelKind.None;
+            combatVictoryQuestFired = false;
+            sceneMode = SceneMode.Combat;
+        }
+    }
+
+    if (pendingDuelInviteFrom is not null && DateTime.UtcNow > duelInviteExpiresAtUtc)
+    {
+        pendingDuelInviteFrom = null;
+    }
+
+    if (pendingDuelInviteFrom is not null && sceneMode is SceneMode.Outdoor or SceneMode.Interior && activeDialogueNpc is null)
+    {
+        if (keyboard.WasJustPressed(Key.Enter))
+        {
+            connection?.SendDuelResponse(true);
+            pendingDuelInviteFrom = null;
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            connection?.SendDuelResponse(false);
+            pendingDuelInviteFrom = null;
+        }
+
+        return;
     }
 
     // Voir GDD/demande utilisateur — chargement des recettes du panneau Craft (voir OpenPanel,
@@ -1046,6 +1096,12 @@ host.Render += _ =>
     if (isAdminPanelOpen)
     {
         DrawAdminGamePanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
+    // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp".
+    if (pendingDuelInviteFrom is { } duelChallengerName && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
+    {
+        DrawDuelInvitePopup(uiCamera.ViewportWidth, uiCamera.ViewportHeight, duelChallengerName);
     }
 
     if (isTeleportPanelOpen)
@@ -2295,6 +2351,28 @@ void ConnectAndEnterWorld(Guid characterId)
             }
         }
     };
+    connection.DuelInviteReceived += packet =>
+    {
+        lock (stateLock)
+        {
+            pendingDuelInviteFrom = packet.FromCharacterName;
+            duelInviteExpiresAtUtc = DateTime.UtcNow.AddSeconds(30);
+        }
+    };
+    connection.DuelAcceptedReceived += packet =>
+    {
+        lock (stateLock)
+        {
+            duelMatchStateTask = ChallengeDuelOpponentAsync(packet.OpponentCharacterId);
+        }
+    };
+    connection.DuelStartedReceived += packet =>
+    {
+        lock (stateLock)
+        {
+            duelMatchStateTask = combatApi?.GetStateAsync(packet.CombatId);
+        }
+    };
     connection.Disconnected += () =>
     {
         Console.WriteLine("[Réseau] Déconnecté du serveur.");
@@ -3385,6 +3463,35 @@ async Task<bool> QueueForArenaAsync(ArenaFormat format)
     catch (HttpRequestException)
     {
         return false;
+    }
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : appelé côté
+/// défieur une fois l'invitation acceptée (voir DuelAcceptedReceived) — récupère sa propre équipe
+/// ET celle de l'adversaire (endpoint public, voir GetCharacterMonstersAsync) avant de démarrer
+/// réellement le combat via l'endpoint HTTP existant.
+/// </summary>
+async Task<CombatSessionState?> ChallengeDuelOpponentAsync(Guid opponentCharacterId)
+{
+    if (combatApi is null || starterApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return null;
+    }
+
+    try
+    {
+        var myMonsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
+        var opponentMonsters = await starterApi.GetCharacterMonstersAsync(opponentCharacterId);
+        var result = await combatApi.ChallengeAsync(
+            options.SessionToken, chosenCharacterId.Value, myMonsters.Select(m => m.Id).ToList(),
+            opponentCharacterId, opponentMonsters.Select(m => m.Id).ToList());
+
+        return result.State;
+    }
+    catch (HttpRequestException)
+    {
+        return null;
     }
 }
 
@@ -5142,6 +5249,19 @@ void DrawAdminBanner(int w, int h)
 
     DrawPanel(new Vector2(0, 60f), new Vector2(w, 70f), new Vector4(0.15f, 0.05f, 0.05f, 0.85f));
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, adminBannerMessage, new Vector2(w / 2f, 95f), 2.6f, new Vector4(0.98f, 0.85f, 0.3f, 1f));
+}
+
+/// <summary>Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : popup accepter/refuser, envoyée via <c>/duel &lt;pseudo&gt;</c> dans le tchat (voir PlayerSession.HandleDuelCommand).</summary>
+void DrawDuelInvitePopup(int w, int h, string challengerName)
+{
+    const float boxWidth = 420f;
+    const float boxHeight = 130f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h * 0.3f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.12f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.4f, 0.85f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{challengerName} VOUS DEFIE EN DUEL !", new Vector2(w / 2f, topLeft.Y + 34f), 2f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
+    DrawPromptBanner("ENTREE : ACCEPTER - ECHAP : REFUSER", new Vector2(w / 2f, topLeft.Y + boxHeight - 30f));
 }
 
 void DrawChatToasts(int w, int h)

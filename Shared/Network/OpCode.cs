@@ -22,4 +22,10 @@ public enum OpCode : byte
     ChatMessage = 30,
 
     AdminEffect = 40,
+
+    // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp".
+    DuelInvite = 50,
+    DuelResponse = 51,
+    DuelAccepted = 52,
+    DuelStarted = 53,
 }

@@ -41,6 +41,8 @@ public sealed class WorldSessionRegistry
         }
     }
 
+    public PlayerSession? FindByCharacterId(Guid characterId) => _sessions.GetValueOrDefault(characterId);
+
     public PlayerSession? FindByCharacterName(string characterName) =>
         _sessions.Values.FirstOrDefault(s => s.CharacterName.Equals(characterName, StringComparison.OrdinalIgnoreCase));
 

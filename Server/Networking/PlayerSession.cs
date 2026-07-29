@@ -21,6 +21,7 @@ public sealed class PlayerSession(
     SessionTokenStore tokenStore,
     IDbContextFactory<AetheriaDbContext> dbContextFactory,
     WorldSessionRegistry registry,
+    DuelInviteService duelInvites,
     ILogger<PlayerSession> logger)
 {
     private readonly object _writeLock = new();
@@ -131,6 +132,10 @@ public sealed class PlayerSession(
 
             case ChatMessagePacket chat:
                 HandleChatMessage(chat);
+                break;
+
+            case DuelResponsePacket duelResponse:
+                HandleDuelResponse(duelResponse);
                 break;
 
             default:
@@ -253,6 +258,15 @@ public sealed class PlayerSession(
             return;
         }
 
+        if (trimmed.StartsWith("/duel", StringComparison.OrdinalIgnoreCase))
+        {
+            // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" :
+            // commande ouverte à tout le monde (contrairement à HandleChatCommand, réservée
+            // aux modérateurs/admin/fondateur), donc traitée à part, avant ce filtrage.
+            HandleDuelCommand(trimmed, chat.Channel);
+            return;
+        }
+
         if (trimmed.StartsWith('/'))
         {
             HandleChatCommand(db, trimmed, chat.Channel, self.IsAdmin, self.Rank);
@@ -326,6 +340,65 @@ public sealed class PlayerSession(
                 session.SendPacket(outgoing);
             }
         }
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : ouvert à tout
+    /// le monde (contrairement à <see cref="HandleChatCommand"/>). Le combat n'est pas démarré
+    /// ici — juste l'invitation ; voir <see cref="HandleDuelResponse"/> pour la suite une fois
+    /// acceptée/refusée.
+    /// </summary>
+    private void HandleDuelCommand(string command, ChatChannel replyChannel)
+    {
+        void Reply(string message) => SendPacket(new ChatMessagePacket { SenderName = "Système", Message = message, Channel = replyChannel });
+
+        var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            Reply("Usage : /duel <pseudo>");
+            return;
+        }
+
+        var target = registry.FindByCharacterName(parts[1]);
+        if (target is null)
+        {
+            Reply($"{parts[1]} n'est pas connecté(e).");
+            return;
+        }
+
+        if (target.CharacterId == CharacterId)
+        {
+            Reply("Impossible de vous défier vous-même.");
+            return;
+        }
+
+        duelInvites.SendInvite(CharacterId, CharacterName, target.CharacterId);
+        target.SendPacket(new DuelInvitePacket { FromCharacterName = CharacterName });
+        Reply($"Demande de duel envoyée à {target.CharacterName}.");
+    }
+
+    /// <summary>
+    /// Réponse du joueur défié (voir <see cref="HandleDuelCommand"/>) : si accepté, notifie le
+    /// défieur (voir <see cref="DuelAcceptedPacket"/>) dont le client démarre lui-même le combat
+    /// via <c>POST /api/pvp/challenge</c> (déjà entièrement implémenté côté HTTP — voir
+    /// CombatService.StartPvpAsync), puis reçoit à son tour <see cref="DuelStartedPacket"/>
+    /// une fois ce combat créé (voir l'endpoint dans Server/Program.cs).
+    /// </summary>
+    private void HandleDuelResponse(DuelResponsePacket response)
+    {
+        if (!duelInvites.TryConsume(CharacterId, out var challengerId, out var challengerName))
+        {
+            return;
+        }
+
+        var challengerSession = registry.FindByCharacterId(challengerId);
+        if (!response.Accept)
+        {
+            challengerSession?.SendPacket(new ChatMessagePacket { SenderName = "Système", Message = $"{CharacterName} a refusé le duel.", Channel = ChatChannel.Global });
+            return;
+        }
+
+        challengerSession?.SendPacket(new DuelAcceptedPacket { OpponentCharacterId = CharacterId, OpponentCharacterName = CharacterName });
     }
 
     /// <summary>
