@@ -185,6 +185,33 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
         return leveledUp;
     }
 
+    /// <summary>
+    /// Niveau/XP du personnage dans TOUS les métiers, y compris ceux jamais pratiqués (voir
+    /// GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de
+    /// chaque métier").
+    /// </summary>
+    public async Task<List<ProfessionSummary>> GetSummaryAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var existing = await db.CharacterProfessions
+            .Where(p => p.CharacterId == characterId)
+            .ToDictionaryAsync(p => p.Profession, ct);
+
+        return Enum.GetValues<ProfessionType>()
+            .Select(profession =>
+            {
+                existing.TryGetValue(profession, out var entity);
+                var level = entity?.Level ?? 1;
+                return new ProfessionSummary
+                {
+                    Profession = profession,
+                    Level = level,
+                    Experience = entity?.Experience ?? 0,
+                    ExperienceForNextLevel = level * ExperiencePerLevel,
+                };
+            })
+            .ToList();
+    }
+
     private static ProfessionActionResponse BuildResponse(CharacterProfessionEntity profession, bool leveledUp, string message)
         => new()
         {

@@ -12,6 +12,7 @@ using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
+using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Network;
@@ -598,6 +599,15 @@ app.MapPost("/api/professions/craft", async (CraftRequest request) =>
     }
 });
 
+// Voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de
+// chaque métier etc" : un par ProfessionType, y compris ceux jamais pratiqués (niveau 1).
+app.MapGet("/api/professions/{characterId:guid}", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var professionService = new ProfessionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await professionService.GetSummaryAsync(characterId));
+});
+
 // Voir GDD/demande utilisateur — "un tutoriel qui force le joueur à faire des quêtes qui lui
 // expliquent le jeu" et "une histoire avec des dialogues cohérents". Une seule quête active à la
 // fois (voir QuestService), déclenchée par les points d'ancrage existants côté client plutôt
@@ -863,6 +873,44 @@ app.MapPost("/api/shop/premium/grade/upgrade", async (PurchasePremiumTierRequest
     await db.SaveChangesAsync();
 
     return Results.Ok(PremiumService.ToStatus(user));
+});
+
+// Passe de Niveau (voir GDD/demande utilisateur — "un pass de niveaux de joueur ou chaque xp que
+// tu gagne est ajouté dedans aussi ou chaque passage te fait gagner quelque chose ... si il paie
+// le pass premium alors il auront accès à des trucs plus exclusif") : voir BattlePassService.
+app.MapGet("/api/battlepass/{characterId:guid}", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId);
+    return character is null
+        ? Results.Conflict(new ApiError { Message = "Personnage introuvable." })
+        : Results.Ok(BattlePassService.ToStatus(character));
+});
+
+app.MapPost("/api/battlepass/premium/purchase", async (PurchaseBattlePassPremiumRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (user is null || character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Compte ou personnage introuvable." });
+    }
+
+    try
+    {
+        return Results.Ok(await BattlePassService.PurchasePremiumAsync(db, user, character));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
 });
 
 // Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — "ajoute un bâtiment (un HDV) où

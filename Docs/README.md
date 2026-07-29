@@ -845,6 +845,23 @@ de gameplay.
       désormais la session résolue et la purge seulement après une rétention de 3 minutes
       (`PruneResolved`, appelée à chaque nouvel ajout — même mécanique que `CombatSessionStore.
       PruneFinished`).
+30. ✅ UI Métiers + notification de montée de niveau, et Passe de Niveau (voir GDD/demande
+    utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier" +
+    "une petite notification quand on monte un niveau dans un métier" + "un pass de niveaux de
+    joueur ou chaque xp que tu gagne est ajouté dedans aussi ... si il paie le pass premium alors
+    il auront accès à des trucs plus exclusif") :
+    - Panneau Métiers (touche B) listant les 8 métiers avec niveau/XP actuels, y compris ceux
+      jamais pratiqués (voir `ProfessionService.GetSummaryAsync`, `/api/professions/{characterId}`).
+    - Notification générique en haut de l'écran (`PushSystemToast`/`DrawSystemToasts`, même
+      mécanique que les toasts de tchat existants) à chaque montée de niveau de métier (récolte
+      ou craft).
+    - Passe de Niveau (touche N, `Server/World/BattlePassService.cs`) : progression alimentée par
+      la MÊME XP que le niveau de personnage (quêtes, combat PvE solo/groupe — voir les appels
+      jumeaux à `CharacterProgressionService.GrantExperience`), avec récompense automatique à
+      chaque palier (or, gemmes, objet tous les 5 paliers). Palier premium (500 gemmes, achat
+      dans le panneau) débloquant des récompenses nettement plus généreuses (objets jusqu'à
+      Rare uniquement — voir Docs/Items.md, jamais d'objet réservé admin ni de créature), avec
+      rattrapage rétroactif des paliers déjà atteints au moment de l'achat.
 
 > **Découverte en testant (pas un bug de code) :** une politique de sécurité de la machine
 > bloque spécifiquement l'exécution du binaire natif `Aetheria.Server.exe` (probablement une

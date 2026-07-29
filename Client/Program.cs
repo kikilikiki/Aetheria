@@ -12,6 +12,7 @@ using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
+using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Network.Packets;
@@ -299,6 +300,25 @@ var chatToasts = new List<(ChatLine Line, DateTime ExpiresAtUtc)>();
 const int MaxChatToasts = 5;
 var chatToastLifetime = TimeSpan.FromSeconds(6);
 
+// Voir GDD/demande utilisateur — "ajoute une petite notification quand on monte un niveau dans un
+// métier" : notification générique en haut de l'écran, réutilisable pour d'autres évènements de
+// progression (voir PushSystemToast) — même mécanique que chatToasts, position/durée différentes.
+var systemToasts = new List<(string Text, Vector4 Color, DateTime ExpiresAtUtc)>();
+const int MaxSystemToasts = 4;
+var systemToastLifetime = TimeSpan.FromSeconds(4);
+
+void PushSystemToast(string text, Vector4 color)
+{
+    lock (stateLock)
+    {
+        systemToasts.Add((text, color, DateTime.UtcNow + systemToastLifetime));
+        if (systemToasts.Count > MaxSystemToasts)
+        {
+            systemToasts.RemoveAt(0);
+        }
+    }
+}
+
 // Voir GDD/demande utilisateur — "panel admin en jeu... afficher un message en haut de l'écran
 // en gros à tout les joueurs" et "transformer le skin de tout les joueurs en panneau [...]
 // pendant 5min" : reçus via AdminEffectPacket (voir GameConnection.AdminEffectReceived), affichés
@@ -398,6 +418,16 @@ LeaderboardCategory[] leaderboardCategories =
 [
     LeaderboardCategory.Pvp, LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures, LeaderboardCategory.Donjons,
 ];
+
+// Voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier".
+List<ProfessionSummary> professionRows = [];
+Task<List<ProfessionSummary>>? professionLoadTask = null;
+
+// Voir GDD/demande utilisateur — "un pass de niveaux de joueur ... si il paie le pass premium alors il auront accès à des trucs plus exclusif".
+BattlePassStatus? battlePassStatus = null;
+Task<BattlePassStatus?>? battlePassLoadTask = null;
+Task<ShopPurchaseResponse>? battlePassPurchaseTask = null;
+string? battlePassMessage = null;
 
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
@@ -828,6 +858,8 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.U)) OpenPanel(PanelKind.Profile);
     else if (keyboard.WasJustPressed(Key.K)) OpenPanel(PanelKind.Leaderboard);
     else if (keyboard.WasJustPressed(Key.J)) OpenPanel(PanelKind.QuestList);
+    else if (keyboard.WasJustPressed(Key.B)) OpenPanel(PanelKind.Professions);
+    else if (keyboard.WasJustPressed(Key.N)) OpenPanel(PanelKind.BattlePass);
     // Voir GDD/demande utilisateur — "ajoute un raccourci clavier" (panneau Duel).
     else if (keyboard.WasJustPressed(Key.Y)) OpenPanel(PanelKind.Duel);
     // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
@@ -1198,6 +1230,7 @@ host.Render += _ =>
     // Voir GDD/demande utilisateur — "afficher les messages du tchat transmis en bas à droite" :
     // superposé à toutes les scènes (pas seulement le panneau Tchat), pour être vu même fermé.
     DrawChatToasts(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    DrawSystemToasts(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
 
     // Voir GDD/demande utilisateur — "affichage de quête à gauche" : superposé au monde/aux
     // intérieurs (pas en combat/dialogue/character select, où l'écran est déjà chargé).
@@ -1404,6 +1437,11 @@ async Task CraftSelectedRecipeAsync()
     {
         var result = await gameDataApi.CraftAsync(options.SessionToken!, chosenCharacterId.Value, recipe.Id);
         craftMessage = result?.Message ?? "Connexion au serveur impossible.";
+        if (result is { LeveledUp: true })
+        {
+            PushSystemToast($"Métier {result.Profession} : niveau {result.Level} !", new Vector4(0.55f, 0.9f, 0.6f, 1f));
+        }
+
         await LoadInventoryAsync();
         BuildForgeronRecipeLines();
 
@@ -1904,6 +1942,131 @@ void DrawLeaderboardPanel(int w, int h)
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : categorie - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
+/// <summary>Panneau Métiers (touche B, voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier"), simple lecture seule — un par ProfessionType, y compris ceux jamais pratiqués (niveau 1).</summary>
+void UpdateProfessionsPanel()
+{
+    if (professionLoadTask is { IsCompleted: true } loadTask)
+    {
+        professionRows = loadTask.IsFaulted ? [] : loadTask.Result;
+        professionLoadTask = null;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+    }
+}
+
+void DrawProfessionsPanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    const float boxHeight = 460f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.09f, 0.07f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.45f, 0.85f, 0.55f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "METIERS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
+
+    var y = topLeft.Y + 64f;
+    if (professionLoadTask is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, y + 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        foreach (var row in professionRows)
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, row.Profession.ToString().ToUpperInvariant(), new Vector2(topLeft.X + 24f, y), 1.8f, Vector4.One);
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"Niveau {row.Level}", new Vector2(topLeft.X + 240f, y), 1.6f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
+            y += 26f;
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{row.Experience} / {row.ExperienceForNextLevel} XP", new Vector2(topLeft.X + 24f, y), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            y += 30f;
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Panneau Passe de Niveau (touche N, voir GDD/demande utilisateur — "un pass de niveaux de
+/// joueur ou chaque xp que tu gagne est ajouté dedans aussi ou chaque passage te fait gagner
+/// quelque chose ... si il paie le pass premium alors il auront accès à des trucs plus exclusif").
+/// Les récompenses sont octroyées automatiquement côté serveur à chaque palier (voir
+/// BattlePassService) — ce panneau ne fait qu'afficher la progression et proposer le
+/// déblocage du palier premium contre des gemmes.
+/// </summary>
+void UpdateBattlePassPanel()
+{
+    if (battlePassLoadTask is { IsCompleted: true } loadTask)
+    {
+        battlePassStatus = loadTask.IsFaulted ? null : loadTask.Result;
+        battlePassLoadTask = null;
+    }
+
+    if (battlePassPurchaseTask is { IsCompleted: true } purchaseTask)
+    {
+        battlePassMessage = purchaseTask.IsFaulted ? "Connexion au serveur impossible." : purchaseTask.Result.Message;
+        battlePassPurchaseTask = null;
+        battlePassLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetBattlePassStatusAsync(chosenCharacterId.Value);
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Enter) && battlePassStatus is { PremiumCostGems: not null } && battlePassPurchaseTask is null
+        && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        battlePassMessage = null;
+        battlePassPurchaseTask = gameDataApi.PurchaseBattlePassPremiumAsync(options.SessionToken!, chosenCharacterId.Value);
+    }
+}
+
+void DrawBattlePassPanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    const float boxHeight = 300f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.07f, 0.04f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.95f, 0.75f, 0.35f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PASSE DE NIVEAU", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+
+    if (battlePassLoadTask is not null || battlePassStatus is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var status = battlePassStatus;
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {status.Level}", new Vector2(w / 2f, topLeft.Y + 70f), 2.2f, Vector4.One);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{status.Experience} / {status.ExperienceForNextLevel} XP", new Vector2(w / 2f, topLeft.Y + 104f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+        var premiumLabel = status.HasPremium ? "PASS PREMIUM ACTIF" : "Pass gratuit — récompenses de base à chaque niveau.";
+        var premiumColor = status.HasPremium ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.7f, 0.7f, 0.75f, 1f);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, premiumLabel, new Vector2(w / 2f, topLeft.Y + 140f), 1.7f, premiumColor);
+
+        if (battlePassMessage is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, battlePassMessage, new Vector2(w / 2f, topLeft.Y + 168f), 1.5f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        }
+
+        if (status.PremiumCostGems is { } cost && battlePassPurchaseTask is null)
+        {
+            if (DrawClickableCentered($"DEBLOQUER LE PASS PREMIUM ({cost} GEMMES) - ENTREE", new Vector2(w / 2f, topLeft.Y + 204f), 1.7f, new Vector4(0.95f, 0.8f, 0.4f, 1f))
+                && chosenCharacterId is not null && gameDataApi is not null)
+            {
+                battlePassMessage = null;
+                battlePassPurchaseTask = gameDataApi.PurchaseBattlePassPremiumAsync(options.SessionToken!, chosenCharacterId.Value);
+            }
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
 /// <summary>
 /// Voir GDD/demande utilisateur — "panel admin en jeu... peuvent afficher un message en haut de
 /// l'écran, donner des items, transformer le skin de tout les joueurs en panneau, ban/mute/kick" :
@@ -2130,6 +2293,11 @@ void UpdateMinePanel()
     if (mineGatherTask is { IsCompleted: true } gatherTask)
     {
         mineMessage = gatherTask.IsFaulted ? "Connexion au serveur impossible." : gatherTask.Result?.Message ?? "Récolte impossible.";
+        if (gatherTask.Result is { LeveledUp: true } leveledResult)
+        {
+            PushSystemToast($"Métier {leveledResult.Profession} : niveau {leveledResult.Level} !", new Vector4(0.55f, 0.9f, 0.6f, 1f));
+        }
+
         mineGatherTask = null;
         return;
     }
@@ -2225,6 +2393,11 @@ void UpdateFieldPanel()
     if (fieldGatherTask is { IsCompleted: true } gatherTask)
     {
         fieldMessage = gatherTask.IsFaulted ? "Connexion au serveur impossible." : gatherTask.Result?.Message ?? "Récolte impossible.";
+        if (gatherTask.Result is { LeveledUp: true } leveledResult)
+        {
+            PushSystemToast($"Métier {leveledResult.Profession} : niveau {leveledResult.Level} !", new Vector4(0.55f, 0.9f, 0.6f, 1f));
+        }
+
         fieldGatherTask = null;
         return;
     }
@@ -3547,6 +3720,15 @@ void OpenPanel(PanelKind kind)
         case PanelKind.Kingdom:
             kingdomPanelLoadTask = LoadKingdomPanelDataAsync();
             break;
+        case PanelKind.Professions:
+            professionRows = [];
+            professionLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetProfessionsAsync(chosenCharacterId.Value);
+            break;
+        case PanelKind.BattlePass:
+            battlePassMessage = null;
+            battlePassStatus = null;
+            battlePassLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetBattlePassStatusAsync(chosenCharacterId.Value);
+            break;
     }
 }
 
@@ -4330,6 +4512,18 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Kingdom)
     {
         UpdateKingdomPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Professions)
+    {
+        UpdateProfessionsPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.BattlePass)
+    {
+        UpdateBattlePassPanel();
         return;
     }
 
@@ -5397,6 +5591,8 @@ void DrawOutdoorHud()
             case PanelKind.Duel: DrawDuelPanel(w, h); break;
             case PanelKind.GemShop: DrawGemShopPanel(w, h); break;
             case PanelKind.Kingdom: DrawKingdomPanel(w, h); break;
+            case PanelKind.Professions: DrawProfessionsPanel(w, h); break;
+            case PanelKind.BattlePass: DrawBattlePassPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -5447,6 +5643,10 @@ void DrawOutdoorHud()
         ("CLASSEMENT (K)", PanelKind.Leaderboard),
         // Voir GDD/demande utilisateur — "un UI pour afficher toutes les quêtes en cours".
         ("QUETES (J)", PanelKind.QuestList),
+        // Voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier".
+        ("METIERS (B)", PanelKind.Professions),
+        // Voir GDD/demande utilisateur — "un pass de niveaux de joueur".
+        ("PASSE (N)", PanelKind.BattlePass),
         // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
         // son pseudo".
         ("DUEL (Y)", PanelKind.Duel),
@@ -6310,6 +6510,33 @@ void DrawChatToasts(int w, int h)
         DrawPanel(topLeft, new Vector2(width + 12f, height + 6f), new Vector4(0.08f, 0.08f, 0.12f, 0.85f));
         TextRenderer.Draw(spriteBatch, whiteTexture, text, topLeft + new Vector2(6f, 3f), 1.5f, ChatRankColor(line.Rank));
         y -= height + 8f;
+    }
+}
+
+/// <summary>Notifications génériques en haut de l'écran (voir <see cref="PushSystemToast"/>) — utilisées pour les montées de niveau de métier.</summary>
+void DrawSystemToasts(int w, int h)
+{
+    List<(string Text, Vector4 Color, DateTime ExpiresAtUtc)> toasts;
+    lock (stateLock)
+    {
+        var now = DateTime.UtcNow;
+        systemToasts.RemoveAll(t => t.ExpiresAtUtc <= now);
+        toasts = [.. systemToasts];
+    }
+
+    if (toasts.Count == 0)
+    {
+        return;
+    }
+
+    var y = 90f;
+    foreach (var (text, color, _) in toasts)
+    {
+        var width = TextRenderer.MeasureWidth(text, 2f);
+        var topLeft = new Vector2(w / 2f - width / 2f - 14f, y);
+        DrawPanel(topLeft, new Vector2(width + 28f, 34f), new Vector4(0.08f, 0.08f, 0.12f, 0.9f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, text, new Vector2(w / 2f, y + 17f), 2f, color);
+        y += 42f;
     }
 }
 
@@ -7713,6 +7940,12 @@ enum PanelKind
     Duel,
     GemShop,
     Kingdom,
+
+    /// <summary>Voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier".</summary>
+    Professions,
+
+    /// <summary>Voir GDD/demande utilisateur — "un pass de niveaux de joueur".</summary>
+    BattlePass,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>

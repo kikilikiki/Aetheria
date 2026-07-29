@@ -158,7 +158,9 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
         foreach (var recipient in recipients)
         {
             var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, recipient.UserId, ct) * TemporaryBoostService.XpMultiplier(recipient);
-            CharacterProgressionService.GrantExperience(recipient, (long)Math.Round(amount * multiplier));
+            var xpGained = (long)Math.Round(amount * multiplier);
+            CharacterProgressionService.GrantExperience(recipient, xpGained);
+            await BattlePassService.GrantExperienceAsync(db, recipient, xpGained, ct);
         }
 
         await db.SaveChangesAsync(ct);

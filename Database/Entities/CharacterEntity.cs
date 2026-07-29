@@ -44,6 +44,19 @@ public sealed class CharacterEntity
     public DateTime? GoldBoostExpiresAtUtc { get; set; }
     public DateTime? LuckBoostExpiresAtUtc { get; set; }
 
+    // Voir GDD/demande utilisateur — "un pass de niveaux de joueur ou chaque xp que tu gagne est
+    // ajouté dedans" : progression parallèle alimentée par la même XP que Level/Experience
+    // ci-dessus (voir BattlePassService.GrantExperienceAsync, appelé aux mêmes points que
+    // CharacterProgressionService.GrantExperience), avec ses propres récompenses par palier.
+    public long BattlePassXp { get; set; }
+    public int BattlePassLevel { get; set; } = 1;
+
+    /// <summary>Voir GDD/demande utilisateur — "si il paie le pass premium alors il auront accès à des trucs plus exclusif" : palier payant en gemmes (voir BattlePassService.PremiumCostGems), pas de vraie passerelle de paiement réel (même limite que PremiumService).</summary>
+    public bool BattlePassHasPremium { get; set; }
+
+    /// <summary>Dernier palier pour lequel la récompense premium a déjà été distribuée — sert au rattrapage rétroactif si le pass premium est acheté après avoir déjà progressé (voir BattlePassService.PurchasePremiumAsync).</summary>
+    public int BattlePassLastPremiumRewardLevel { get; set; }
+
     public List<MonsterEntity> Monsters { get; set; } = new();
     public List<InventoryItemEntity> InventoryItems { get; set; } = new();
     public StatisticsEntity? Statistics { get; set; }
