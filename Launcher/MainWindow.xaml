@@ -248,6 +248,11 @@
                     <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
                 </Button>
+                <!-- Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher". -->
+                <Button Style="{StaticResource SidebarIconButton}" ToolTip="Classement" Command="{Binding ToggleLeaderboardCommand}">
+                    <TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
+                </Button>
                 <Border Style="{StaticResource SidebarIcon}" ToolTip="Boutique">
                     <TextBlock Text="&#xE719;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" />
@@ -408,6 +413,39 @@
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
                     </StackPanel>
+                </Border>
+            </Border>
+
+            <!-- Panneau Classement : voir GDD/demande utilisateur — "un bouton pour le leaderboard
+                 en jeu et sur le launcher". -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsLeaderboardOpen, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Width="420" Height="420"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="Classement" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,12" />
+
+                        <ComboBox DockPanel.Dock="Top" ItemsSource="{Binding AvailableLeaderboardCategories}"
+                                  SelectedItem="{Binding SelectedLeaderboardCategory}" Margin="0,0,0,12" />
+
+                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleLeaderboardCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,12,0,0" />
+
+                        <ListView ItemsSource="{Binding LeaderboardRows}" Background="Transparent" BorderThickness="0">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Foreground="#E8E8F0" FontSize="13" Margin="0,3">
+                                        <Run Text="{Binding Rank, Mode=OneWay}" FontWeight="Bold" />
+                                        <Run Text=". " />
+                                        <Run Text="{Binding CharacterName, Mode=OneWay}" />
+                                        <Run Text=" — " Foreground="{StaticResource TextMutedBrush}" />
+                                        <Run Text="{Binding Score, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </DockPanel>
                 </Border>
             </Border>
 

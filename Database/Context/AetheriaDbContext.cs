@@ -35,6 +35,8 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<PartyMemberEntity> PartyMembers => Set<PartyMemberEntity>();
     public DbSet<BannedIpEntity> BannedIps => Set<BannedIpEntity>();
     public DbSet<AuctionListingEntity> AuctionListings => Set<AuctionListingEntity>();
+    public DbSet<CharacterTitleEntity> CharacterTitles => Set<CharacterTitleEntity>();
+    public DbSet<FriendshipEntity> Friendships => Set<FriendshipEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

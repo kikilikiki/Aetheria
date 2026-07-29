@@ -60,7 +60,7 @@ public sealed class GameConnection : IDisposable
         PacketFraming.WritePacket(_stream, new PlayerMovePacket { TargetX = targetX, TargetY = targetY });
     }
 
-    public void SendChatMessage(string message, ChatChannel channel)
+    public void SendChatMessage(string message, ChatChannel channel, string targetCharacterName = "")
     {
         if (_stream is null)
         {
@@ -72,6 +72,7 @@ public sealed class GameConnection : IDisposable
             SenderName = string.Empty,
             Message = message,
             Channel = channel,
+            TargetCharacterName = targetCharacterName,
         });
     }
 

@@ -5,6 +5,7 @@ using Aetheria.Launcher.Models;
 using Aetheria.Launcher.Services;
 using Aetheria.Shared;
 using Aetheria.Shared.Enums;
+using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -231,6 +232,46 @@ public sealed partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
+
+    // Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
+    [ObservableProperty]
+    private bool _isLeaderboardOpen;
+
+    [ObservableProperty]
+    private LeaderboardCategory _selectedLeaderboardCategory = LeaderboardCategory.Pvp;
+
+    public IReadOnlyList<LeaderboardCategory> AvailableLeaderboardCategories { get; } =
+        [LeaderboardCategory.Pvp, LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures];
+
+    public ObservableCollection<LeaderboardRowDisplay> LeaderboardRows { get; } = [];
+
+    [RelayCommand]
+    private async Task ToggleLeaderboard()
+    {
+        IsLeaderboardOpen = !IsLeaderboardOpen;
+        if (IsLeaderboardOpen)
+        {
+            await LoadLeaderboardAsync();
+        }
+    }
+
+    partial void OnSelectedLeaderboardCategoryChanged(LeaderboardCategory value) => _ = LoadLeaderboardAsync();
+
+    private async Task LoadLeaderboardAsync()
+    {
+        var result = await _accountApi.GetLeaderboardAsync(SelectedLeaderboardCategory);
+        LeaderboardRows.Clear();
+        if (!result.IsSuccess || result.Value is null)
+        {
+            return;
+        }
+
+        var rank = 1;
+        foreach (var row in result.Value)
+        {
+            LeaderboardRows.Add(new LeaderboardRowDisplay(rank++, row.CharacterName, row.Score));
+        }
+    }
 
     /// <summary>Persiste immédiatement — le fichier de préférences est partagé avec le Client (voir GDD).</summary>
     partial void OnKeyboardLayoutPreferenceChanged(KeyboardLayoutPreference value)

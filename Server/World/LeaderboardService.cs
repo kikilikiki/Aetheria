@@ -21,6 +21,7 @@ public sealed class LeaderboardService(AetheriaDbContext db)
         LeaderboardCategory.Richesse,
         LeaderboardCategory.Metiers,
         LeaderboardCategory.MonstresCaptures,
+        LeaderboardCategory.Pvp,
     ];
 
     public async Task RefreshAsync(LeaderboardCategory category, CancellationToken ct = default)
@@ -57,6 +58,19 @@ public sealed class LeaderboardService(AetheriaDbContext db)
                 foreach (var characterId in characterIds)
                 {
                     scores[characterId] = monsters.Count(m => m.OwnerCharacterId == characterId);
+                }
+
+                break;
+
+            // Voir GDD/demande utilisateur — "des titres que l'on peut obtenir en pvp dans des
+            // classements" : le classement PvP était référencé (enum, commentaire "dépend de
+            // systèmes qui n'existent pas encore") mais jamais implémenté alors que PvpStatistics
+            // existe bel et bien (voir CombatService.ApplyPvpResultAsync/ApplyArenaResultAsync).
+            case LeaderboardCategory.Pvp:
+                var pvpStats = await db.Statistics.ToListAsync(ct);
+                foreach (var stats in pvpStats)
+                {
+                    scores[stats.CharacterId] = stats.Pvp.BestRank;
                 }
 
                 break;

@@ -267,6 +267,9 @@ var chatTextInput = string.Empty;
 var chatMessages = new List<ChatLine>();
 const int MaxChatLines = 100;
 
+/// <summary>Voir GDD/demande utilisateur — "discussion privée" avec un ami (voir DrawFriendsPanel) : non-null tant qu'on chuchote à ce joueur, prioritaire sur <see cref="chatChannel"/> à l'envoi.</summary>
+string? chatWhisperTarget = null;
+
 // Voir GDD/demande utilisateur — "afficher les messages du tchat transmis en bas à droite" :
 // notifications éphémères en plus du panneau Tchat (T), affichées même si celui-ci est fermé.
 var chatToasts = new List<(ChatLine Line, DateTime ExpiresAtUtc)>();
@@ -322,6 +325,38 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "BANNIR (nom du personnage)",
         "TRANSFORMER EN PANNEAU (nom du personnage)",
     ];
+
+// Voir GDD/demande utilisateur — "ajouter les amis (online/offline, discussion privée, niveau,
+// équipe équipée)" : panneau Amis (touche F).
+List<FriendSummary> friendsList = [];
+List<FriendRequestSummary> friendPendingRequests = [];
+var friendsLoaded = false;
+var friendCursor = 0;
+var friendAddMode = false;
+var friendTextInput = string.Empty;
+string? friendMessage = null;
+Task<List<FriendSummary>>? friendListTask = null;
+Task<List<FriendRequestSummary>>? friendPendingTask = null;
+Task<AdminGameActionResponse>? friendActionTask = null;
+
+// Voir GDD/demande utilisateur — "un endroit pour modifier son profil (description, item à
+// montrer, titre, grade)" : panneau Profil (touche U), toujours le sien propre pour cette version
+// (pas de consultation du profil d'un autre joueur — voir Docs/README.md).
+ProfileSummary? myProfile = null;
+var profileEditMode = false;
+var profileTextInput = string.Empty;
+string? profileMessage = null;
+Task<ProfileSummary?>? profileLoadTask = null;
+Task<ProfileSummary?>? profileActionTask = null;
+
+// Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
+List<LeaderboardRow> leaderboardRows = [];
+var leaderboardCategoryCursor = 0;
+Task<List<LeaderboardRow>>? leaderboardLoadTask = null;
+LeaderboardCategory[] leaderboardCategories =
+[
+    LeaderboardCategory.Pvp, LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures,
+];
 
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
@@ -654,6 +689,9 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.V)) OpenPanel(PanelKind.Arena);
     else if (keyboard.WasJustPressed(Key.M)) OpenPanel(PanelKind.Monsters);
     else if (keyboard.WasJustPressed(Key.T)) OpenPanel(PanelKind.Chat);
+    else if (keyboard.WasJustPressed(Key.F)) OpenPanel(PanelKind.Friends);
+    else if (keyboard.WasJustPressed(Key.U)) OpenPanel(PanelKind.Profile);
+    else if (keyboard.WasJustPressed(Key.K)) OpenPanel(PanelKind.Leaderboard);
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -1249,6 +1287,416 @@ void DrawCraftPanel(int w, int h)
     }
 
     DrawPromptBanner("HAUT/BAS : choisir - C OU CLIC : fabriquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+}
+
+/// <summary>
+/// Panneau Amis (touche F, voir GDD/demande utilisateur — "ajouter les amis : online/offline,
+/// discussion privée, niveau, équipe équipée"). Liste combinée : demandes reçues en attente
+/// d'abord (Entrée accepte, N refuse), puis les amis (Entrée ouvre une discussion privée, voir
+/// UpdateChatPanel/chatWhisperTarget ; Suppr retire l'ami). A bascule vers la saisie d'un pseudo
+/// pour envoyer une nouvelle demande.
+/// </summary>
+void UpdateFriendsPanel()
+{
+    if (friendListTask is { IsCompleted: true } listTask)
+    {
+        friendsList = listTask.IsFaulted ? [] : listTask.Result;
+        friendListTask = null;
+    }
+
+    if (friendPendingTask is { IsCompleted: true } pendingTask)
+    {
+        friendPendingRequests = pendingTask.IsFaulted ? [] : pendingTask.Result;
+        friendPendingTask = null;
+        friendsLoaded = true;
+    }
+
+    if (friendActionTask is { IsCompleted: true } actionTask)
+    {
+        friendMessage = actionTask.IsFaulted ? "Connexion au serveur impossible." : actionTask.Result.Message;
+        friendActionTask = null;
+        friendCursor = 0;
+        if (chosenCharacterId is not null && gameDataApi is not null)
+        {
+            friendListTask = gameDataApi.GetFriendsAsync(chosenCharacterId.Value);
+            friendPendingTask = gameDataApi.GetPendingFriendRequestsAsync(chosenCharacterId.Value);
+        }
+
+        return;
+    }
+
+    if (friendActionTask is not null || friendListTask is not null && !friendsLoaded)
+    {
+        return;
+    }
+
+    if (friendAddMode)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (friendTextInput.Length < 40 && !char.IsControl(typed))
+            {
+                friendTextInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && friendTextInput.Length > 0)
+        {
+            friendTextInput = friendTextInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            friendAddMode = false;
+            friendTextInput = string.Empty;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && friendTextInput.Trim().Length > 0 && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            friendMessage = null;
+            friendActionTask = gameDataApi.SendFriendRequestAsync(options.SessionToken!, chosenCharacterId.Value, friendTextInput.Trim());
+            friendAddMode = false;
+            friendTextInput = string.Empty;
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.A))
+    {
+        friendAddMode = true;
+        friendTextInput = string.Empty;
+        friendMessage = null;
+        return;
+    }
+
+    var totalRows = friendPendingRequests.Count + friendsList.Count;
+    if (totalRows == 0)
+    {
+        return;
+    }
+
+    friendCursor = Math.Clamp(friendCursor, 0, totalRows - 1);
+
+    if (keyboard.WasJustPressed(Key.Down)) friendCursor = Math.Min(friendCursor + 1, totalRows - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) friendCursor = Math.Max(friendCursor - 1, 0);
+    else if (chosenCharacterId is not null && gameDataApi is not null)
+    {
+        if (friendCursor < friendPendingRequests.Count)
+        {
+            var request = friendPendingRequests[friendCursor];
+            if (keyboard.WasJustPressed(Key.Enter))
+            {
+                friendMessage = null;
+                friendActionTask = gameDataApi.RespondFriendRequestAsync(options.SessionToken!, chosenCharacterId.Value, request.RequesterName, accept: true);
+            }
+            else if (keyboard.WasJustPressed(Key.N))
+            {
+                friendMessage = null;
+                friendActionTask = gameDataApi.RespondFriendRequestAsync(options.SessionToken!, chosenCharacterId.Value, request.RequesterName, accept: false);
+            }
+        }
+        else
+        {
+            var friend = friendsList[friendCursor - friendPendingRequests.Count];
+            if (keyboard.WasJustPressed(Key.Enter))
+            {
+                chatWhisperTarget = friend.Name;
+                chatChannel = ChatChannel.Prive;
+                OpenPanel(PanelKind.Chat);
+            }
+            else if (keyboard.WasJustPressed(Key.Delete))
+            {
+                friendMessage = null;
+                friendActionTask = gameDataApi.RemoveFriendAsync(options.SessionToken!, chosenCharacterId.Value, friend.Name);
+            }
+        }
+    }
+}
+
+void DrawFriendsPanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    const float boxHeight = 420f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.08f, 0.1f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.8f, 0.9f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AMIS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.6f, 0.85f, 0.95f, 1f));
+
+    if (friendAddMode)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, "Nom du personnage a ajouter :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, friendTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
+        DrawPromptBanner("ENTREE : ENVOYER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        return;
+    }
+
+    var y = topLeft.Y + 60f;
+    var row = 0;
+
+    if (friendPendingRequests.Count > 0)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, "DEMANDES RECUES :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        y += 26f;
+
+        foreach (var request in friendPendingRequests)
+        {
+            var selected = row == friendCursor;
+            var color = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}{request.RequesterName} (ENTREE : accepter, N : refuser)", new Vector2(topLeft.X + 20f, y), 1.5f, color);
+            y += 24f;
+            row++;
+        }
+
+        y += 10f;
+    }
+
+    TextRenderer.Draw(spriteBatch, whiteTexture, "AMIS :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
+    y += 26f;
+
+    if (friendsList.Count == 0)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, "Aucun ami pour l'instant.", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+
+    foreach (var friend in friendsList)
+    {
+        var selected = row == friendCursor;
+        var dotColor = friend.IsOnline ? new Vector4(0.4f, 0.9f, 0.45f, 1f) : new Vector4(0.5f, 0.5f, 0.55f, 1f);
+        var textColor = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
+        var status = friend.IsOnline ? "EN LIGNE" : "HORS LIGNE";
+        TextRenderer.Draw(spriteBatch, whiteTexture, (selected ? "> " : "  ") + "●", new Vector2(topLeft.X + 20f, y), 1.5f, dotColor);
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{friend.Name} (Nv.{friend.Level}) - {status}", new Vector2(topLeft.X + 42f, y), 1.5f, textColor);
+        y += 24f;
+        row++;
+    }
+
+    if (friendMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, friendMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+
+    DrawPromptBanner("HAUT/BAS : choisir - ENTREE : MP/accepter - SUPPR : retirer - A : ajouter - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f));
+}
+
+/// <summary>
+/// Panneau Profil (touche U, voir GDD/demande utilisateur — "un endroit pour modifier son profil
+/// : description, item à montrer, titre, grade"). Le grade est affiché en lecture seule
+/// (<see cref="UserRank"/>, jamais modifiable par le joueur) ; description et titre actif
+/// s'éditent au clavier, l'objet à montrer se choisit parmi l'inventaire courant.
+/// </summary>
+void UpdateProfilePanel()
+{
+    if (profileLoadTask is { IsCompleted: true } loadTask)
+    {
+        myProfile = loadTask.IsFaulted ? null : loadTask.Result;
+        profileLoadTask = null;
+    }
+
+    if (profileActionTask is { IsCompleted: true } actionTask)
+    {
+        if (!actionTask.IsFaulted && actionTask.Result is not null)
+        {
+            myProfile = actionTask.Result;
+            profileMessage = "Profil mis à jour.";
+        }
+        else
+        {
+            profileMessage = "Connexion au serveur impossible.";
+        }
+
+        profileActionTask = null;
+        return;
+    }
+
+    if (profileActionTask is not null)
+    {
+        return;
+    }
+
+    if (profileEditMode)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (profileTextInput.Length < 200 && !char.IsControl(typed))
+            {
+                profileTextInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && profileTextInput.Length > 0)
+        {
+            profileTextInput = profileTextInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            profileEditMode = false;
+            profileTextInput = string.Empty;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && gameDataApi is not null && myProfile is not null)
+        {
+            profileEditMode = false;
+            profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, profileTextInput, myProfile.ShowcaseItemId, myProfile.ActiveTitle);
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (myProfile is null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.D))
+    {
+        profileEditMode = true;
+        profileTextInput = myProfile.Description;
+        profileMessage = null;
+    }
+    else if (keyboard.WasJustPressed(Key.Left) && myProfile.OwnedTitles.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        var index = myProfile.ActiveTitle is null ? -1 : myProfile.OwnedTitles.ToList().IndexOf(myProfile.ActiveTitle);
+        var newTitle = index <= 0 ? null : myProfile.OwnedTitles[index - 1];
+        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, newTitle);
+    }
+    else if (keyboard.WasJustPressed(Key.Right) && myProfile.OwnedTitles.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        var index = myProfile.ActiveTitle is null ? -1 : myProfile.OwnedTitles.ToList().IndexOf(myProfile.ActiveTitle);
+        var newTitle = index + 1 >= myProfile.OwnedTitles.Count ? myProfile.OwnedTitles[^1] : myProfile.OwnedTitles[index + 1];
+        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, newTitle);
+    }
+}
+
+void DrawProfilePanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 340f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.07f, 0.1f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.75f, 0.55f, 0.95f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PROFIL", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.8f, 0.65f, 0.98f, 1f));
+
+    if (myProfile is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Chargement...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, Vector4.One);
+        DrawPromptBanner("ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        return;
+    }
+
+    if (profileEditMode)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, "Description (200 caracteres max) :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        foreach (var line in WrapTextToLines(profileTextInput + "_", boxWidth - 40f, 1.6f))
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.6f, Vector4.One);
+        }
+
+        DrawPromptBanner("ENTREE : VALIDER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        return;
+    }
+
+    var y = topLeft.Y + 66f;
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"{myProfile.CharacterName} - Nv.{myProfile.Level} - {myProfile.Rank}", new Vector2(topLeft.X + 20f, y), 1.8f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+    y += 34f;
+
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"Titre actif : {myProfile.ActiveTitle ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    y += 26f;
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"Objet à montrer : {myProfile.ShowcaseItemName ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    y += 34f;
+
+    TextRenderer.Draw(spriteBatch, whiteTexture, "Description :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    y += 24f;
+    var descriptionLines = myProfile.Description.Length > 0 ? WrapTextToLines(myProfile.Description, boxWidth - 40f, 1.5f) : ["(vide)"];
+    foreach (var line in descriptionLines)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        y += 22f;
+    }
+
+    if (profileMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, profileMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+
+    DrawPromptBanner("D : modifier description - GAUCHE/DROITE : titre actif - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f));
+}
+
+/// <summary>Panneau Classement (bouton HUD/touche K, voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher").</summary>
+void UpdateLeaderboardPanel()
+{
+    if (leaderboardLoadTask is { IsCompleted: true } loadTask)
+    {
+        leaderboardRows = loadTask.IsFaulted ? [] : loadTask.Result;
+        leaderboardLoadTask = null;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (leaderboardLoadTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Left) || keyboard.WasJustPressed(Key.Right))
+    {
+        var delta = keyboard.WasJustPressed(Key.Right) ? 1 : -1;
+        leaderboardCategoryCursor = ((leaderboardCategoryCursor + delta) % leaderboardCategories.Length + leaderboardCategories.Length) % leaderboardCategories.Length;
+        leaderboardRows = [];
+        leaderboardLoadTask = gameDataApi?.GetLeaderboardAsync(leaderboardCategories[leaderboardCategoryCursor]);
+    }
+}
+
+string LeaderboardCategoryLabel(LeaderboardCategory category) => category switch
+{
+    LeaderboardCategory.Pvp => "PVP (ELO)",
+    LeaderboardCategory.Richesse => "RICHESSE",
+    LeaderboardCategory.Metiers => "METIERS",
+    LeaderboardCategory.MonstresCaptures => "CREATURES CAPTUREES",
+    _ => category.ToString().ToUpperInvariant(),
+};
+
+void DrawLeaderboardPanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    const float boxHeight = 440f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.08f, 0.04f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.95f, 0.8f, 0.35f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSEMENT", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"< {LeaderboardCategoryLabel(leaderboardCategories[leaderboardCategoryCursor])} >", new Vector2(w / 2f, topLeft.Y + 58f), 2f, Vector4.One);
+
+    var y = topLeft.Y + 96f;
+    if (leaderboardRows.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Aucune donnée pour ce classement.", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+
+    for (var i = 0; i < leaderboardRows.Count; i++)
+    {
+        var row = leaderboardRows[i];
+        var color = i == 0 ? new Vector4(0.95f, 0.85f, 0.4f, 1f) : Vector4.One;
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName} - {row.Score}", new Vector2(topLeft.X + 24f, y), 1.7f, color);
+        y += 28f;
+    }
+
+    DrawPromptBanner("GAUCHE/DROITE : categorie - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f));
 }
 
 /// <summary>
@@ -2403,6 +2851,25 @@ void OpenPanel(PanelKind kind)
             craftMessage = null;
             questRecipeTask = gameDataApi?.GetRecipesAsync();
             break;
+        case PanelKind.Friends:
+            friendsLoaded = false;
+            friendCursor = 0;
+            friendAddMode = false;
+            friendTextInput = string.Empty;
+            friendMessage = null;
+            friendListTask = chosenCharacterId is null ? null : gameDataApi?.GetFriendsAsync(chosenCharacterId.Value);
+            friendPendingTask = chosenCharacterId is null ? null : gameDataApi?.GetPendingFriendRequestsAsync(chosenCharacterId.Value);
+            break;
+        case PanelKind.Profile:
+            profileEditMode = false;
+            profileTextInput = string.Empty;
+            profileMessage = null;
+            profileLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetProfileAsync(chosenCharacterId.Value);
+            break;
+        case PanelKind.Leaderboard:
+            leaderboardRows = [];
+            leaderboardLoadTask = gameDataApi?.GetLeaderboardAsync(leaderboardCategories[leaderboardCategoryCursor]);
+            break;
     }
 }
 
@@ -2930,9 +3397,21 @@ async Task<bool> QueueForArenaAsync(ArenaFormat format)
 /// </summary>
 void UpdateChatPanel()
 {
+    // Voir GDD/demande utilisateur — "discussion privée" avec un ami (voir DrawFriendsPanel) :
+    // Tab annule le mode chuchotement et revient au canal global plutôt que de le faire
+    // disparaître silencieusement.
     if (keyboard.WasJustPressed(Key.Tab))
     {
-        chatChannel = chatChannel == ChatChannel.Global ? ChatChannel.Guild : ChatChannel.Global;
+        if (chatWhisperTarget is not null)
+        {
+            chatWhisperTarget = null;
+            chatChannel = ChatChannel.Global;
+        }
+        else
+        {
+            chatChannel = chatChannel == ChatChannel.Global ? ChatChannel.Guild : ChatChannel.Global;
+        }
+
         return;
     }
 
@@ -2956,12 +3435,21 @@ void UpdateChatPanel()
         }
         else
         {
+            chatWhisperTarget = null;
             activePanel = PanelKind.None;
         }
     }
     else if (keyboard.WasJustPressed(Key.Enter) && chatTextInput.Trim().Length > 0)
     {
-        connection?.SendChatMessage(chatTextInput.Trim(), chatChannel);
+        if (chatWhisperTarget is { } target)
+        {
+            connection?.SendChatMessage(chatTextInput.Trim(), ChatChannel.Prive, target);
+        }
+        else
+        {
+            connection?.SendChatMessage(chatTextInput.Trim(), chatChannel);
+        }
+
         chatTextInput = string.Empty;
     }
 }
@@ -3007,6 +3495,24 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Craft)
     {
         UpdateCraftPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Friends)
+    {
+        UpdateFriendsPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Profile)
+    {
+        UpdateProfilePanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Leaderboard)
+    {
+        UpdateLeaderboardPanel();
         return;
     }
 
@@ -4061,6 +4567,9 @@ void DrawOutdoorHud()
             case PanelKind.Chat: DrawChatPanel(w, h); break;
             case PanelKind.Auction: DrawAuctionPanel(w, h); break;
             case PanelKind.Craft: DrawCraftPanel(w, h); break;
+            case PanelKind.Friends: DrawFriendsPanel(w, h); break;
+            case PanelKind.Profile: DrawProfilePanel(w, h); break;
+            case PanelKind.Leaderboard: DrawLeaderboardPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -4103,6 +4612,10 @@ void DrawOutdoorHud()
     ("GUILDE (G)", PanelKind.Guild),
     ("ARENE (V)", PanelKind.Arena),
     ("TCHAT (T)", PanelKind.Chat),
+    ("AMIS (F)", PanelKind.Friends),
+    ("PROFIL (U)", PanelKind.Profile),
+    // Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
+    ("CLASSEMENT (K)", PanelKind.Leaderboard),
 ];
 
 /// <summary>
@@ -4693,6 +5206,13 @@ void DrawChatPanel(int w, int h)
     if (DrawClickableCentered("GUILDE", new Vector2(topLeft.X + chatWidth / 2f + 60f, topLeft.Y + 54f), 1.9f, guildColor))
     {
         chatChannel = ChatChannel.Guild;
+    }
+
+    // Voir GDD/demande utilisateur — "discussion privée" avec un ami (voir DrawFriendsPanel).
+    if (chatWhisperTarget is { } whisperTarget)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"MESSAGE PRIVE A {whisperTarget.ToUpperInvariant()} (TAB POUR ANNULER)",
+            new Vector2(topLeft.X + chatWidth / 2f, topLeft.Y + 68f), 1.5f, new Vector4(0.9f, 0.6f, 0.95f, 1f));
     }
 
     var messagesTop = topLeft.Y + 80f;

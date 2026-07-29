@@ -43,4 +43,7 @@ public sealed class WorldSessionRegistry
 
     public PlayerSession? FindByCharacterName(string characterName) =>
         _sessions.Values.FirstOrDefault(s => s.CharacterName.Equals(characterName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Voir GDD/demande utilisateur — liste d'amis "en ligne/hors ligne".</summary>
+    public bool IsOnline(Guid characterId) => _sessions.ContainsKey(characterId);
 }
