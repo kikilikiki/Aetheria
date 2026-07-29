@@ -14,6 +14,13 @@ namespace Aetheria.Server.World;
 /// </summary>
 public sealed class ShopService(AetheriaDbContext db, SessionTokenStore tokenStore)
 {
+    /// <summary>
+    /// Voir GDD/demande utilisateur — vendre un objet à la marchande rapporte moins que de le
+    /// déposer à l'Hôtel des ventes (<see cref="AuctionService"/>), en échange d'une vente
+    /// immédiate sans attendre un acheteur.
+    /// </summary>
+    private const double SellBackRatio = 0.4;
+
     public async Task<IReadOnlyList<ShopItem>> GetCatalogAsync(CancellationToken ct = default)
     {
         var items = await db.Items.Where(i => i.Price > 0).ToListAsync(ct);
@@ -76,6 +83,44 @@ public sealed class ShopService(AetheriaDbContext db, SessionTokenStore tokenSto
         {
             Success = true,
             Message = $"{item.Name} x{quantity} acheté(s) !",
+            RemainingGold = character.Gold,
+        };
+    }
+
+    public async Task<ShopPurchaseResponse> SellAsync(ShopSellRequest request, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
+
+        var quantity = Math.Max(1, request.Quantity);
+        var entry = await db.InventoryItems.Include(i => i.Item)
+            .FirstOrDefaultAsync(i => i.CharacterId == character.Id && i.ItemId == request.ItemId, ct);
+
+        if (entry?.Item is null || entry.Quantity < quantity)
+        {
+            throw new AccountOperationException("Vous n'avez pas assez de cet objet.");
+        }
+
+        var totalPrice = (long)(entry.Item.Price * SellBackRatio) * quantity;
+        character.Gold += totalPrice;
+
+        entry.Quantity -= quantity;
+        if (entry.Quantity <= 0)
+        {
+            db.InventoryItems.Remove(entry);
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        return new ShopPurchaseResponse
+        {
+            Success = true,
+            Message = $"{entry.Item.Name} x{quantity} vendu(s) pour {totalPrice} or.",
             RemainingGold = character.Gold,
         };
     }

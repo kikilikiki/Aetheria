@@ -480,7 +480,13 @@ app.MapGet("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}", async (int 
 app.MapGet("/api/professions/recipes", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var recipes = await db.Recipes.Include(r => r.Ingredients).ToListAsync();
+    // Voir GDD/demande utilisateur — "liste des items que l'on peut craft et ce qu'il faut" :
+    // inclut les noms d'objets (résultat + ingrédients) pour que le client n'ait pas besoin d'un
+    // second aller-retour vers le catalogue pour les afficher.
+    var recipes = await db.Recipes
+        .Include(r => r.ResultItem)
+        .Include(r => r.Ingredients).ThenInclude(i => i.Item)
+        .ToListAsync();
     return Results.Ok(recipes);
 });
 
@@ -633,6 +639,78 @@ app.MapPost("/api/shop/buy", async (ShopPurchaseRequest request) =>
     try
     {
         return Results.Ok(await shopService.BuyAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir GDD/demande utilisateur — "un UI pour l'achat/vente d'objet [chez la marchande] mais tu
+// gagnes un peu moins que si tu les mets à l'HDV" : vente à prix réduit, immédiate (voir
+// ShopService.SellAsync), par opposition à AuctionService (dépôt réel, vente différée).
+app.MapPost("/api/shop/sell", async (ShopSellRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var shopService = new ShopService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await shopService.SellAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — "ajoute un bâtiment (un HDV) où
+// les joueurs mettent en vente et achètent, moins cher que chez la marchande").
+app.MapGet("/api/auction/listings", async (Guid? viewerCharacterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var auctionService = new AuctionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await auctionService.GetActiveListingsAsync(viewerCharacterId));
+});
+
+app.MapPost("/api/auction/list", async (CreateAuctionListingRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var auctionService = new AuctionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await auctionService.CreateListingAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/auction/buy", async (AuctionActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var auctionService = new AuctionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await auctionService.BuyAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/auction/cancel", async (AuctionActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var auctionService = new AuctionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await auctionService.CancelAsync(request));
     }
     catch (AccountOperationException ex)
     {

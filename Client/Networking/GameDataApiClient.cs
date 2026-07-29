@@ -213,6 +213,84 @@ public sealed class GameDataApiClient : IDisposable
         return body!;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — vendre à la marchande (moins qu'à l'Hôtel des ventes, voir ShopService.SellAsync).</summary>
+    public async Task<ShopPurchaseResponse> SellItemAsync(string sessionToken, Guid characterId, int itemId, int quantity, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/shop/sell", new ShopSellRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ItemId = itemId,
+            Quantity = quantity,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new ShopPurchaseResponse { Success = false, Message = error?.Message ?? $"Erreur serveur ({(int)response.StatusCode})." };
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<ShopPurchaseResponse>(cancellationToken: ct);
+        return body!;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "un HDV où les joueurs mettent en vente et achètent".</summary>
+    public async Task<List<AuctionListingSummary>> GetAuctionListingsAsync(Guid viewerCharacterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<AuctionListingSummary>>(
+            $"/api/auction/listings?viewerCharacterId={viewerCharacterId}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<AuctionResponse> CreateAuctionListingAsync(string sessionToken, Guid characterId, int itemId, int quantity, long pricePerUnit, CancellationToken ct = default)
+        => await PostAuctionActionAsync("/api/auction/list", new CreateAuctionListingRequest
+        {
+            SessionToken = sessionToken, CharacterId = characterId, ItemId = itemId, Quantity = quantity, PricePerUnit = pricePerUnit,
+        }, ct);
+
+    public async Task<AuctionResponse> BuyAuctionListingAsync(string sessionToken, Guid characterId, Guid listingId, CancellationToken ct = default)
+        => await PostAuctionActionAsync("/api/auction/buy", new AuctionActionRequest
+        {
+            SessionToken = sessionToken, CharacterId = characterId, ListingId = listingId,
+        }, ct);
+
+    public async Task<AuctionResponse> CancelAuctionListingAsync(string sessionToken, Guid characterId, Guid listingId, CancellationToken ct = default)
+        => await PostAuctionActionAsync("/api/auction/cancel", new AuctionActionRequest
+        {
+            SessionToken = sessionToken, CharacterId = characterId, ListingId = listingId,
+        }, ct);
+
+    private async Task<AuctionResponse> PostAuctionActionAsync<TRequest>(string url, TRequest request, CancellationToken ct)
+    {
+        var response = await _http.PostAsJsonAsync(url, request, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new AuctionResponse { Success = false, Message = error?.Message ?? $"Erreur serveur ({(int)response.StatusCode})." };
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<AuctionResponse>(cancellationToken: ct);
+        return body!;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "liste des items que l'on peut craft et ce qu'il faut".</summary>
+    public async Task<List<RecipeSummary>> GetRecipesAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<RecipeSummary>>("/api/professions/recipes", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<ProfessionActionResponse?> CraftAsync(string sessionToken, Guid characterId, int recipeId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/professions/craft", new CraftRequest
+        {
+            SessionToken = sessionToken, CharacterId = characterId, RecipeId = recipeId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ProfessionActionResponse>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Donne un objet d'inventaire à une créature (voir GDD — UI de gestion des montres).</summary>
     public async Task<MonsterInstanceData?> GiveItemToMonsterAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
     {

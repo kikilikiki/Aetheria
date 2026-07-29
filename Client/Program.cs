@@ -143,6 +143,16 @@ var lootPollClock = 0f;
 Npc? activeDialogueNpc = null;
 var dialogueLineIndex = 0;
 
+// Voir GDD/demande utilisateur — "affichage de quête à gauche" (ex. le forgeron qui explique ce
+// qu'il lui faut) : un panneau discret, persistant à l'écran une fois renseigné (contrairement
+// aux dialogues/panneaux modaux), jusqu'à fermeture explicite (touche Q) ou nouvelle quête.
+string? questTitle = null;
+List<string> questLines = [];
+List<RecipeSummary> forgeronRecipes = [];
+var questRecipeCursor = 0;
+string? questMessage = null;
+Task<List<RecipeSummary>>? questRecipeTask = null;
+
 // Sélection du starter (voir Server/World/StarterService.cs) : Introduction (texte narratif) ->
 // Choosing (grille de ~10 créatures communes) -> Confirming (gros plan animé + lore) -> Sending
 // (appel HTTP en cours) -> retour à Confirming en cas d'échec, ou Outdoor en cas de succès.
@@ -221,6 +231,23 @@ List<ShopItem> shopCatalog = [];
 var shopCursor = 0;
 string? shopMessage = null;
 Task<ShopPurchaseResponse>? shopBuyTask = null;
+
+// Voir GDD/demande utilisateur — "dans la marchande, un UI pour l'achat/vente d'objet" : Tab
+// bascule Achat/Vente, la Vente parcourt l'inventaire (au lieu du catalogue) et rapporte moins
+// que de déposer l'objet à l'Hôtel des ventes (voir ShopService.SellAsync).
+var shopSellMode = false;
+var shopSellCursor = 0;
+
+// Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — panneau ouvert en parlant au
+// Commis, à l'intérieur du bâtiment du même nom).
+List<AuctionListingSummary> auctionListings = [];
+Task<List<AuctionListingSummary>>? auctionLoadTask = null;
+Task<AuctionResponse>? auctionActionTask = null;
+string? auctionMessage = null;
+var auctionCursor = 0;
+var auctionSellMode = false;
+var auctionSellCursor = 0;
+var auctionSellPrice = 10L;
 
 // Groupe (voir GDD — bouton Groupe, XP partagée, visibilité globale même hors groupe).
 PartySummary? myParty = null;
@@ -355,6 +382,39 @@ host.Update += deltaTime =>
         gameSettings.Save();
         isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
         Console.WriteLine($"[Parametres] Disposition clavier : {gameSettings.KeyboardLayout} ({(isAzerty ? "ZQSD" : "WASD")}).");
+    }
+
+    // Voir GDD/demande utilisateur — panneau de quête à gauche (ex. liste de craft du Forgeron) :
+    // sondé ici, en dehors de toute scène particulière, pour rester visible/interactif même après
+    // être ressorti du bâtiment (contrairement aux dialogues/panneaux modaux qui se ferment).
+    if (questRecipeTask is { IsCompleted: true } recipeTask)
+    {
+        forgeronRecipes = recipeTask.IsFaulted ? [] : [.. recipeTask.Result.Where(r => r.Profession == ProfessionType.Forgeron)];
+        questRecipeCursor = 0;
+        questMessage = null;
+        RebuildForgeronQuestLines();
+        questRecipeTask = null;
+    }
+
+    if (questTitle is not null && activeDialogueNpc is null && activePanel == PanelKind.None
+        && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
+    {
+        if (keyboard.WasJustPressed(Key.Q))
+        {
+            questTitle = null;
+            questLines = [];
+            forgeronRecipes = [];
+        }
+        else if (forgeronRecipes.Count > 0)
+        {
+            if (keyboard.WasJustPressed(Key.Down)) questRecipeCursor = Math.Min(questRecipeCursor + 1, forgeronRecipes.Count - 1);
+            else if (keyboard.WasJustPressed(Key.Up)) questRecipeCursor = Math.Max(questRecipeCursor - 1, 0);
+            else if (keyboard.WasJustPressed(Key.C) && chosenCharacterId is not null && gameDataApi is not null)
+            {
+                questMessage = null;
+                _ = CraftSelectedRecipeAsync();
+            }
+        }
     }
 
     if (sceneMode == SceneMode.CharacterSelect)
@@ -766,6 +826,13 @@ host.Render += _ =>
     // superposé à toutes les scènes (pas seulement le panneau Tchat), pour être vu même fermé.
     DrawChatToasts(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
 
+    // Voir GDD/demande utilisateur — "affichage de quête à gauche" : superposé au monde/aux
+    // intérieurs (pas en combat/dialogue/character select, où l'écran est déjà chargé).
+    if (questTitle is not null && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
+    {
+        DrawQuestPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
     spriteBatch.End();
 };
 
@@ -853,6 +920,7 @@ bool UpdateActiveDialogueIfAny()
         dialogueLineIndex++;
         if (dialogueLineIndex >= lines.Length)
         {
+            OnDialogueFinished(activeDialogueNpc.Name);
             activeDialogueNpc = null;
             dialogueLineIndex = 0;
         }
@@ -864,6 +932,90 @@ bool UpdateActiveDialogueIfAny()
     }
 
     return true;
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — le Forgeron affiche sa liste de craft "comme une quête" à
+/// gauche, la Marchande ouvre directement son UI d'achat/vente : réactions au dialogue plutôt
+/// qu'un système de quêtes à embranchements complet (voir Docs/README.md pour cette limite
+/// assumée), déclenchées seulement en fin de dialogue (pas sur Echap, pour laisser le joueur
+/// juste lire les répliques sans déclencher l'action s'il ferme tout de suite).
+/// </summary>
+/// <summary>
+/// Construit les lignes du panneau de quête à partir de <see cref="forgeronRecipes"/> et de
+/// l'inventaire courant (voir GDD/demande utilisateur — exemple donné : "le forgeron te dit de
+/// ramener 3 de fer et 1 bâton pour te faire une épée en fer"). Rappelé après un craft réussi
+/// (l'inventaire ayant changé, un objet auparavant "OK" peut ne plus l'être).
+/// </summary>
+void RebuildForgeronQuestLines()
+{
+    questTitle = "LE FORGERON PROPOSE :";
+    questLines = [];
+
+    if (forgeronRecipes.Count == 0)
+    {
+        questLines.Add("Rien à fabriquer pour l'instant.");
+        return;
+    }
+
+    foreach (var recipe in forgeronRecipes)
+    {
+        var ingredientText = string.Join(", ", recipe.Ingredients.Select(i =>
+        {
+            var have = inventoryItems.FirstOrDefault(inv => inv.ItemId == i.ItemId)?.Quantity ?? 0;
+            var name = i.Item?.Name ?? $"Objet #{i.ItemId}";
+            return $"{i.Quantity}x {name} ({have}/{i.Quantity})";
+        }));
+
+        var canCraft = recipe.Ingredients.All(i => (inventoryItems.FirstOrDefault(inv => inv.ItemId == i.ItemId)?.Quantity ?? 0) >= i.Quantity);
+        var status = canCraft ? "[PRET]" : "[MANQUE]";
+        questLines.Add($"{recipe.Name} {status} : {ingredientText}");
+    }
+
+    questLines.Add("");
+    questLines.Add("HAUT/BAS : choisir - C : fabriquer - Q : fermer");
+}
+
+async Task CraftSelectedRecipeAsync()
+{
+    if (chosenCharacterId is null || gameDataApi is null || questRecipeCursor >= forgeronRecipes.Count)
+    {
+        return;
+    }
+
+    var recipe = forgeronRecipes[questRecipeCursor];
+    try
+    {
+        var result = await gameDataApi.CraftAsync(options.SessionToken!, chosenCharacterId.Value, recipe.Id);
+        questMessage = result?.Message ?? "Connexion au serveur impossible.";
+        await LoadInventoryAsync();
+        RebuildForgeronQuestLines();
+    }
+    catch (HttpRequestException)
+    {
+        questMessage = "Connexion au serveur impossible.";
+    }
+}
+
+void OnDialogueFinished(string npcName)
+{
+    // "Apprenti forgeron" (intérieur de la Forge, voir GDD/demande utilisateur — "si on rentre
+    // dans la maison du forgeron") plutôt que "Forgeron" (extérieur, simple PNJ décoratif).
+    if (npcName == "Apprenti forgeron")
+    {
+        questRecipeTask = gameDataApi?.GetRecipesAsync();
+    }
+    else if (npcName == "Marchande")
+    {
+        OpenPanel(PanelKind.Shop);
+    }
+    else if (npcName == "Commis")
+    {
+        // Voir GDD/demande utilisateur — "un HDV où les joueurs mettent en vente et achètent" :
+        // le Commis de l'Hôtel des ventes (déjà présent à l'intérieur du bâtiment du même nom)
+        // ouvre le panneau des enchères entre joueurs, distinct de la Boutique de la Marchande.
+        OpenPanel(PanelKind.Auction);
+    }
 }
 
 /// <summary>
@@ -1532,8 +1684,11 @@ void OpenPanel(PanelKind kind)
             break;
         case PanelKind.Shop:
             shopCursor = 0;
+            shopSellCursor = 0;
+            shopSellMode = false;
             shopMessage = null;
             _ = LoadShopCatalogAsync();
+            _ = LoadInventoryAsync();
             break;
         case PanelKind.Party:
             partyLoaded = false;
@@ -1555,6 +1710,15 @@ void OpenPanel(PanelKind kind)
             break;
         case PanelKind.Chat:
             chatTextInput = string.Empty;
+            break;
+        case PanelKind.Auction:
+            auctionMessage = null;
+            auctionCursor = 0;
+            auctionSellMode = false;
+            auctionSellCursor = 0;
+            auctionSellPrice = 10L;
+            _ = LoadInventoryAsync();
+            auctionLoadTask = gameDataApi?.GetAuctionListingsAsync(chosenCharacterId ?? Guid.Empty);
             break;
     }
 }
@@ -2090,6 +2254,12 @@ void UpdatePanel(float deltaTime)
         return;
     }
 
+    if (activePanel == PanelKind.Auction)
+    {
+        UpdateAuctionPanel();
+        return;
+    }
+
     if (keyboard.WasJustPressed(Key.Escape))
     {
         activePanel = PanelKind.None;
@@ -2105,11 +2275,50 @@ void UpdatePanel(float deltaTime)
     if (shopBuyTask is { IsCompleted: true } task)
     {
         shopMessage = task.IsFaulted ? "Connexion au serveur impossible." : task.Result.Message;
+        if (!task.IsFaulted && task.Result.Success)
+        {
+            // Voir GDD/demande utilisateur — la liste de vente reflète l'inventaire courant :
+            // rafraîchi après un achat/une vente pour ne pas afficher des quantités périmées.
+            _ = LoadInventoryAsync();
+        }
+
         shopBuyTask = null;
         return;
     }
 
-    if (shopCatalog.Count == 0 || shopBuyTask is not null)
+    if (shopBuyTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Tab))
+    {
+        shopSellMode = !shopSellMode;
+        shopSellCursor = 0;
+        shopMessage = null;
+        return;
+    }
+
+    if (shopSellMode)
+    {
+        if (inventoryItems.Count == 0)
+        {
+            return;
+        }
+
+        if (keyboard.WasJustPressed(Key.Down)) shopSellCursor = Math.Min(shopSellCursor + 1, inventoryItems.Count - 1);
+        else if (keyboard.WasJustPressed(Key.Up)) shopSellCursor = Math.Max(shopSellCursor - 1, 0);
+        else if (keyboard.WasJustPressed(Key.Enter))
+        {
+            shopMessage = null;
+            var entry = inventoryItems[shopSellCursor];
+            shopBuyTask = gameDataApi!.SellItemAsync(options.SessionToken!, chosenCharacterId!.Value, entry.ItemId, 1);
+        }
+
+        return;
+    }
+
+    if (shopCatalog.Count == 0)
     {
         return;
     }
@@ -2120,6 +2329,91 @@ void UpdatePanel(float deltaTime)
     {
         shopMessage = null;
         shopBuyTask = gameDataApi!.BuyItemAsync(options.SessionToken!, chosenCharacterId!.Value, shopCatalog[shopCursor].ItemId);
+    }
+}
+
+/// <summary>
+/// Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — "un HDV où les joueurs mettent
+/// en vente et achètent, moins cher que chez la marchande") : Tab bascule Parcourir/Vendre,
+/// comme le panneau Boutique. En vente, le prix suggéré (70% du prix boutique, 10 or par défaut
+/// si l'objet n'est pas en boutique) est ajustable avec Gauche/Droite avant de déposer TOUT le
+/// stock sélectionné — pas de vente partielle pour cette première version.
+/// </summary>
+void UpdateAuctionPanel()
+{
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        auctionMessage = null;
+        return;
+    }
+
+    if (auctionActionTask is { IsCompleted: true } actionTask)
+    {
+        auctionMessage = actionTask.IsFaulted ? "Connexion au serveur impossible." : actionTask.Result.Message;
+        auctionActionTask = null;
+        auctionLoadTask = gameDataApi?.GetAuctionListingsAsync(chosenCharacterId ?? Guid.Empty);
+        _ = LoadInventoryAsync();
+        return;
+    }
+
+    if (auctionLoadTask is { IsCompleted: true } loadTask)
+    {
+        auctionListings = loadTask.IsFaulted ? [] : loadTask.Result;
+        auctionCursor = Math.Clamp(auctionCursor, 0, Math.Max(0, auctionListings.Count - 1));
+        auctionLoadTask = null;
+        return;
+    }
+
+    if (auctionActionTask is not null || auctionLoadTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Tab))
+    {
+        auctionSellMode = !auctionSellMode;
+        auctionSellCursor = 0;
+        auctionMessage = null;
+        return;
+    }
+
+    if (auctionSellMode)
+    {
+        if (inventoryItems.Count == 0)
+        {
+            return;
+        }
+
+        if (keyboard.WasJustPressed(Key.Down)) auctionSellCursor = Math.Min(auctionSellCursor + 1, inventoryItems.Count - 1);
+        else if (keyboard.WasJustPressed(Key.Up)) auctionSellCursor = Math.Max(auctionSellCursor - 1, 0);
+        else if (keyboard.WasJustPressed(Key.Left)) auctionSellPrice = Math.Max(1, auctionSellPrice - 5);
+        else if (keyboard.WasJustPressed(Key.Right)) auctionSellPrice += 5;
+        else if (keyboard.WasJustPressed(Key.Enter))
+        {
+            var entry = inventoryItems[auctionSellCursor];
+            auctionMessage = null;
+            auctionActionTask = gameDataApi!.CreateAuctionListingAsync(
+                options.SessionToken!, chosenCharacterId!.Value, entry.ItemId, entry.Quantity, auctionSellPrice);
+        }
+
+        return;
+    }
+
+    if (auctionListings.Count == 0)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) auctionCursor = Math.Min(auctionCursor + 1, auctionListings.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) auctionCursor = Math.Max(auctionCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        var listing = auctionListings[auctionCursor];
+        auctionMessage = null;
+        auctionActionTask = listing.IsMine
+            ? gameDataApi!.CancelAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId)
+            : gameDataApi!.BuyAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
     }
 }
 
@@ -2838,6 +3132,7 @@ void DrawOutdoorHud()
             case PanelKind.Arena: DrawArenaPanel(w, h); break;
             case PanelKind.Monsters: DrawMonstersPanel(w, h); break;
             case PanelKind.Chat: DrawChatPanel(w, h); break;
+            case PanelKind.Auction: DrawAuctionPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -3245,6 +3540,41 @@ void DrawArenaPanel(int w, int h)
 /// secondes (voir chatToastLifetime), visibles quelle que soit la scène/le panneau actif
 /// contrairement à <see cref="DrawChatPanel"/> qui n'existe que derrière la touche T.
 /// </summary>
+/// <summary>
+/// Voir GDD/demande utilisateur — "affichage de quête à gauche" (ex. "le forgeron te dit de
+/// ramener 3 de fer et 1 bâton pour te faire une épée en fer"). Persistant jusqu'à fermeture
+/// (Q) ou nouvelle quête, contrairement aux notifications de tchat éphémères.
+/// </summary>
+void DrawQuestPanel(int w, int h)
+{
+    if (questTitle is null)
+    {
+        return;
+    }
+
+    var displayLines = questMessage is not null ? [.. questLines, "", questMessage] : questLines;
+    const float panelWidth = 340f;
+    var lineHeight = TextRenderer.LineHeight(1.5f);
+    var panelHeight = 40f + displayLines.Count * (lineHeight + 4f) + 12f;
+    var topLeft = new Vector2(16f, h / 2f - panelHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(panelWidth, panelHeight), new Vector4(0.08f, 0.08f, 0.12f, 0.9f));
+    DrawPanel(topLeft, new Vector2(panelWidth, 3f), new Vector4(0.9f, 0.8f, 0.4f, 1f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, questTitle, topLeft + new Vector2(12f, 10f), 1.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+
+    var y = topLeft.Y + 40f;
+    for (var i = 0; i < displayLines.Count; i++)
+    {
+        // Les recettes occupent les premières lignes de questLines, dans l'ordre de forgeronRecipes
+        // (voir RebuildForgeronQuestLines) : surligne celle actuellement sélectionnée pour C.
+        var color = i < forgeronRecipes.Count && i == questRecipeCursor
+            ? new Vector4(0.6f, 0.95f, 0.65f, 1f)
+            : new Vector4(0.85f, 0.85f, 0.9f, 1f);
+        TextRenderer.Draw(spriteBatch, whiteTexture, displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, color);
+        y += lineHeight + 4f;
+    }
+}
+
 void DrawChatToasts(int w, int h)
 {
     List<(ChatLine Line, DateTime ExpiresAtUtc)> toasts;
@@ -3401,9 +3731,34 @@ void DrawShopPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BOUTIQUE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    var modeLabel = shopSellMode ? "BOUTIQUE - VENTE" : "BOUTIQUE - ACHAT";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
-    if (shopCatalog.Count == 0)
+    // Voir GDD/demande utilisateur — "un UI pour l'achat/vente d'objet mais tu gagnes un peu
+    // moins que si tu les mets à l'HDV" : Tab bascule entre les deux modes.
+    if (shopSellMode)
+    {
+        if (inventoryItems.Count == 0)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            var y = topLeft.Y + 56f;
+            for (var i = 0; i < inventoryItems.Count; i++)
+            {
+                var entry = inventoryItems[i];
+                var selected = i == shopSellCursor;
+                var color = selected ? new Vector4(0.9f, 0.75f, 0.35f, 1f) : Vector4.One;
+                var prefix = selected ? "> " : "  ";
+                var catalogEntry = shopCatalog.FirstOrDefault(c => c.ItemId == entry.ItemId);
+                var sellPrice = catalogEntry is not null ? $"{(int)(catalogEntry.Price * 0.4)} OR" : "?";
+                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{entry.Name.ToUpperInvariant()} x{entry.Quantity} - {sellPrice}/u", new Vector2(topLeft.X + 20f, y), 2f, color);
+                y += 28f;
+            }
+        }
+    }
+    else if (shopCatalog.Count == 0)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
@@ -3426,8 +3781,76 @@ void DrawShopPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, shopMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : ACHETER - ECHAP : FERMER",
-        new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TAB : ACHAT/VENTE - HAUT/BAS : CHOISIR - ENTREE : VALIDER - ECHAP : FERMER",
+        new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>Hôtel des ventes entre joueurs (voir GDD/demande utilisateur — panneau ouvert en parlant au Commis).</summary>
+void DrawAuctionPanel(int w, int h)
+{
+    const float boxWidth = 560f;
+    const float boxHeight = 420f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.4f, 0.55f, 0.68f, 1f));
+
+    var modeLabel = auctionSellMode ? "HOTEL DES VENTES - DEPOSER" : "HOTEL DES VENTES";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.6f, 0.8f, 0.95f, 1f));
+
+    if (auctionSellMode)
+    {
+        if (inventoryItems.Count == 0)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            var y = topLeft.Y + 56f;
+            for (var i = 0; i < inventoryItems.Count; i++)
+            {
+                var entry = inventoryItems[i];
+                var selected = i == auctionSellCursor;
+                var color = selected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
+                var prefix = selected ? "> " : "  ";
+                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{entry.Name.ToUpperInvariant()} x{entry.Quantity}", new Vector2(topLeft.X + 20f, y), 2f, color);
+                y += 28f;
+            }
+
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"PRIX PAR UNITE : {auctionSellPrice} OR (GAUCHE/DROITE POUR AJUSTER)",
+                new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.7f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        }
+    }
+    else if (auctionListings.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE ANNONCE POUR L'INSTANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 56f;
+        for (var i = 0; i < auctionListings.Count; i++)
+        {
+            var listing = auctionListings[i];
+            var selected = i == auctionCursor;
+            var color = selected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
+            var prefix = selected ? "> " : "  ";
+            var suffix = listing.IsMine ? " (VOTRE ANNONCE)" : $" - {listing.SellerName}";
+            TextRenderer.Draw(spriteBatch, whiteTexture,
+                $"{prefix}{listing.ItemName.ToUpperInvariant()} x{listing.Quantity} - {listing.PricePerUnit} OR/u{suffix}",
+                new Vector2(topLeft.X + 20f, y), 1.9f, color);
+            y += 28f;
+        }
+    }
+
+    if (auctionMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, auctionMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+
+    var footer = auctionSellMode
+        ? "TAB : PARCOURIR - HAUT/BAS : OBJET - ENTREE : DEPOSER TOUT LE STOCK - ECHAP : FERMER"
+        : "TAB : DEPOSER UN OBJET - ENTREE : ACHETER (OU ANNULER SI C'EST LA VOTRE) - ECHAP : FERMER";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawDialogueBox(int w, int h)
@@ -4399,6 +4822,7 @@ enum PanelKind
     Arena,
     Monsters,
     Chat,
+    Auction,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
