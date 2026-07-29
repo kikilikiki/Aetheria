@@ -364,14 +364,15 @@
                             Visibility="{Binding ShowPlayButton, Converter={StaticResource BoolToVis}}" />
 
                     <!-- Le serveur tourne une version differente de ce Launcher (voir GDD/demande
-                         utilisateur) : bloque JOUER, invite a retelecharger plutot qu'une vraie
-                         mise a jour automatique (pas de serveur de distribution pour l'instant,
-                         voir Docs/README.md). -->
+                         utilisateur — "obligé de faire la dernière mise à jour pour lancer le
+                         jeu") : bloque JOUER, le bouton télécharge et applique la mise à jour lui-
+                         même (voir SelfUpdateService), texte "Mise à jour" / "Mise à jour en cours
+                         (X%)" pendant l'opération. -->
                     <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center"
                                 Visibility="{Binding ShowUpdateButton, Converter={StaticResource BoolToVis}}">
-                        <Button Content="METTRE A JOUR" Style="{StaticResource PrimaryActionButton}"
-                                Width="220" Height="56" IsEnabled="False" />
-                        <TextBlock Text="{Binding ServerVersion, StringFormat='Version {0} disponible - retelechargez le Launcher'}"
+                        <Button Content="{Binding UpdateButtonText}" Command="{Binding UpdateCommand}"
+                                Style="{StaticResource PrimaryActionButton}" Width="220" Height="56" />
+                        <TextBlock Text="{Binding ServerVersion, StringFormat='Version {0} disponible'}"
                                    Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap"
                                    MaxWidth="220" TextAlignment="Center" Margin="0,6,0,0" />
                     </StackPanel>
@@ -393,9 +394,12 @@
                         <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,18" />
 
                         <TextBlock Text="Adresse du serveur" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" FontSize="12" />
-                        <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,6" />
+                        <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding IsAdminAccount}" Margin="0,0,0,6" />
                         <TextBlock Text="IP publique ou nom de domaine du serveur — fonctionne en local comme depuis un autre réseau."
-                                   Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,22" />
+                                   Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <!-- Voir GDD/demande utilisateur — "seul le compte admin (grade fondateur) peut modifier l'adresse du serveur". -->
+                        <TextBlock Text="Réservé au compte Fondateur." Foreground="{StaticResource TextMutedBrush}" FontSize="11"
+                                   Visibility="{Binding IsAdminAccount, Converter={StaticResource InverseBoolToVis}}" Margin="0,0,0,22" />
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
                     </StackPanel>

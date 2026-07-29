@@ -111,7 +111,7 @@ public static class MonsterCatalogSeeder
         {
             db.Items.Add(new ItemEntity
             {
-                Name = "Sphère de capture",
+                Name = "Carte de capture",
                 Description = "Objet nécessaire pour capturer une créature suffisamment affaiblie.",
                 ItemType = ItemType.ObjetDeCapture,
                 Rarity = Rarity.Commun,
