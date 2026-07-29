@@ -12,7 +12,18 @@ public sealed class DuelInvitePacket : IPacket
 
     public required string FromCharacterName { get; init; }
 
-    public void Write(BinaryWriter writer) => writer.Write(FromCharacterName);
+    /// <summary>Voir GDD/demande utilisateur — "si la personne est en team tout les membres doivent accepter" : nombre de membres (dont soi-même) qui doivent accepter côté défié — 1 pour un duel solo classique.</summary>
+    public int TargetTeamSize { get; init; } = 1;
 
-    public static IPacket Read(BinaryReader reader) => new DuelInvitePacket { FromCharacterName = reader.ReadString() };
+    public void Write(BinaryWriter writer)
+    {
+        writer.Write(FromCharacterName);
+        writer.Write(TargetTeamSize);
+    }
+
+    public static IPacket Read(BinaryReader reader) => new DuelInvitePacket
+    {
+        FromCharacterName = reader.ReadString(),
+        TargetTeamSize = reader.ReadInt32(),
+    };
 }

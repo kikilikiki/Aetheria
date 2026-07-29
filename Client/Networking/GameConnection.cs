@@ -25,7 +25,7 @@ public sealed class GameConnection : IDisposable
     public event Action<ChatMessagePacket>? ChatMessageReceived;
     public event Action<AdminEffectPacket>? AdminEffectReceived;
     public event Action<DuelInvitePacket>? DuelInviteReceived;
-    public event Action<DuelAcceptedPacket>? DuelAcceptedReceived;
+    public event Action<TeamDuelReadyPacket>? TeamDuelReadyReceived;
     public event Action<DuelStartedPacket>? DuelStartedReceived;
     public event Action? Disconnected;
 
@@ -127,8 +127,8 @@ public sealed class GameConnection : IDisposable
                     case DuelInvitePacket duelInvite:
                         DuelInviteReceived?.Invoke(duelInvite);
                         break;
-                    case DuelAcceptedPacket duelAccepted:
-                        DuelAcceptedReceived?.Invoke(duelAccepted);
+                    case TeamDuelReadyPacket teamDuelReady:
+                        TeamDuelReadyReceived?.Invoke(teamDuelReady);
                         break;
                     case DuelStartedPacket duelStarted:
                         DuelStartedReceived?.Invoke(duelStarted);

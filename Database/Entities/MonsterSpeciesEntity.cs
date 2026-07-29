@@ -49,4 +49,12 @@ public sealed class MonsterSpeciesEntity
 
     public int? EvolvesIntoSpeciesId { get; set; }
     public int EvolutionLevel { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "10 choix de starter, pas 18" : distinct de
+    /// <see cref="BaseRarity"/>==Commun (le bestiaire étendu, H40, a ajouté 8 autres espèces
+    /// communes qui doivent rester de simples rencontres sauvages, pas des choix de départ).
+    /// Seules les espèces avec ce flag apparaissent dans <c>GET /api/monsters/species/starters</c>.
+    /// </summary>
+    public bool IsStarter { get; set; }
 }

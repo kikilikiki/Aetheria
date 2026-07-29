@@ -414,12 +414,17 @@ de gameplay.
      Vérifié : salle Monstre → combat démarré, salle non-combat (Énigme) → rejetée, étage 10
      → Ombrelune (Rare), étage 50 → Dracaelith (Légendaire), conforme aux jalons du GDD.
    - ✅ PvP classé (`CombatSession` étendu au multi-joueur réel — `TeamOwnerUserId`/
-     `TeamCharacterId` par équipe, `POST /api/pvp/challenge`) : défi direct entre deux
+     `TeamCharacterId` par équipe, `POST /api/pvp/team-challenge`) : défi direct entre deux
      personnages, chacun contrôlé par son propre compte, alternance de tour stricte
      vérifiée par jeton de session (l'action de l'un est rejetée hors de son tour). La
      victoire met à jour `PvpStatistics` (victoires/défaites/série/rang) des deux côtés.
      Vérifié de bout en bout avec deux comptes distincts : tentative hors tour rejetée,
      alternance correcte, combat mené jusqu'au K.O.
+   - ✅ Duel amical groupe vs groupe (`/duel <pseudo>` + bouton UI DUEL, `DuelInviteService`,
+     `POST /api/pvp/team-challenge`, `CombatService.StartFriendlyTeamDuelAsync`) : si le
+     personnage défié est en groupe, tous ses membres connectés doivent accepter avant que le
+     combat ne démarre ; chaque participant engage son équipe active (`IsInActiveTeam`), pas de
+     sélection manuelle par combat (impossible à coordonner entre plusieurs joueurs humains).
    - ✅ Arènes classées 1v1/2v2/3v3/4v4 + ligues ELO (voir GDD) :
      - `Combatant.OwnerUserId`/`OwnerCharacterId` remplacent `TeamOwnerUserId`/`TeamCharacterId`
        pour l'autorisation d'action (`CombatService.SubmitActionAsync`) — plusieurs joueurs

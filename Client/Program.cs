@@ -438,13 +438,16 @@ Task<bool>? arenaQueueTask = null;
 Task<ArenaQueueStatus?>? arenaPollTask = null;
 Task<CombatSessionState?>? arenaMatchStateTask = null;
 
-// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : invitation reçue
-// (touche T -> chat -> "/duel <pseudo>" pour en envoyer une), avec une limite de temps miroir de
+// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp", puis "propose un
+// pvp, si la personne est en team tout les membres doivent accepter" : invitation reçue (bouton
+// DUEL ou "/duel <pseudo>" dans le tchat pour en envoyer une), avec une limite de temps miroir de
 // celle du serveur (voir DuelInviteService.InviteLifetime, 30s) pour ne pas laisser l'invite
 // affichée indéfiniment si la réponse s'est perdue.
 string? pendingDuelInviteFrom = null;
+var pendingDuelInviteTeamSize = 1;
 var duelInviteExpiresAtUtc = DateTime.MinValue;
 Task<CombatSessionState?>? duelMatchStateTask = null;
+var duelTextInput = string.Empty;
 
 // Sélection/création de personnage (voir GDD) : ne se fait plus dans le Launcher, mais en jeu,
 // avant la connexion TCP proprement dite. `--characterId` reste accepté pour compatibilité
@@ -1128,7 +1131,7 @@ host.Render += _ =>
     // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp".
     if (pendingDuelInviteFrom is { } duelChallengerName && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
     {
-        DrawDuelInvitePopup(uiCamera.ViewportWidth, uiCamera.ViewportHeight, duelChallengerName);
+        DrawDuelInvitePopup(uiCamera.ViewportWidth, uiCamera.ViewportHeight, duelChallengerName, pendingDuelInviteTeamSize);
     }
 
     if (isTeleportPanelOpen)
@@ -2441,14 +2444,15 @@ void ConnectAndEnterWorld(Guid characterId)
         lock (stateLock)
         {
             pendingDuelInviteFrom = packet.FromCharacterName;
+            pendingDuelInviteTeamSize = packet.TargetTeamSize;
             duelInviteExpiresAtUtc = DateTime.UtcNow.AddSeconds(30);
         }
     };
-    connection.DuelAcceptedReceived += packet =>
+    connection.TeamDuelReadyReceived += packet =>
     {
         lock (stateLock)
         {
-            duelMatchStateTask = ChallengeDuelOpponentAsync(packet.OpponentCharacterId);
+            duelMatchStateTask = ChallengeTeamDuelAsync(packet.ChallengerTeamCharacterIds, packet.TargetTeamCharacterIds);
         }
     };
     connection.DuelStartedReceived += packet =>
@@ -3096,6 +3100,9 @@ void OpenPanel(PanelKind kind)
         case PanelKind.QuestList:
             questListCursor = 0;
             break;
+        case PanelKind.Duel:
+            duelTextInput = string.Empty;
+            break;
     }
 }
 
@@ -3693,26 +3700,22 @@ async Task<bool> QueueForArenaAsync(ArenaFormat format)
 }
 
 /// <summary>
-/// Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : appelé côté
-/// défieur une fois l'invitation acceptée (voir DuelAcceptedReceived) — récupère sa propre équipe
-/// ET celle de l'adversaire (endpoint public, voir GetCharacterMonstersAsync) avant de démarrer
-/// réellement le combat via l'endpoint HTTP existant.
+/// Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres
+/// doivent accepter" : appelé côté défieur une fois <see cref="TeamDuelReadyPacket"/> reçu (toute
+/// l'équipe ciblée a accepté). Ni sa propre équipe de créatures ni celle des autres participants
+/// ne sont envoyées : le serveur engage l'équipe active de chaque personnage lui-même (voir
+/// <c>CombatService.StartFriendlyTeamDuelAsync</c>).
 /// </summary>
-async Task<CombatSessionState?> ChallengeDuelOpponentAsync(Guid opponentCharacterId)
+async Task<CombatSessionState?> ChallengeTeamDuelAsync(IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds)
 {
-    if (combatApi is null || starterApi is null || chosenCharacterId is null || options.SessionToken is null)
+    if (combatApi is null || chosenCharacterId is null || options.SessionToken is null)
     {
         return null;
     }
 
     try
     {
-        var myMonsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
-        var opponentMonsters = await starterApi.GetCharacterMonstersAsync(opponentCharacterId);
-        var result = await combatApi.ChallengeAsync(
-            options.SessionToken, chosenCharacterId.Value, myMonsters.Select(m => m.Id).ToList(),
-            opponentCharacterId, opponentMonsters.Select(m => m.Id).ToList());
-
+        var result = await combatApi.ChallengeTeamAsync(options.SessionToken, chosenCharacterId.Value, challengerTeamCharacterIds, targetTeamCharacterIds);
         return result.State;
     }
     catch (HttpRequestException)
@@ -3852,6 +3855,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.QuestList)
     {
         UpdateQuestListPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Duel)
+    {
+        UpdateDuelPanel();
         return;
     }
 
@@ -4910,6 +4919,7 @@ void DrawOutdoorHud()
             case PanelKind.Profile: DrawProfilePanel(w, h); break;
             case PanelKind.Leaderboard: DrawLeaderboardPanel(w, h); break;
             case PanelKind.QuestList: DrawQuestListPanel(w, h); break;
+            case PanelKind.Duel: DrawDuelPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -4958,6 +4968,9 @@ void DrawOutdoorHud()
     ("CLASSEMENT (K)", PanelKind.Leaderboard),
     // Voir GDD/demande utilisateur — "un UI pour afficher toutes les quêtes en cours".
     ("QUETES (J)", PanelKind.QuestList),
+    // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
+    // son pseudo".
+    ("DUEL", PanelKind.Duel),
 ];
 
 /// <summary>
@@ -4975,6 +4988,11 @@ bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
     if (activeStoryQuest is not null)
     {
         labels.Add(questTitle is not null ? "QUETE (Q)" : "QUETE (Q) [MASQUEE]");
+    }
+
+    if (myIsAdmin || myRank == UserRank.Fondateur)
+    {
+        labels.Add("ADMIN (F2)");
     }
 
     var maxWidth = labels.Count > 0 ? labels.Max(l => TextRenderer.MeasureWidth(l, pixelSize)) : 0f;
@@ -5027,6 +5045,28 @@ void DrawOutdoorHudButtons(int w, int h)
         if (DrawClickableCentered(questLabel, questCenter, pixelSize, questColor))
         {
             ToggleQuestPanel();
+        }
+
+        y += TextRenderer.LineHeight(pixelSize) + 10f;
+    }
+
+    // Voir GDD/demande utilisateur — "il n'y a toujours pas de bouton pour le fondateur et les
+    // admin en haut à droite" : bouton dédié en plus du raccourci F2 (voir plus haut dans le
+    // gestionnaire d'entrée outdoor), réservé aux comptes admin/Fondateur comme le panel lui-même.
+    if (myIsAdmin || myRank == UserRank.Fondateur)
+    {
+        const string adminLabel = "ADMIN (F2)";
+        var adminWidth = TextRenderer.MeasureWidth(adminLabel, pixelSize);
+        var adminCenter = new Vector2(w - 16f - adminWidth / 2f, y);
+        var adminColor = isAdminPanelOpen ? new Vector4(0.95f, 0.5f, 0.45f, 1f) : new Vector4(0.85f, 0.65f, 0.6f, 1f);
+
+        if (DrawClickableCentered(adminLabel, adminCenter, pixelSize, adminColor))
+        {
+            isAdminPanelOpen = !isAdminPanelOpen;
+            adminPanelCursor = 0;
+            adminPanelTyping = false;
+            adminPanelTextInput = string.Empty;
+            adminPanelMessage = null;
         }
     }
 }
@@ -5536,17 +5576,71 @@ void DrawAdminBanner(int w, int h)
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, adminBannerMessage, new Vector2(w / 2f, 95f), 2.6f, new Vector4(0.98f, 0.85f, 0.3f, 1f));
 }
 
-/// <summary>Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : popup accepter/refuser, envoyée via <c>/duel &lt;pseudo&gt;</c> dans le tchat (voir PlayerSession.HandleDuelCommand).</summary>
-void DrawDuelInvitePopup(int w, int h, string challengerName)
+/// <summary>Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres doivent accepter" : popup accepter/refuser, envoyée via le bouton DUEL ou <c>/duel &lt;pseudo&gt;</c> dans le tchat (voir PlayerSession.HandleDuelCommand). Si <paramref name="teamSize"/> &gt; 1, précise que tout le groupe doit accepter pour que le combat démarre.</summary>
+void DrawDuelInvitePopup(int w, int h, string challengerName, int teamSize)
 {
-    const float boxWidth = 420f;
-    const float boxHeight = 130f;
+    const float boxWidth = 460f;
+    const float boxHeight = 150f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h * 0.3f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.12f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.4f, 0.85f, 1f));
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{challengerName} VOUS DEFIE EN DUEL !", new Vector2(w / 2f, topLeft.Y + 34f), 2f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
+    if (teamSize > 1)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"Votre groupe entier ({teamSize} joueurs) doit accepter.", new Vector2(w / 2f, topLeft.Y + 66f), 1.6f, new Vector4(0.85f, 0.75f, 0.9f, 1f));
+    }
+
     DrawPromptBanner("ENTREE : ACCEPTER - ECHAP : REFUSER", new Vector2(w / 2f, topLeft.Y + boxHeight - 30f));
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire son
+/// pseudo" : simple saisie de pseudo, envoyée comme <c>/duel &lt;pseudo&gt;</c> (voir
+/// PlayerSession.HandleDuelCommand) — réutilise toute la logique serveur déjà en place (groupe,
+/// invitation, expiration) plutôt que dupliquer un protocole dédié pour ce bouton.
+/// </summary>
+void UpdateDuelPanel()
+{
+    foreach (var typed in keyboard.DrainTypedChars())
+    {
+        if (duelTextInput.Length < 24 && !char.IsControl(typed))
+        {
+            duelTextInput += typed;
+        }
+    }
+
+    if (keyboard.WasJustPressed(Key.Backspace) && duelTextInput.Length > 0)
+    {
+        duelTextInput = duelTextInput[..^1];
+    }
+    else if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        duelTextInput = string.Empty;
+    }
+    else if (keyboard.WasJustPressed(Key.Enter) && duelTextInput.Trim().Length > 0)
+    {
+        connection?.SendChatMessage($"/duel {duelTextInput.Trim()}", ChatChannel.Global);
+        duelTextInput = string.Empty;
+        activePanel = PanelKind.None;
+    }
+}
+
+void DrawDuelPanel(int w, int h)
+{
+    const float boxWidth = 460f;
+    const float boxHeight = 170f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.08f, 0.1f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.4f, 0.85f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "DEFIER EN DUEL", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, "Pseudo du joueur a defier :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, duelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
+    TextRenderer.Draw(spriteBatch, whiteTexture, "Si son groupe (ou le votre) compte plusieurs joueurs,", new Vector2(topLeft.X + 20f, topLeft.Y + 128f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, "tous ses membres devront accepter pour lancer le combat.", new Vector2(topLeft.X + 20f, topLeft.Y + 144f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawPromptBanner("ENTREE : DEFIER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
 }
 
 void DrawChatToasts(int w, int h)
@@ -6860,6 +6954,7 @@ enum PanelKind
     Profile,
     Leaderboard,
     QuestList,
+    Duel,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
