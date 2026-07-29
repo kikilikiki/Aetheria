@@ -31,4 +31,16 @@ public sealed class WorldSessionRegistry
             session.SendPacket(packet);
         }
     }
+
+    /// <summary>Voir GDD/demande utilisateur — panel admin en jeu (message à tous, transformation de skin) : personne à exclure ici, contrairement à <see cref="BroadcastExcept"/>.</summary>
+    public void BroadcastAll(IPacket packet)
+    {
+        foreach (var session in All())
+        {
+            session.SendPacket(packet);
+        }
+    }
+
+    public PlayerSession? FindByCharacterName(string characterName) =>
+        _sessions.Values.FirstOrDefault(s => s.CharacterName.Equals(characterName, StringComparison.OrdinalIgnoreCase));
 }

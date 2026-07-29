@@ -11,7 +11,9 @@ using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
+using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.Combat;
+using Aetheria.Shared.Network.Packets;
 using Aetheria.Shared.Settings;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
@@ -218,6 +220,31 @@ var chatToasts = new List<(ChatLine Line, DateTime ExpiresAtUtc)>();
 const int MaxChatToasts = 5;
 var chatToastLifetime = TimeSpan.FromSeconds(6);
 
+// Voir GDD/demande utilisateur — "panel admin en jeu... afficher un message en haut de l'écran
+// en gros à tout les joueurs" et "transformer le skin de tout les joueurs en panneau [...]
+// pendant 5min" : reçus via AdminEffectPacket (voir GameConnection.AdminEffectReceived), affichés
+// tant que non expirés plutôt que sur un évènement ponctuel (le rendu tourne en continu).
+string? adminBannerMessage = null;
+var adminBannerExpiresAtUtc = DateTime.MinValue;
+var signModeExpiresAtUtc = DateTime.MinValue;
+var woodPanelColor = new Vector4(0.55f, 0.38f, 0.22f, 1f);
+var woodPanelOutline = new Vector4(0.35f, 0.22f, 0.12f, 1f);
+var isAdminPanelOpen = false;
+var adminPanelCursor = 0;
+var adminPanelTyping = false;
+var adminPanelTextInput = string.Empty;
+string? adminPanelMessage = null;
+Task<AdminGameActionResponse>? adminPanelActionTask = null;
+
+/// <summary>Libellés des commandes du panel admin en jeu (voir <see cref="UpdateAdminGamePanel"/>/<see cref="DrawAdminGamePanel"/>) : les indices 0, 2 et 3 demandent une saisie, 1 s'exécute immédiatement.</summary>
+var AdminPanelCommands = new[]
+{
+    "MESSAGE A TOUS (texte)",
+    "MODE PANNEAU 5 MIN (aucune saisie)",
+    "DONNER UN OBJET (perso;id;qte)",
+    "EXPULSER (nom du personnage)",
+};
+
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
 var guildTextInput = string.Empty;
@@ -415,6 +442,24 @@ host.Update += deltaTime =>
                 _ = CraftSelectedRecipeAsync();
             }
         }
+    }
+
+    // Voir GDD/demande utilisateur — "panel admin en jeu" : F2, réservé au grade Fondateur (même
+    // règle que le panel admin du Launcher), disponible en dehors des scènes de connexion/combat.
+    if (myRank == UserRank.Fondateur && keyboard.WasJustPressed(Key.F2)
+        && sceneMode is SceneMode.Outdoor or SceneMode.Interior && activeDialogueNpc is null)
+    {
+        isAdminPanelOpen = !isAdminPanelOpen;
+        adminPanelCursor = 0;
+        adminPanelTyping = false;
+        adminPanelTextInput = string.Empty;
+        adminPanelMessage = null;
+    }
+
+    if (isAdminPanelOpen)
+    {
+        UpdateAdminGamePanel();
+        return;
     }
 
     if (sceneMode == SceneMode.CharacterSelect)
@@ -833,6 +878,15 @@ host.Render += _ =>
         DrawQuestPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
     }
 
+    // Voir GDD/demande utilisateur — panel admin en jeu : la bannière est visible dans toutes les
+    // scènes (c'est le but — tous les joueurs la voient, pas seulement l'admin qui l'a envoyée) ;
+    // le panel de commandes lui-même seulement quand ouvert (F2, Fondateur uniquement).
+    DrawAdminBanner(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    if (isAdminPanelOpen)
+    {
+        DrawAdminGamePanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
     spriteBatch.End();
 };
 
@@ -994,6 +1048,108 @@ async Task CraftSelectedRecipeAsync()
     catch (HttpRequestException)
     {
         questMessage = "Connexion au serveur impossible.";
+    }
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "panel admin en jeu... peuvent afficher un message en haut de
+/// l'écran, donner des items, transformer le skin de tout les joueurs en panneau, ban/mute/kick" :
+/// ban/mute existent déjà via les commandes de tchat <c>/ban</c>/<c>/mute</c> (voir
+/// PlayerSession.HandleChatCommand), ce panel couvre les actions qui n'avaient pas d'équivalent
+/// (diffusion, mode panneau, don d'objet, kick) avec une vraie UI plutôt que du texte à taper.
+/// </summary>
+void UpdateAdminGamePanel()
+{
+    if (adminPanelActionTask is { IsCompleted: true } actionTask)
+    {
+        adminPanelMessage = actionTask.IsFaulted ? "Connexion au serveur impossible." : actionTask.Result.Message;
+        adminPanelActionTask = null;
+        return;
+    }
+
+    if (adminPanelActionTask is not null)
+    {
+        return;
+    }
+
+    if (adminPanelTyping)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (adminPanelTextInput.Length < 80 && !char.IsControl(typed))
+            {
+                adminPanelTextInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && adminPanelTextInput.Length > 0)
+        {
+            adminPanelTextInput = adminPanelTextInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            adminPanelTyping = false;
+            adminPanelTextInput = string.Empty;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && adminPanelTextInput.Trim().Length > 0)
+        {
+            SubmitAdminPanelCommand(adminPanelCursor, adminPanelTextInput.Trim());
+            adminPanelTyping = false;
+            adminPanelTextInput = string.Empty;
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        isAdminPanelOpen = false;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) adminPanelCursor = Math.Min(adminPanelCursor + 1, AdminPanelCommands.Length - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) adminPanelCursor = Math.Max(adminPanelCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        if (adminPanelCursor == 1)
+        {
+            adminPanelMessage = null;
+            adminPanelActionTask = gameDataApi!.ActivateSignModeAsync(options.SessionToken!, 300);
+        }
+        else
+        {
+            adminPanelTyping = true;
+            adminPanelTextInput = string.Empty;
+            adminPanelMessage = null;
+        }
+    }
+}
+
+void SubmitAdminPanelCommand(int commandIndex, string input)
+{
+    switch (commandIndex)
+    {
+        case 0:
+            adminPanelActionTask = gameDataApi!.BroadcastAdminMessageAsync(options.SessionToken!, input);
+            break;
+        case 2:
+        {
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var itemId))
+            {
+                var quantity = parts.Length >= 3 && int.TryParse(parts[2], out var q) ? q : 1;
+                adminPanelActionTask = gameDataApi!.GiveItemToPlayerAsync(options.SessionToken!, parts[0], itemId, quantity);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;idObjet;quantite";
+            }
+
+            break;
+        }
+        case 3:
+            adminPanelActionTask = gameDataApi!.KickPlayerAsync(options.SessionToken!, input);
+            break;
     }
 }
 
@@ -1300,6 +1456,21 @@ void ConnectAndEnterWorld(Guid characterId)
             if (chatToasts.Count > MaxChatToasts)
             {
                 chatToasts.RemoveAt(0);
+            }
+        }
+    };
+    connection.AdminEffectReceived += packet =>
+    {
+        lock (stateLock)
+        {
+            if (packet.Kind == AdminEffectKind.Broadcast)
+            {
+                adminBannerMessage = packet.Message;
+                adminBannerExpiresAtUtc = DateTime.UtcNow.AddSeconds(6);
+            }
+            else if (packet.Kind == AdminEffectKind.SignMode)
+            {
+                signModeExpiresAtUtc = DateTime.UtcNow.AddSeconds(packet.DurationSeconds);
             }
         }
     };
@@ -2006,7 +2177,7 @@ void UpdateMonstersPanel()
         }
         else
         {
-            monsterMessage = "Impossible de donner cet objet.";
+            monsterMessage = "Action impossible.";
         }
 
         monsterGiveItemTask = null;
@@ -2061,6 +2232,27 @@ void UpdateMonstersPanel()
         monsterGiveItemCursor = 0;
         monsterMessage = null;
     }
+    else if (keyboard.WasJustPressed(Key.L) && myRank == UserRank.Fondateur && gameDataApi is not null)
+    {
+        // Voir GDD/demande utilisateur — "ajoute au admin la possibilité d'augmenter le niveau de
+        // ces monstres" : +5 niveaux d'un coup sur la créature sélectionnée, outil admin/debug,
+        // pas la progression normale par XP.
+        var monster = ownedMonsters[monsterCursor];
+        monsterMessage = null;
+        monsterGiveItemTask = LevelUpAndRefreshAsync(monster.Id);
+    }
+}
+
+async Task<MonsterInstanceData?> LevelUpAndRefreshAsync(Guid monsterId)
+{
+    var result = await gameDataApi!.LevelUpMonsterAsync(options.SessionToken!, monsterId, 5);
+    if (!result.Success)
+    {
+        return null;
+    }
+
+    var monsters = await starterApi!.GetCharacterMonstersAsync(chosenCharacterId!.Value);
+    return monsters.FirstOrDefault(m => m.Id == monsterId);
 }
 
 /// <summary>
@@ -3080,8 +3272,19 @@ void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wa
     }
 }
 
+// Voir GDD/demande utilisateur — panel admin "transformer le skin de tout les joueurs en panneau
+// [...] pendant 5min" : recolore tout le monde (soi compris) en bois/panneau et préfixe le nom,
+// tant que l'effet diffusé par AdminEffectPacket n'a pas expiré (voir signModeExpiresAtUtc).
+bool IsSignModeActive() => DateTime.UtcNow < signModeExpiresAtUtc;
+
 void DrawPlayerFigure(Vector2 gridPos, float bobPixels)
 {
+    if (IsSignModeActive())
+    {
+        DrawFigure(gridPos, 0.55f, woodPanelColor, woodPanelOutline, woodPanelColor, woodPanelOutline, bobPixels, "[PANNEAU] Vous");
+        return;
+    }
+
     DrawFigure(
         gridPos, 0.55f,
         new Vector4(0.92f, 0.78f, 0.31f, 1f), new Vector4(0.60f, 0.48f, 0.15f, 1f), new Vector4(0.78f, 0.64f, 0.22f, 1f),
@@ -3091,6 +3294,13 @@ void DrawPlayerFigure(Vector2 gridPos, float bobPixels)
 void DrawRemotePlayerFigure(RemotePlayer remote, float animClock)
 {
     var bob = MathF.Sin(animClock * 2.0f) * 1.0f;
+
+    if (IsSignModeActive())
+    {
+        DrawFigure(remote.Position, 0.55f, woodPanelColor, woodPanelOutline, woodPanelColor, woodPanelOutline, bob, $"[PANNEAU] {remote.Name}");
+        return;
+    }
+
     DrawFigure(
         remote.Position, 0.55f,
         new Vector4(0.35f, 0.62f, 0.88f, 1f), new Vector4(0.20f, 0.38f, 0.58f, 1f), new Vector4(0.28f, 0.50f, 0.72f, 1f),
@@ -3414,7 +3624,10 @@ void DrawMonstersPanel(int w, int h)
             y += 48f;
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : DONNER UN OBJET A LA CREATURE SELECTIONNEE", new Vector2(w / 2f, topLeft.Y + boxHeight - 44f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        var hint = myRank == UserRank.Fondateur
+            ? "D : DONNER UN OBJET - L (ADMIN) : +5 NIVEAUX"
+            : "D : DONNER UN OBJET A LA CREATURE SELECTIONNEE";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight - 44f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
     }
 
     if (monsterMessage is not null)
@@ -3573,6 +3786,56 @@ void DrawQuestPanel(int w, int h)
         TextRenderer.Draw(spriteBatch, whiteTexture, displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, color);
         y += lineHeight + 4f;
     }
+}
+
+/// <summary>Panel admin en jeu (touche F2, Fondateur uniquement) — voir <see cref="UpdateAdminGamePanel"/>.</summary>
+void DrawAdminGamePanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 300f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.35f, 0.3f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PANEL ADMIN", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.5f, 0.45f, 1f));
+
+    if (adminPanelTyping)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, AdminPanelCommands[adminPanelCursor], new Vector2(topLeft.X + 20f, topLeft.Y + 60f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, adminPanelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 2f, Vector4.One);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : VALIDER - ECHAP : ANNULER LA SAISIE", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 60f;
+        for (var i = 0; i < AdminPanelCommands.Length; i++)
+        {
+            var selected = i == adminPanelCursor;
+            var color = selected ? new Vector4(0.95f, 0.6f, 0.55f, 1f) : Vector4.One;
+            var prefix = selected ? "> " : "  ";
+            TextRenderer.Draw(spriteBatch, whiteTexture, prefix + AdminPanelCommands[i], new Vector2(topLeft.X + 20f, y), 1.8f, color);
+            y += 30f;
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : VALIDER - ECHAP : FERMER (F2)", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+
+    if (adminPanelMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, adminPanelMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+}
+
+/// <summary>Bannière plein écran (voir GDD/demande utilisateur — "afficher un message en haut de l'écran en gros à tout les joueurs"), visible tant que non expirée (voir adminBannerExpiresAtUtc).</summary>
+void DrawAdminBanner(int w, int h)
+{
+    if (adminBannerMessage is null || DateTime.UtcNow >= adminBannerExpiresAtUtc)
+    {
+        return;
+    }
+
+    DrawPanel(new Vector2(0, 60f), new Vector2(w, 70f), new Vector4(0.15f, 0.05f, 0.05f, 0.85f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, adminBannerMessage, new Vector2(w / 2f, 95f), 2.6f, new Vector4(0.98f, 0.85f, 0.3f, 1f));
 }
 
 void DrawChatToasts(int w, int h)

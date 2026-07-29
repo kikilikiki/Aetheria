@@ -13,6 +13,8 @@ using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.Combat;
+using Aetheria.Shared.Network;
+using Aetheria.Shared.Network.Packets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -63,6 +65,7 @@ builder.Services.AddPooledDbContextFactory<AetheriaDbContext>(options =>
 });
 
 builder.Services.AddSingleton<SessionTokenStore>();
+builder.Services.AddSingleton<WorldSessionRegistry>();
 builder.Services.AddSingleton<CombatSessionStore>();
 builder.Services.AddSingleton<LootSessionStore>();
 builder.Services.AddSingleton<ArenaQueueService>();
@@ -1388,6 +1391,139 @@ app.MapGet("/api/admin/stats", async () =>
     });
 });
 
+// Voir GDD/demande utilisateur — "panel admin en jeu... peuvent afficher un message en haut de
+// l'écran en gros à tous les joueurs, donner des items, transformer le skin de tous les joueurs
+// en panneau pendant 5min, kick" : diffusé via AdminEffectPacket/WorldSessionRegistry, distinct
+// du panel admin du Launcher (comptes hors-jeu) mais réutilisant le même AdminAuthService.
+app.MapPost("/api/admin/game/broadcast", async (AdminBroadcastRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.Broadcast,
+        Message = request.Message,
+    });
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = "Message diffusé." });
+});
+
+app.MapPost("/api/admin/game/sign-mode", async (AdminSignModeRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var duration = Math.Clamp(request.DurationSeconds, 5, 3600);
+    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.SignMode,
+        DurationSeconds = duration,
+    });
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Mode panneau activé pour {duration}s." });
+});
+
+app.MapPost("/api/admin/game/give-item", async (AdminGiveItemRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    var item = await db.Items.FirstOrDefaultAsync(i => i.Id == request.ItemId);
+    if (item is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Objet introuvable." });
+    }
+
+    var quantity = Math.Max(1, request.Quantity);
+    var existing = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == target.Id && i.ItemId == item.Id);
+    if (existing is not null)
+    {
+        existing.Quantity += quantity;
+    }
+    else
+    {
+        db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = target.Id, ItemId = item.Id, Quantity = quantity });
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{quantity}x {item.Name} donné(s) à {target.Name}." });
+});
+
+app.MapPost("/api/admin/game/kick", async (AdminKickRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var session = app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterName(request.TargetCharacterName);
+    if (session is null)
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = false, Message = "Ce joueur n'est pas connecté." });
+    }
+
+    session.Kick();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a été expulsé." });
+});
+
+// Voir GDD/demande utilisateur — "ajoute au admin la possibilité d'augmenter le niveau de ces
+// monstres" : agit directement sur MonsterEntity.Level, sans passer par la courbe d'XP normale.
+app.MapPost("/api/admin/game/level-up-monster", async (AdminLevelUpMonsterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var monster = await db.Monsters.FirstOrDefaultAsync(m => m.Id == request.MonsterId);
+    if (monster is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Créature introuvable." });
+    }
+
+    monster.Level = Math.Max(1, monster.Level + Math.Max(1, request.Levels));
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monster.Nickname} est maintenant niveau {monster.Level}." });
+});
+
 using var shutdownCts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
 {
@@ -1398,17 +1534,18 @@ Console.CancelKeyPress += (_, eventArgs) =>
 var tcpGameServer = new TcpGameServer(
     app.Services.GetRequiredService<SessionTokenStore>(),
     dbFactory,
-    app.Services.GetRequiredService<ILoggerFactory>());
+    app.Services.GetRequiredService<ILoggerFactory>(),
+    app.Services.GetRequiredService<WorldSessionRegistry>());
 
 var tcpTask = tcpGameServer.RunAsync(GameInfo.DefaultGamePort, shutdownCts.Token);
 var httpTask = app.RunAsync(shutdownCts.Token);
 
-// Récapitulatif Discord quotidien à 23h (voir demande utilisateur) — tourne en tâche de fond
-// pendant toute la durée de vie du serveur, voir DailyDigestScheduler.
-var dailyDigestScheduler = new DailyDigestScheduler(
+// Récapitulatif Discord toutes les heures (voir GDD/demande utilisateur — "au lieu de 23h, tout
+// les heures") — tourne en tâche de fond pendant toute la durée de vie du serveur, voir DigestScheduler.
+var digestScheduler = new DigestScheduler(
     app.Services.GetRequiredService<DiscordAnnouncer>(),
-    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<DailyDigestScheduler>());
-var dailyDigestTask = dailyDigestScheduler.RunAsync(shutdownCts.Token);
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<DigestScheduler>());
+var dailyDigestTask = digestScheduler.RunAsync(shutdownCts.Token);
 
 // Timers de combat/butin (voir GDD/demande utilisateur — "timer de 10 secondes entre chaque
 // tour" et "pour le choix des gains") — tourne en tâche de fond pendant toute la durée de vie

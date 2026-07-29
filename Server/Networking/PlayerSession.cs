@@ -36,6 +36,22 @@ public sealed class PlayerSession(
     /// <summary>Mis à jour immédiatement par la commande <c>/nick</c> (voir <see cref="HandleChatCommand"/>) — sans attendre une reconnexion.</summary>
     public void UpdateCharacterName(string newName) => CharacterName = newName;
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "panel admin en jeu... kick" : ferme la connexion TCP, ce
+    /// qui débloque <see cref="Run"/> (IOException/lecture nulle) et déclenche le nettoyage normal
+    /// (désenregistrement, notification aux autres joueurs) dans son bloc <c>finally</c>.
+    /// </summary>
+    public void Kick()
+    {
+        try
+        {
+            client.Close();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
     private bool HasEnteredWorld => CharacterId != Guid.Empty;
 
     public void Run(CancellationToken ct)

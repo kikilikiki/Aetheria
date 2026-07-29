@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Aetheria.Shared;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
+using Aetheria.Shared.Models.Admin;
 
 namespace Aetheria.Client.Networking;
 
@@ -302,6 +303,41 @@ public sealed class GameDataApiClient : IDisposable
         }, JsonOptions, ct);
 
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
+    }
+
+    // Voir GDD/demande utilisateur — "panel admin en jeu (pouvoirs, skins, ban/mute/kick)".
+    // Réutilise AdminAuthService côté serveur (même jeton de session que le jeu, pas un jeton
+    // admin séparé comme le Launcher) — voir Server/Persistence/AdminAuthService.cs.
+    public async Task<AdminGameActionResponse> BroadcastAdminMessageAsync(string sessionToken, string message, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/broadcast", new AdminBroadcastRequest { SessionToken = sessionToken, Message = message }, ct);
+
+    public async Task<AdminGameActionResponse> ActivateSignModeAsync(string sessionToken, int durationSeconds, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/sign-mode", new AdminSignModeRequest { SessionToken = sessionToken, DurationSeconds = durationSeconds }, ct);
+
+    public async Task<AdminGameActionResponse> GiveItemToPlayerAsync(string sessionToken, string targetCharacterName, int itemId, int quantity, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-item", new AdminGiveItemRequest
+        {
+            SessionToken = sessionToken, TargetCharacterName = targetCharacterName, ItemId = itemId, Quantity = quantity,
+        }, ct);
+
+    public async Task<AdminGameActionResponse> KickPlayerAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/kick", new AdminKickRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
+
+    public async Task<AdminGameActionResponse> LevelUpMonsterAsync(string sessionToken, Guid monsterId, int levels, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/level-up-monster", new AdminLevelUpMonsterRequest { SessionToken = sessionToken, MonsterId = monsterId, Levels = levels }, ct);
+
+    private async Task<AdminGameActionResponse> PostAdminActionAsync<TRequest>(string url, TRequest request, CancellationToken ct)
+    {
+        var response = await _http.PostAsJsonAsync(url, request, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new AdminGameActionResponse { Success = false, Message = error?.Message ?? $"Erreur serveur ({(int)response.StatusCode})." };
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<AdminGameActionResponse>(cancellationToken: ct);
+        return body!;
     }
 
     public void Dispose() => _http.Dispose();

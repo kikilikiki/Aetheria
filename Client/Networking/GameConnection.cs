@@ -23,6 +23,7 @@ public sealed class GameConnection : IDisposable
     public event Action<PlayerJoinedPacket>? PlayerJoined;
     public event Action<PlayerLeftPacket>? PlayerLeft;
     public event Action<ChatMessagePacket>? ChatMessageReceived;
+    public event Action<AdminEffectPacket>? AdminEffectReceived;
     public event Action? Disconnected;
 
     public void Connect(string host, int port)
@@ -105,6 +106,9 @@ public sealed class GameConnection : IDisposable
                         break;
                     case ChatMessagePacket chat:
                         ChatMessageReceived?.Invoke(chat);
+                        break;
+                    case AdminEffectPacket effect:
+                        AdminEffectReceived?.Invoke(effect);
                         break;
                 }
             }
