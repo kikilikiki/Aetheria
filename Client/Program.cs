@@ -81,19 +81,36 @@ var interiorIsDungeon = false;
 List<InteriorFurniture> interiorFurniture = [];
 List<InteriorNpc> interiorNpcs = [];
 
-// Exploration du donjon en couloir linéaire (voir GDD — "mobs/loot au fil du chemin") : la
-// séquence de salles d'un étage (voir DungeonFloorGenerator côté serveur) traversée une par une,
-// combat pour les salles Monstre/MiniBoss/Boss/BossLegendaire, coffre d'or pour les salles Coffre,
-// texte d'ambiance pour les autres types (non simulés, voir Docs/README.md). Disponible
-// uniquement en mode connecté (worldMap.DungeonId résolu) — le mode démo hors-ligne garde
-// l'ancien stub (un seul combat aléatoire, voir StartWildCombatAsync).
+// Exploration du donjon façon Binding of Isaac (voir GDD/demande utilisateur — "des salles
+// aléatoires avec coffre/monstre etc mais où on se déplace nous-même de salle en salle") : les
+// salles d'un étage (voir DungeonFloorGenerator côté serveur, disposées sur une grille) sont
+// traversées en marchant à travers les portes, pas en appuyant sur Entrée pour "avancer". Combat
+// pour les salles Monstre/MiniBoss/Boss/BossLegendaire (déclenché automatiquement à l'entrée),
+// coffre d'or pour les salles Coffre (touche E), texte d'ambiance pour les autres types (non
+// simulés, voir Docs/README.md). Disponible uniquement en mode connecté (worldMap.DungeonId
+// résolu) — le mode démo hors-ligne garde l'ancien stub (un seul combat aléatoire, voir
+// StartWildCombatAsync).
 var dungeonFloorNumber = 1;
 DungeonFloor? dungeonFloor = null;
 var dungeonRoomIndex = 0;
 Task<DungeonFloor?>? dungeonFloorTask = null;
 Task<int?>? dungeonChestTask = null;
-var dungeonChestOpened = false;
 string? dungeonRoomMessage = null;
+
+/// <summary>Position du joueur dans la salle courante (0..1 relatif, voir DrawDungeonRoom) — recentrée à chaque changement de salle.</summary>
+var dungeonPlayerPos = new Vector2(0.5f, 0.5f);
+
+/// <summary>Indices de salles déjà résolues (combat gagné, coffre ouvert, évènement vu) — pour ne pas re-déclencher en repassant.</summary>
+HashSet<int> dungeonClearedRooms = [];
+
+/// <summary>
+/// Voir GDD/demande utilisateur — évite qu'une défaite ne redéclenche instantanément le même
+/// combat en boucle (la salle reste "non nettoyée" après une défaite, voir plus bas) : le combat
+/// automatique à l'entrée ne se déclenche qu'une fois par visite de la salle. Remis à -1 en
+/// changeant de salle (voir <see cref="TransitionDungeonRoom"/>) — sortir puis revenir permet de
+/// retenter, comme la marche à suivre précédente ("une défaite laisse le joueur retenter").
+/// </summary>
+var dungeonLastAutoFightRoomIndex = -1;
 
 // Aperçu du monstre d'une salle avant de l'affronter (voir GDD/demande utilisateur — "voir les
 // ennemis avant de les combattre, comme Pokémon Épée") : chargé paresseusement à l'arrivée dans
@@ -571,7 +588,7 @@ host.Update += deltaTime =>
 
         if (interiorIsDungeon && worldMap.DungeonId >= 0 && gameDataApi is not null)
         {
-            UpdateDungeonCorridor();
+            UpdateDungeonCorridor(deltaTime);
             return;
         }
 
@@ -826,7 +843,9 @@ host.Update += deltaTime =>
                 dungeonFloorNumber = 1;
                 dungeonRoomIndex = 0;
                 dungeonFloor = null;
-                dungeonChestOpened = false;
+                dungeonClearedRooms = [];
+                dungeonLastAutoFightRoomIndex = -1;
+                dungeonPlayerPos = new Vector2(0.5f, 0.5f);
                 dungeonRoomMessage = null;
                 dungeonEncounterPreview = null;
                 dungeonEncounterPreviewTask = null;
@@ -2992,14 +3011,17 @@ async Task<CombatResult> StartWildCombatAsync()
 }
 
 /// <summary>
-/// Exploration en couloir linéaire d'un étage de donjon (voir GDD — "mobs/loot au fil du
-/// chemin") : avance salle par salle, un combat par salle Monstre/MiniBoss/Boss/BossLegendaire
-/// (voir <see cref="StartDungeonRoomCombatAsync"/>), un coffre d'or par salle Coffre (voir
-/// <c>DungeonRoomService.OpenChestAsync</c> côté serveur), du texte d'ambiance pour les autres
-/// types de salle (Énigme/Piège/Marchand/Événement/Autel/Salle secrète — non simulés, voir
-/// Docs/README.md). Une fois la dernière salle passée, Entrée descend à l'étage suivant.
+/// Voir GDD/demande utilisateur — "les donjons doivent être comme The Binding of Isaac : des
+/// salles aléatoires avec coffre/monstre etc, mais où on se déplace nous-même de salle en salle"
+/// (voir DungeonFloorGenerator côté serveur — disposition en grille). Le combat démarre
+/// automatiquement en entrant dans une salle Monstre/MiniBoss/Boss/BossLegendaire non résolue
+/// (voir <see cref="StartDungeonRoomCombatAsync"/>) ; un coffre (salle Coffre) s'ouvre avec E ;
+/// les autres types de salle (Énigme/Piège/Marchand/Événement/Autel/Salle secrète — non simulés,
+/// voir Docs/README.md) se résolvent automatiquement, une seule fois, à l'entrée. Une fois toutes
+/// les salles résolues, E descend à l'étage suivant (simplification assumée : pas d'escalier
+/// positionné sur la grille, l'étage entier doit être "nettoyé" — voir Docs/README.md).
 /// </summary>
-void UpdateDungeonCorridor()
+void UpdateDungeonCorridor(float deltaTime)
 {
     if (combatStartTask is not null)
     {
@@ -3011,6 +3033,16 @@ void UpdateDungeonCorridor()
         dungeonFloor = floorTask.IsFaulted ? null : floorTask.Result;
         dungeonFloorTask = null;
         dungeonRoomMessage = dungeonFloor is null ? "Impossible de charger cet étage." : null;
+
+        if (dungeonFloor is not null)
+        {
+            var startRoom = dungeonFloor.Rooms.FirstOrDefault(r => r.IsStart) ?? dungeonFloor.Rooms[0];
+            dungeonRoomIndex = startRoom.Index;
+            dungeonPlayerPos = new Vector2(0.5f, 0.5f);
+            dungeonClearedRooms = [];
+            dungeonLastAutoFightRoomIndex = -1;
+        }
+
         return;
     }
 
@@ -3018,7 +3050,7 @@ void UpdateDungeonCorridor()
     {
         var gold = chestTask.IsFaulted ? null : chestTask.Result;
         dungeonChestTask = null;
-        dungeonChestOpened = true;
+        dungeonClearedRooms.Add(dungeonRoomIndex);
         dungeonRoomMessage = gold is { } g ? $"Vous trouvez {g} pieces d'or !" : "Le coffre est vide.";
         return;
     }
@@ -3034,81 +3066,123 @@ void UpdateDungeonCorridor()
         dungeonEncounterPreviewTask = null;
     }
 
-    // Charge l'aperçu de la créature dès l'arrivée dans une salle à monstre (voir GDD/demande
-    // utilisateur — "voir les ennemis avant de les combattre, comme Pokémon Épée"), avant même
-    // que le joueur n'appuie sur Entrée pour engager le combat.
-    if (dungeonRoomIndex < dungeonFloor.Rooms.Count)
-    {
-        var currentRoom = dungeonFloor.Rooms[dungeonRoomIndex];
-        var isMonsterRoom = currentRoom.EncounterType is DungeonEncounterType.Monstre or DungeonEncounterType.MiniBoss
-            or DungeonEncounterType.Boss or DungeonEncounterType.BossLegendaire;
-
-        if (isMonsterRoom && dungeonEncounterPreviewRoomIndex != dungeonRoomIndex && dungeonEncounterPreviewTask is null)
-        {
-            dungeonEncounterPreviewRoomIndex = dungeonRoomIndex;
-            dungeonEncounterPreviewTask = gameDataApi!.GetDungeonEncounterPreviewAsync(worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
-        }
-    }
-
     if (keyboard.WasJustPressed(Key.Escape))
     {
         sceneMode = SceneMode.Outdoor;
         return;
     }
 
-    if (dungeonRoomIndex >= dungeonFloor.Rooms.Count)
+    var room = dungeonFloor.Rooms.First(r => r.Index == dungeonRoomIndex);
+    var isCleared = dungeonClearedRooms.Contains(dungeonRoomIndex);
+    var allCleared = dungeonClearedRooms.Count >= dungeonFloor.Rooms.Count;
+
+    // Voir remarque ci-dessus — "l'étage entier nettoyé" tient lieu d'escalier pour cette
+    // première version, accessible depuis n'importe quelle salle une fois toutes résolues.
+    if (allCleared && keyboard.WasJustPressed(Key.E))
     {
-        if (keyboard.WasJustPressed(Key.Enter))
+        dungeonFloorNumber++;
+        dungeonFloor = null;
+        dungeonRoomMessage = null;
+        dungeonEncounterPreview = null;
+        dungeonEncounterPreviewTask = null;
+        dungeonEncounterPreviewRoomIndex = -1;
+        dungeonFloorTask = gameDataApi!.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
+        return;
+    }
+
+    if (!isCleared)
+    {
+        var isMonsterRoom = room.EncounterType is DungeonEncounterType.Monstre or DungeonEncounterType.MiniBoss
+            or DungeonEncounterType.Boss or DungeonEncounterType.BossLegendaire;
+
+        if (isMonsterRoom)
         {
-            dungeonFloorNumber++;
-            dungeonRoomIndex = 0;
-            dungeonFloor = null;
-            dungeonChestOpened = false;
-            dungeonRoomMessage = null;
-            dungeonEncounterPreview = null;
-            dungeonEncounterPreviewTask = null;
-            dungeonEncounterPreviewRoomIndex = -1;
-            dungeonFloorTask = gameDataApi!.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
+            // Voir GDD/demande utilisateur — "voir les ennemis avant de les combattre, comme
+            // Pokémon Épée" : aperçu chargé dès l'entrée, avant même que le combat démarre.
+            if (dungeonEncounterPreviewRoomIndex != dungeonRoomIndex && dungeonEncounterPreviewTask is null)
+            {
+                dungeonEncounterPreviewRoomIndex = dungeonRoomIndex;
+                dungeonEncounterPreviewTask = gameDataApi!.GetDungeonEncounterPreviewAsync(worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
+            }
+
+            // Le combat démarre tout seul en entrant (façon Isaac — les portes se "verrouillent"
+            // tant que la salle n'est pas nettoyée), mais une seule fois par visite (voir
+            // dungeonLastAutoFightRoomIndex) — sinon une défaite le redéclencherait aussitôt en
+            // boucle puisque la salle reste "non nettoyée" tant qu'on ne l'a pas gagné.
+            if (dungeonLastAutoFightRoomIndex != dungeonRoomIndex)
+            {
+                dungeonLastAutoFightRoomIndex = dungeonRoomIndex;
+                combatMessage = null;
+                combatReturnScene = SceneMode.Interior;
+                combatStartTask = StartDungeonRoomCombatAsync(dungeonFloorNumber, dungeonRoomIndex);
+                return;
+            }
+
+            MoveWithinDungeonRoom(room, deltaTime);
+            return;
         }
 
-        return;
+        if (room.EncounterType == DungeonEncounterType.Coffre)
+        {
+            if (keyboard.WasJustPressed(Key.E))
+            {
+                dungeonChestTask = gameDataApi!.OpenChestAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
+            }
+        }
+        else
+        {
+            // Voir GDD/demande utilisateur — types de salle "non simulés" : résolus une seule
+            // fois, automatiquement, à l'entrée (rien à appuyer, contrairement au coffre).
+            dungeonClearedRooms.Add(dungeonRoomIndex);
+            dungeonRoomMessage = room.IsStart ? null : DungeonRoomFlavor(room.EncounterType, false);
+        }
     }
 
-    if (!keyboard.WasJustPressed(Key.Enter))
-    {
-        return;
-    }
-
-    var room = dungeonFloor.Rooms[dungeonRoomIndex];
-    switch (room.EncounterType)
-    {
-        case DungeonEncounterType.Monstre:
-        case DungeonEncounterType.MiniBoss:
-        case DungeonEncounterType.Boss:
-        case DungeonEncounterType.BossLegendaire:
-            combatMessage = null;
-            combatReturnScene = SceneMode.Interior;
-            combatStartTask = StartDungeonRoomCombatAsync(dungeonFloorNumber, dungeonRoomIndex);
-            break;
-
-        case DungeonEncounterType.Coffre when !dungeonChestOpened:
-            dungeonChestTask = gameDataApi!.OpenChestAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
-            break;
-
-        default:
-            AdvanceDungeonRoom();
-            break;
-    }
+    MoveWithinDungeonRoom(room, deltaTime);
 }
 
-void AdvanceDungeonRoom()
+/// <summary>
+/// Voir GDD/demande utilisateur — "on se déplace nous-même de salle en salle" : déplacement
+/// continu (mêmes touches que l'extérieur) dans les limites de la salle courante, sauf près d'une
+/// porte (voir <see cref="DungeonRoom.North"/>/.../<see cref="DungeonRoom.West"/>) où franchir le
+/// bord fait passer à la salle voisine correspondante sur la grille.
+/// </summary>
+void MoveWithinDungeonRoom(DungeonRoom room, float deltaTime)
 {
-    dungeonRoomIndex++;
-    dungeonChestOpened = false;
+    var direction = Vector2.Zero;
+    if (keyboard.IsDown(Key.W) || keyboard.IsDown(Key.Up)) direction.Y -= 1;
+    if (keyboard.IsDown(Key.S) || keyboard.IsDown(Key.Down)) direction.Y += 1;
+    if (keyboard.IsDown(Key.A) || keyboard.IsDown(Key.Left)) direction.X -= 1;
+    if (keyboard.IsDown(Key.D) || keyboard.IsDown(Key.Right)) direction.X += 1;
+
+    if (direction == Vector2.Zero)
+    {
+        return;
+    }
+
+    const float speed = 0.6f;
+    var next = dungeonPlayerPos + Vector2.Normalize(direction) * speed * deltaTime;
+
+    if (next.Y < 0f && room.North) { TransitionDungeonRoom(room.GridX, room.GridY - 1, new Vector2(next.X, 0.92f)); return; }
+    if (next.Y > 1f && room.South) { TransitionDungeonRoom(room.GridX, room.GridY + 1, new Vector2(next.X, 0.08f)); return; }
+    if (next.X < 0f && room.West) { TransitionDungeonRoom(room.GridX - 1, room.GridY, new Vector2(0.92f, next.Y)); return; }
+    if (next.X > 1f && room.East) { TransitionDungeonRoom(room.GridX + 1, room.GridY, new Vector2(0.08f, next.Y)); return; }
+
+    dungeonPlayerPos = new Vector2(Math.Clamp(next.X, 0.04f, 0.96f), Math.Clamp(next.Y, 0.04f, 0.96f));
+}
+
+void TransitionDungeonRoom(int gridX, int gridY, Vector2 enterAt)
+{
+    var target = dungeonFloor!.Rooms.FirstOrDefault(r => r.GridX == gridX && r.GridY == gridY);
+    if (target is null)
+    {
+        return;
+    }
+
+    dungeonRoomIndex = target.Index;
+    dungeonPlayerPos = new Vector2(Math.Clamp(enterAt.X, 0.04f, 0.96f), Math.Clamp(enterAt.Y, 0.04f, 0.96f));
     dungeonRoomMessage = null;
-    dungeonEncounterPreview = null;
-    dungeonEncounterPreviewTask = null;
-    dungeonEncounterPreviewRoomIndex = -1;
+    dungeonLastAutoFightRoomIndex = -1;
 }
 
 async Task<CombatResult> StartDungeonRoomCombatAsync(int floorNumber, int roomIndex)
@@ -3376,12 +3450,15 @@ void UpdateLoot(float deltaTime)
     {
         if (keyboard.WasJustPressed(Key.Enter) || keyboard.WasJustPressed(Key.Escape))
         {
-            // Victoire dans le couloir du donjon (voir GDD) : avance à la salle suivante plutôt
-            // que de rejouer la même — uniquement sur victoire (team 0), une défaite laisse le
-            // joueur retenter la même salle.
+            // Voir GDD/demande utilisateur — donjon façon Isaac : la salle se "déverrouille"
+            // (marquée résolue) uniquement sur victoire (team 0) ; une défaite laisse le joueur
+            // retenter la même salle en y restant.
             if (combatReturnScene == SceneMode.Interior && interiorIsDungeon && combatState?.WinningTeam == 0)
             {
-                AdvanceDungeonRoom();
+                dungeonClearedRooms.Add(dungeonRoomIndex);
+                dungeonEncounterPreview = null;
+                dungeonEncounterPreviewTask = null;
+                dungeonEncounterPreviewRoomIndex = -1;
             }
 
             sceneMode = combatReturnScene;
@@ -4667,10 +4744,14 @@ void DrawInteriorScene()
     }
 }
 
-/// <summary>Rendu du couloir de donjon (voir <see cref="UpdateDungeonCorridor"/>) : une rangée de cases représentant les salles de l'étage, la case courante mise en évidence.</summary>
+/// <summary>
+/// Voir GDD/demande utilisateur — donjon façon Binding of Isaac : la salle courante rendue comme
+/// une pièce (murs avec ouvertures aux portes, voir <see cref="DungeonRoom"/>), le joueur déplacé
+/// dedans (voir <see cref="MoveWithinDungeonRoom"/>) plutôt qu'une rangée de cases abstraites.
+/// </summary>
 void DrawDungeonCorridor(int w, int h)
 {
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ETAGE {dungeonFloorNumber}", new Vector2(w / 2f, h * 0.26f), 2.4f, new Vector4(0.85f, 0.7f, 0.95f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ETAGE {dungeonFloorNumber}", new Vector2(w / 2f, h * 0.20f), 2.4f, new Vector4(0.85f, 0.7f, 0.95f, 1f));
 
     if (dungeonFloorTask is not null)
     {
@@ -4685,48 +4766,64 @@ void DrawDungeonCorridor(int w, int h)
         return;
     }
 
-    const float cellSize = 64f;
-    var totalWidth = dungeonFloor.Rooms.Count * (cellSize + 12f) - 12f;
-    var originX = w / 2f - totalWidth / 2f;
-    var y = h * 0.42f;
+    var room = dungeonFloor.Rooms.First(r => r.Index == dungeonRoomIndex);
+    var isCleared = dungeonClearedRooms.Contains(dungeonRoomIndex);
+    var allCleared = dungeonClearedRooms.Count >= dungeonFloor.Rooms.Count;
 
-    for (var i = 0; i < dungeonFloor.Rooms.Count; i++)
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"SALLES NETTOYEES : {dungeonClearedRooms.Count}/{dungeonFloor.Rooms.Count}",
+        new Vector2(w / 2f, h * 0.26f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+    // La pièce elle-même : un rectangle avec des ouvertures (portes) là où une salle voisine
+    // existe sur la grille (voir DungeonRoom.North/South/East/West).
+    const float doorGap = 0.16f;
+    var roomTopLeft = new Vector2(w * 0.22f, h * 0.32f);
+    var roomSize = new Vector2(w * 0.56f, h * 0.5f);
+    var wallColor = isCleared ? new Vector4(0.35f, 0.35f, 0.4f, 1f) : DungeonRoomColor(room.EncounterType);
+    const float wallThickness = 10f;
+
+    DrawPanel(roomTopLeft, roomSize, Vector4.Lerp(wallColor, new Vector4(0.08f, 0.08f, 0.1f, 1f), 0.7f));
+
+    // Murs (un rectangle fin par bord), avec une ouverture centrée là où une porte existe.
+    void DrawWallSegment(bool hasDoor, Vector2 segTopLeft, Vector2 segSize, bool horizontal)
     {
-        var room = dungeonFloor.Rooms[i];
-        var center = new Vector2(originX + i * (cellSize + 12f) + cellSize / 2f, y);
-        var color = DungeonRoomColor(room.EncounterType);
-
-        if (i == dungeonRoomIndex)
+        if (!hasDoor)
         {
-            DrawPanel(center - new Vector2(cellSize / 2f + 4f, cellSize / 2f + 4f), new Vector2(cellSize + 8f, cellSize + 8f), new Vector4(1f, 0.9f, 0.5f, 0.9f));
-        }
-        else if (i < dungeonRoomIndex)
-        {
-            color *= 0.5f;
-            color.W = 1f;
+            DrawPanel(segTopLeft, segSize, wallColor);
+            return;
         }
 
-        DrawPanel(center - new Vector2(cellSize / 2f, cellSize / 2f), new Vector2(cellSize, cellSize), color);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, DungeonRoomLabel(room.EncounterType), center + new Vector2(0, cellSize / 2f + 16f), 1.3f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        if (horizontal)
+        {
+            var gapWidth = segSize.X * doorGap;
+            DrawPanel(segTopLeft, new Vector2(segSize.X / 2f - gapWidth / 2f, segSize.Y), wallColor);
+            DrawPanel(segTopLeft + new Vector2(segSize.X / 2f + gapWidth / 2f, 0), new Vector2(segSize.X / 2f - gapWidth / 2f, segSize.Y), wallColor);
+        }
+        else
+        {
+            var gapHeight = segSize.Y * doorGap;
+            DrawPanel(segTopLeft, new Vector2(segSize.X, segSize.Y / 2f - gapHeight / 2f), wallColor);
+            DrawPanel(segTopLeft + new Vector2(0, segSize.Y / 2f + gapHeight / 2f), new Vector2(segSize.X, segSize.Y / 2f - gapHeight / 2f), wallColor);
+        }
     }
 
-    if (dungeonRoomIndex >= dungeonFloor.Rooms.Count)
-    {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ETAGE TERMINE !", new Vector2(w / 2f, h * 0.68f), 3f, new Vector4(0.5f, 0.9f, 0.5f, 1f));
-        DrawPromptBanner("APPUYEZ SUR [ENTREE] POUR DESCENDRE", new Vector2(w / 2f, h * 0.82f));
-    }
-    else
-    {
-        var room = dungeonFloor.Rooms[dungeonRoomIndex];
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, DungeonRoomFlavor(room.EncounterType, dungeonChestOpened), new Vector2(w / 2f, h * 0.62f), 2.1f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+    DrawWallSegment(room.North, roomTopLeft, new Vector2(roomSize.X, wallThickness), true);
+    DrawWallSegment(room.South, roomTopLeft + new Vector2(0, roomSize.Y - wallThickness), new Vector2(roomSize.X, wallThickness), true);
+    DrawWallSegment(room.West, roomTopLeft, new Vector2(wallThickness, roomSize.Y), false);
+    DrawWallSegment(room.East, roomTopLeft + new Vector2(roomSize.X - wallThickness, 0), new Vector2(wallThickness, roomSize.Y), false);
 
+    // Joueur, positionné dans la salle selon dungeonPlayerPos (0..1).
+    var playerScreenPos = roomTopLeft + dungeonPlayerPos * roomSize;
+    DrawStarterPortrait(playerScreenPos, 20f, new Vector4(0.92f, 0.78f, 0.31f, 1f));
+
+    if (!isCleared)
+    {
         // Voir GDD/demande utilisateur — "voir les ennemis avant de les combattre, comme Pokémon
         // Épée" : portrait + nom + élément affichés avant même d'engager le combat, dès que
         // l'aperçu (même tirage exact que le combat réel, voir GetDungeonEncounterPreviewAsync)
         // est chargé pour CETTE salle précise.
         if (dungeonEncounterPreview is { } preview && dungeonEncounterPreviewRoomIndex == dungeonRoomIndex)
         {
-            var previewCenter = new Vector2(w / 2f, h * 0.5f);
+            var previewCenter = roomTopLeft + new Vector2(roomSize.X / 2f, roomSize.Y * 0.35f);
             DrawStarterPortrait(previewCenter, 34f, new Vector4(0.95f, 0.25f, 0.25f, 1f));
             DrawStarterPortrait(previewCenter, 30f, CombatTypeColor(preview.Type));
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{preview.Name.ToUpperInvariant()} ({preview.Element})",
@@ -4735,33 +4832,32 @@ void DrawDungeonCorridor(int w, int h)
 
         if (combatStartTask is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.82f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.86f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         }
-        else
+        else if (room.EncounterType == DungeonEncounterType.Coffre)
         {
-            DrawPromptBanner(DungeonRoomPrompt(room.EncounterType, dungeonChestOpened), new Vector2(w / 2f, h * 0.82f));
+            DrawPromptBanner("APPUYEZ SUR E POUR OUVRIR LE COFFRE", new Vector2(w / 2f, h * 0.86f));
         }
     }
 
-    if (combatStartTask is null)
+    if (allCleared)
     {
-        // Voir GDD/demande utilisateur — "ajoute une touche pour quitter le donjon hors des
-        // combats" : Échap le fait déjà (voir UpdateDungeonCorridor) mais ce n'était affiché
-        // nulle part hors de l'écran d'erreur — juste un rappel manquant, pas une touche à ajouter.
-        TextRenderer.Draw(spriteBatch, whiteTexture, "ECHAP : QUITTER LE DONJON", new Vector2(16f, h - 30f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+        DrawPromptBanner("ETAGE NETTOYE - APPUYEZ SUR E POUR DESCENDRE", new Vector2(w / 2f, h * 0.90f));
     }
+
+    // Voir GDD/demande utilisateur — "ajoute une touche pour quitter le donjon hors des combats"
+    // : Échap le fait déjà (voir UpdateDungeonCorridor), rappelé ici en permanence.
+    TextRenderer.Draw(spriteBatch, whiteTexture, "ECHAP : QUITTER LE DONJON - ZQSD/FLECHES : SE DEPLACER", new Vector2(16f, h - 30f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
 
     if (dungeonRoomMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, dungeonRoomMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, dungeonRoomMessage, new Vector2(w / 2f, h * 0.14f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
     }
 
     if (combatMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.14f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
     }
-
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR SORTIR DU DONJON", new Vector2(w / 2f, h * 0.92f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -4802,21 +4898,6 @@ static Vector4 DungeonRoomColor(DungeonEncounterType type) => type switch
     _ => new Vector4(0.4f, 0.4f, 0.45f, 1f),
 };
 
-static string DungeonRoomLabel(DungeonEncounterType type) => type switch
-{
-    DungeonEncounterType.Monstre => "MONSTRE",
-    DungeonEncounterType.MiniBoss => "MINI-BOSS",
-    DungeonEncounterType.Boss => "BOSS",
-    DungeonEncounterType.BossLegendaire => "BOSS LEG.",
-    DungeonEncounterType.Coffre => "COFFRE",
-    DungeonEncounterType.Marchand => "MARCHAND",
-    DungeonEncounterType.Piege => "PIEGE",
-    DungeonEncounterType.Enigme => "ENIGME",
-    DungeonEncounterType.Autel => "AUTEL",
-    DungeonEncounterType.SalleSecrete => "SECRET",
-    _ => "EVENEMENT",
-};
-
 static string DungeonRoomFlavor(DungeonEncounterType type, bool chestOpened) => type switch
 {
     DungeonEncounterType.Monstre => "Un monstre sauvage rode dans cette salle.",
@@ -4831,14 +4912,6 @@ static string DungeonRoomFlavor(DungeonEncounterType type, bool chestOpened) => 
     DungeonEncounterType.Autel => "Un autel oublie repose au centre de la piece.",
     DungeonEncounterType.SalleSecrete => "Vous decouvrez une salle secrete.",
     _ => "Quelque chose s'est produit ici autrefois.",
-};
-
-static string DungeonRoomPrompt(DungeonEncounterType type, bool chestOpened) => type switch
-{
-    DungeonEncounterType.Monstre or DungeonEncounterType.MiniBoss or DungeonEncounterType.Boss or DungeonEncounterType.BossLegendaire
-        => "APPUYEZ SUR ENTREE POUR AFFRONTER",
-    DungeonEncounterType.Coffre when !chestOpened => "APPUYEZ SUR ENTREE POUR OUVRIR LE COFFRE",
-    _ => "APPUYEZ SUR ENTREE POUR CONTINUER",
 };
 
 /// <summary>Géométrie de la grille de combat à l'écran — factorisé pour rester identique entre <see cref="DrawCombat"/> (rendu) et <see cref="UpdateCombat"/> (détection de clic).</summary>

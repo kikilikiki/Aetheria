@@ -37,18 +37,59 @@ public static class DungeonFloorGenerator
         var milestone = GetMilestoneEncounter(floorNumber);
         if (milestone is { } bossEncounter)
         {
-            // L'étage jalon est entièrement dédié au combat de boss.
-            return new DungeonFloor(floorNumber, [new DungeonRoom(0, bossEncounter)]);
+            // L'étage jalon est entièrement dédié au combat de boss — une seule salle, pas de
+            // disposition spatiale nécessaire (voir GDD — mini-boss/10, boss/50, boss légendaire/100).
+            return new DungeonFloor(floorNumber, [new DungeonRoom(0, bossEncounter, IsStart: true)]);
         }
 
         var random = new Random(StableSeed(dungeonSeed, floorNumber));
+        var positions = WalkGrid(random, RoomsPerFloor);
+
         var rooms = new List<DungeonRoom>(RoomsPerFloor);
-        for (var i = 0; i < RoomsPerFloor; i++)
+        for (var i = 0; i < positions.Count; i++)
         {
-            rooms.Add(new DungeonRoom(i, PickEncounter(random)));
+            var (x, y) = positions[i];
+            var isStart = i == 0;
+            var encounter = isStart ? DungeonEncounterType.Evenement : PickEncounter(random);
+
+            rooms.Add(new DungeonRoom(
+                i, encounter, x, y,
+                North: positions.Contains((x, y - 1)),
+                South: positions.Contains((x, y + 1)),
+                East: positions.Contains((x + 1, y)),
+                West: positions.Contains((x - 1, y)),
+                IsStart: isStart));
         }
 
         return new DungeonFloor(floorNumber, rooms);
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "des salles aléatoires... où on se déplace nous-même de
+    /// salle en salle" : marche aléatoire depuis (0,0) façon Binding of Isaac — à chaque étape,
+    /// tente une direction aléatoire depuis une salle déjà placée ; si la case cible est libre,
+    /// une nouvelle salle y est créée. Le résultat est toujours connexe (chaque salle est
+    /// atteignable depuis la salle de départ) puisqu'on ne part que de salles déjà posées.
+    /// </summary>
+    private static List<(int X, int Y)> WalkGrid(Random random, int roomCount)
+    {
+        var positions = new List<(int X, int Y)> { (0, 0) };
+        var directions = new (int Dx, int Dy)[] { (0, -1), (0, 1), (1, 0), (-1, 0) };
+        var safety = 0;
+
+        while (positions.Count < roomCount && safety++ < roomCount * 50)
+        {
+            var from = positions[random.Next(positions.Count)];
+            var (dx, dy) = directions[random.Next(directions.Length)];
+            var next = (X: from.X + dx, Y: from.Y + dy);
+
+            if (!positions.Contains(next))
+            {
+                positions.Add(next);
+            }
+        }
+
+        return positions;
     }
 
     private static DungeonEncounterType? GetMilestoneEncounter(int floorNumber)
