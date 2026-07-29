@@ -67,11 +67,11 @@ public sealed class QuestService(AetheriaDbContext db, SessionTokenStore tokenSt
         });
 
         // Voir GDD/demande utilisateur — "grade payant... 0.1%/0.2%/0.3% de gain d'xp et d'argent
-        // en plus" : petit boost cosmétique, calculé sur le palier de grade du compte (voir
-        // PremiumService).
-        var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, userId, ct);
-        character.Gold += (long)Math.Round(quest.RewardGold * multiplier);
-        CharacterProgressionService.GrantExperience(character, (long)Math.Round(quest.RewardExperience * multiplier));
+        // en plus" (voir PremiumService) et "consommables pour booster... l'xp la money" (voir
+        // TemporaryBoostService) : les deux se cumulent.
+        var gradeMultiplier = await PremiumService.GetXpGoldMultiplierAsync(db, userId, ct);
+        character.Gold += (long)Math.Round(quest.RewardGold * gradeMultiplier * TemporaryBoostService.GoldMultiplier(character));
+        CharacterProgressionService.GrantExperience(character, (long)Math.Round(quest.RewardExperience * gradeMultiplier * TemporaryBoostService.XpMultiplier(character)));
         await db.SaveChangesAsync(ct);
     }
 }

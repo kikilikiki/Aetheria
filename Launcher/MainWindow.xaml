@@ -458,6 +458,43 @@
                 </Border>
             </Border>
 
+            <!-- Fiche créateur : voir GDD/demande utilisateur — "dans le launcher quand on appuie
+                 sur un pseudo on doit avoir ses réseaux et les liens pour y accéder" (clic sur le
+                 pseudo dans le panel Communauté, voir ShowCreatorInfoCommand). -->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsCreatorInfoOpen, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Width="380" Height="260"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding CreatorInfo.DisplayName}" FontSize="20" FontWeight="Bold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,18" />
+                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding CloseCreatorInfoCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,14,0,0" />
+                        <StackPanel VerticalAlignment="Top">
+                            <Button Content="{Binding CreatorInfo.Discord, StringFormat='Discord : {0}'}" Command="{Binding OpenCreatorLinkCommand}"
+                                    CommandParameter="{Binding CreatorInfo.Discord}" Cursor="Hand" HorizontalContentAlignment="Left" Margin="0,0,0,10">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <Button Content="{Binding CreatorInfo.Twitch, StringFormat='Twitch : {0}'}" Command="{Binding OpenCreatorLinkCommand}"
+                                    CommandParameter="{Binding CreatorInfo.Twitch}" Cursor="Hand" HorizontalContentAlignment="Left" Margin="0,0,0,10">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <Button Content="{Binding CreatorInfo.YouTube, StringFormat='YouTube : {0}'}" Command="{Binding OpenCreatorLinkCommand}"
+                                    CommandParameter="{Binding CreatorInfo.YouTube}" Cursor="Hand" HorizontalContentAlignment="Left" Margin="0,0,0,10">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+            </Border>
+
             <!-- Panneau Classement : voir GDD/demande utilisateur — "un bouton pour le leaderboard
                  en jeu et sur le launcher". -->
             <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
@@ -531,7 +568,22 @@
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
-                                    <DataGridTextColumn Header="Pseudo" Binding="{Binding Username}" Width="110" />
+                                    <!-- Voir GDD/demande utilisateur — "quand on appuie sur un pseudo on doit avoir ses réseaux et les liens pour y accéder" : bouton plutôt qu'un simple texte, mais visuellement identique (pas de style de bouton) pour ne pas laisser croire que TOUS les pseudos ont une fiche (voir ShowCreatorInfoCommand, silencieux si le pseudo n'est pas reconnu). -->
+                                    <DataGridTemplateColumn Header="Pseudo" Width="110">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="{Binding Username}" HorizontalContentAlignment="Left" Cursor="Hand"
+                                                        Command="{Binding DataContext.ShowCreatorInfoCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                        CommandParameter="{Binding Username}">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <ContentPresenter />
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
                                     <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="170" />
                                     <DataGridTextColumn Header="Grade" Binding="{Binding Rank}" Width="90" />
                                     <DataGridTextColumn Header="Banni" Binding="{Binding IsBanned}" Width="50" />

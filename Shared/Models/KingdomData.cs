@@ -12,4 +12,9 @@ public sealed class KingdomData
 
     /// <summary>Identifiants des territoires (mines, villages, forts, donjons) contrôlés cette semaine.</summary>
     public IReadOnlyList<int> ControlledTerritoryIds { get; set; } = Array.Empty<int>();
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".</summary>
+    public long WarPoints { get; init; }
+    public int BonusTerritoryCount { get; init; }
+    public int MemberCount { get; init; }
 }

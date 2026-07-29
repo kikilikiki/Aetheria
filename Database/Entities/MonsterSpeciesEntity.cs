@@ -57,4 +57,12 @@ public sealed class MonsterSpeciesEntity
     /// Seules les espèces avec ce flag apparaissent dans <c>GET /api/monsters/species/starters</c>.
     /// </summary>
     public bool IsStarter { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute des monstres que l'on peut avoir que en donjon" :
+    /// exclu du tirage des rencontres sauvages (<c>CombatService.StartWildEncounterAsync</c>),
+    /// mais toujours éligible aux rencontres de donjon de sa rareté (mini-boss/boss, voir
+    /// <c>ResolveDungeonEncounterSpeciesAsync</c>) — la seule façon de l'obtenir.
+    /// </summary>
+    public bool DungeonOnly { get; set; }
 }

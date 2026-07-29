@@ -98,23 +98,9 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
             seller.Gold += totalPrice;
         }
 
-        var existingStack = await db.InventoryItems.FirstOrDefaultAsync(
-            i => i.CharacterId == character.Id && i.ItemId == listing.ItemId, ct);
-
-        if (existingStack is not null)
-        {
-            existingStack.Quantity += listing.Quantity;
-        }
-        else
-        {
-            db.InventoryItems.Add(new InventoryItemEntity
-            {
-                Id = Guid.NewGuid(),
-                CharacterId = character.Id,
-                ItemId = listing.ItemId,
-                Quantity = listing.Quantity,
-            });
-        }
+        // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".
+        var boughtItemMaxStack = await db.Items.Where(i => i.Id == listing.ItemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+        await InventoryStackingService.AddQuantityAsync(db, character.Id, listing.ItemId, listing.Quantity, boughtItemMaxStack <= 0 ? 99 : boughtItemMaxStack, ct);
 
         db.AuctionListings.Remove(listing);
         await db.SaveChangesAsync(ct);
@@ -134,23 +120,9 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
             throw new AccountOperationException("Ce n'est pas votre annonce.");
         }
 
-        var existingStack = await db.InventoryItems.FirstOrDefaultAsync(
-            i => i.CharacterId == character.Id && i.ItemId == listing.ItemId, ct);
-
-        if (existingStack is not null)
-        {
-            existingStack.Quantity += listing.Quantity;
-        }
-        else
-        {
-            db.InventoryItems.Add(new InventoryItemEntity
-            {
-                Id = Guid.NewGuid(),
-                CharacterId = character.Id,
-                ItemId = listing.ItemId,
-                Quantity = listing.Quantity,
-            });
-        }
+        // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".
+        var returnedItemMaxStack = await db.Items.Where(i => i.Id == listing.ItemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+        await InventoryStackingService.AddQuantityAsync(db, character.Id, listing.ItemId, listing.Quantity, returnedItemMaxStack <= 0 ? 99 : returnedItemMaxStack, ct);
 
         db.AuctionListings.Remove(listing);
         await db.SaveChangesAsync(ct);

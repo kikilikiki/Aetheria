@@ -260,7 +260,7 @@ public sealed class PlayerSession(
         }
 
         using var db = dbContextFactory.CreateDbContext();
-        var self = db.Users.Where(u => u.Id == UserId).Select(u => new { u.IsAdmin, u.Rank, u.IsMuted }).FirstOrDefault();
+        var self = db.Users.Where(u => u.Id == UserId).Select(u => new { u.IsAdmin, u.Rank, u.IsMuted, u.PremiumGradeTier }).FirstOrDefault();
         if (self is null)
         {
             return;
@@ -302,6 +302,7 @@ public sealed class PlayerSession(
             Channel = chat.Channel,
             Rank = self.Rank,
             TargetCharacterName = chat.TargetCharacterName,
+            SenderGradeTier = self.Rank == UserRank.Fondateur ? PremiumService.MaxTier : self.PremiumGradeTier,
         };
 
         if (chat.Channel == ChatChannel.Prive)
@@ -488,9 +489,9 @@ public sealed class PlayerSession(
         switch (parts[0].ToLowerInvariant())
         {
             case "/help":
-                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /ping /version" +
+                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /use /ping /version" +
                     (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /give /givemoney /givexp /givemonster /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : "") +
-                    (rank == UserRank.Fondateur ? " — fondateur : /givegems /dev" : ""));
+                    (rank == UserRank.Fondateur ? " — fondateur : /givegems /globalboost /globalgive /dev" : ""));
                 break;
 
             case "/menu":
@@ -604,11 +605,76 @@ public sealed class PlayerSession(
                 HandleKingdomCommand(db, parts.Length > 1 ? parts[1] : "", Reply);
                 break;
 
+            // Voir GDD/demande utilisateur — "ajoute des consommables pour booster la luck l'xp
+            // la money" : consomme une potion de boost par id d'objet (voir Docs/Items.md).
+            case "/use":
+                if (parts.Length < 2 || !int.TryParse(parts[1], out var useItemId))
+                {
+                    Reply("Usage : /use <idObjet>");
+                    return true;
+                }
+
+                UseConsumable(db, useItemId, Reply);
+                break;
+
             default:
                 return false;
         }
 
         return true;
+    }
+
+    private void UseConsumable(AetheriaDbContext db, int itemId, Action<string> reply)
+    {
+        var item = db.Items.FirstOrDefault(i => i.Id == itemId);
+        if (item is null)
+        {
+            reply("Objet introuvable.");
+            return;
+        }
+
+        var known = new HashSet<string> { "Potion d'expérience", "Potion de fortune", "Potion de chance" };
+        if (!known.Contains(item.Name))
+        {
+            reply($"{item.Name} ne peut pas être utilisé de cette façon.");
+            return;
+        }
+
+        var stack = db.InventoryItems.FirstOrDefault(i => i.CharacterId == CharacterId && i.ItemId == itemId);
+        if (stack is null || stack.Quantity <= 0)
+        {
+            reply($"Vous n'avez pas de {item.Name}.");
+            return;
+        }
+
+        var character = db.Characters.FirstOrDefault(c => c.Id == CharacterId);
+        if (character is null)
+        {
+            reply("Personnage introuvable.");
+            return;
+        }
+
+        switch (item.Name)
+        {
+            case "Potion d'expérience":
+                character.XpBoostExpiresAtUtc = DateTime.UtcNow + TemporaryBoostService.BoostDuration;
+                break;
+            case "Potion de fortune":
+                character.GoldBoostExpiresAtUtc = DateTime.UtcNow + TemporaryBoostService.BoostDuration;
+                break;
+            case "Potion de chance":
+                character.LuckBoostExpiresAtUtc = DateTime.UtcNow + TemporaryBoostService.BoostDuration;
+                break;
+        }
+
+        stack.Quantity--;
+        if (stack.Quantity <= 0)
+        {
+            db.InventoryItems.Remove(stack);
+        }
+
+        db.SaveChanges();
+        reply($"{item.Name} utilisé(e) — effet actif pendant {TemporaryBoostService.BoostDuration.TotalMinutes:0} minutes.");
     }
 
     private void SetActiveTitle(AetheriaDbContext db, string titleName, Action<string> reply)
@@ -1158,6 +1224,44 @@ public sealed class PlayerSession(
                 GiveGems(db, parts[1], gemsAmount, Reply);
                 break;
 
+            // Voir GDD/demande utilisateur — "ajoute des commandes admin abuse comme boost de
+            // chance pour tout le monde et autre" : applique une potion de boost (voir
+            // TemporaryBoostService) à TOUS les personnages actuellement connectés d'un coup —
+            // réservé au Fondateur (impact serveur entier, comme /dev/givegems).
+            case "/globalboost":
+                if (rank != UserRank.Fondateur)
+                {
+                    Reply("Commande réservée au Fondateur.");
+                    return;
+                }
+
+                if (parts.Length < 2 || parts[1] is not ("xp" or "money" or "luck"))
+                {
+                    Reply("Usage : /globalboost <xp|money|luck>");
+                    return;
+                }
+
+                GlobalBoost(db, parts[1], Reply);
+                break;
+
+            // Voir GDD/demande utilisateur — "commandes admin abuse... et autre" : donne un objet à
+            // TOUS les personnages connectés d'un coup (variante en masse de /give).
+            case "/globalgive":
+                if (rank != UserRank.Fondateur)
+                {
+                    Reply("Commande réservée au Fondateur.");
+                    return;
+                }
+
+                if (parts.Length < 3 || !int.TryParse(parts[1], out var globalGiveItemId) || !int.TryParse(parts[2], out var globalGiveQty))
+                {
+                    Reply("Usage : /globalgive <idObjet> <quantite>");
+                    return;
+                }
+
+                GlobalGive(db, globalGiveItemId, globalGiveQty, Reply);
+                break;
+
             // Voir GDD/demande utilisateur — "réservé au fonda/dev" : un cran au-dessus des autres
             // commandes admin (même logique que /toggle-admin, voir Server/Program.cs), donc
             // revérifié spécifiquement ici plutôt que de se contenter du garde commun en haut de
@@ -1291,9 +1395,14 @@ public sealed class PlayerSession(
         reply($"{(monster.Nickname.Length > 0 ? monster.Nickname : "Créature")} (#{monsterIndex} de {targetCharacterName}) est maintenant niveau {monster.Level}.");
     }
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "je n'arrive pas à me give de monstre" : recherche insensible
+    /// à la casse et aux accents (voir TextMatching) plutôt qu'une correspondance exacte, qui
+    /// échouait silencieusement pour une saisie manuelle légèrement différente.
+    /// </summary>
     private static CharacterEntity? FindCharacter(AetheriaDbContext db, string name, Action<string> reply)
     {
-        var target = db.Characters.FirstOrDefault(c => c.Name == name);
+        var target = db.Characters.AsEnumerable().FirstOrDefault(c => TextMatching.NamesMatch(c.Name, name));
         if (target is null)
         {
             reply($"Personnage introuvable : {name}");
@@ -1317,16 +1426,9 @@ public sealed class PlayerSession(
             return;
         }
 
+        // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".
         var quantityClamped = Math.Max(1, quantity);
-        var existing = db.InventoryItems.FirstOrDefault(i => i.CharacterId == target.Id && i.ItemId == itemId);
-        if (existing is not null)
-        {
-            existing.Quantity += quantityClamped;
-        }
-        else
-        {
-            db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = target.Id, ItemId = itemId, Quantity = quantityClamped });
-        }
+        InventoryStackingService.AddQuantity(db, target.Id, itemId, quantityClamped, item.MaxStackSize);
 
         db.SaveChanges();
         reply($"{quantityClamped}x {item.Name} donné(s) à {target.Name}.");
@@ -1371,6 +1473,59 @@ public sealed class PlayerSession(
         target.User.Gems = Math.Max(0, target.User.Gems + amount);
         db.SaveChanges();
         reply($"{targetCharacterName} (compte {target.User.Username}) a maintenant {target.User.Gems} gemme(s).");
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "commandes admin abuse comme boost de chance pour tout le monde".</summary>
+    private void GlobalBoost(AetheriaDbContext db, string kind, Action<string> reply)
+    {
+        var onlineCharacterIds = registry.All().Select(s => s.CharacterId).ToHashSet();
+        if (onlineCharacterIds.Count == 0)
+        {
+            reply("Aucun joueur connecté.");
+            return;
+        }
+
+        var characters = db.Characters.Where(c => onlineCharacterIds.Contains(c.Id)).ToList();
+        var expiresAt = DateTime.UtcNow + TemporaryBoostService.BoostDuration;
+        foreach (var character in characters)
+        {
+            switch (kind)
+            {
+                case "xp": character.XpBoostExpiresAtUtc = expiresAt; break;
+                case "money": character.GoldBoostExpiresAtUtc = expiresAt; break;
+                case "luck": character.LuckBoostExpiresAtUtc = expiresAt; break;
+            }
+        }
+
+        db.SaveChanges();
+        reply($"Boost {kind} appliqué à {characters.Count} joueur(s) connecté(s) pour {TemporaryBoostService.BoostDuration.TotalMinutes:0} minutes.");
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "commandes admin abuse... et autre" : variante en masse de /give.</summary>
+    private void GlobalGive(AetheriaDbContext db, int itemId, int quantity, Action<string> reply)
+    {
+        var item = db.Items.FirstOrDefault(i => i.Id == itemId);
+        if (item is null)
+        {
+            reply("Objet introuvable.");
+            return;
+        }
+
+        var onlineCharacterIds = registry.All().Select(s => s.CharacterId).ToHashSet();
+        if (onlineCharacterIds.Count == 0)
+        {
+            reply("Aucun joueur connecté.");
+            return;
+        }
+
+        var quantityClamped = Math.Max(1, quantity);
+        foreach (var characterId in onlineCharacterIds)
+        {
+            InventoryStackingService.AddQuantity(db, characterId, itemId, quantityClamped, item.MaxStackSize);
+        }
+
+        db.SaveChanges();
+        reply($"{quantityClamped}x {item.Name} donné(s) à {onlineCharacterIds.Count} joueur(s) connecté(s).");
     }
 
     private static void GiveCharacterExperience(AetheriaDbContext db, string targetCharacterName, long amount, Action<string> reply)
@@ -1421,7 +1576,7 @@ public sealed class PlayerSession(
             return;
         }
 
-        var species = db.MonsterSpecies.FirstOrDefault(s => s.Name == speciesName);
+        var species = db.MonsterSpecies.AsEnumerable().FirstOrDefault(s => TextMatching.NamesMatch(s.Name, speciesName));
         if (species is null)
         {
             reply($"Espèce introuvable : {speciesName}");
@@ -1600,15 +1755,7 @@ public sealed class PlayerSession(
         var items = db.Items.Where(i => i.IsObtainable).ToList();
         foreach (var item in items)
         {
-            var existing = db.InventoryItems.FirstOrDefault(i => i.CharacterId == target.Id && i.ItemId == item.Id);
-            if (existing is not null)
-            {
-                existing.Quantity++;
-            }
-            else
-            {
-                db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = target.Id, ItemId = item.Id, Quantity = 1 });
-            }
+            InventoryStackingService.AddQuantity(db, target.Id, item.Id, 1, item.MaxStackSize);
         }
 
         db.SaveChanges();

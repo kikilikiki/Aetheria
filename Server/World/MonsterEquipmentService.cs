@@ -87,15 +87,9 @@ public sealed class MonsterEquipmentService(AetheriaDbContext db, SessionTokenSt
             return false;
         }
 
-        var existing = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == characterId && i.ItemId == itemId, ct);
-        if (existing is not null)
-        {
-            existing.Quantity++;
-        }
-        else
-        {
-            db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = characterId, ItemId = itemId, Quantity = 1 });
-        }
+        // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".
+        var maxStackSize = await db.Items.Where(i => i.Id == itemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+        await InventoryStackingService.AddQuantityAsync(db, characterId, itemId, 1, maxStackSize <= 0 ? 99 : maxStackSize, ct);
 
         switch (slot)
         {

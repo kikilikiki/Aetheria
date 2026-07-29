@@ -38,6 +38,12 @@ public sealed class CharacterEntity
     /// <summary>Voir GDD/demande utilisateur — "des titres que l'on peut obtenir en pvp dans des classements" : doit correspondre à un <see cref="CharacterTitleEntity.TitleKey"/> déjà possédé (voir ProfileService.UpdateAsync), sinon ignoré.</summary>
     public string? ActiveTitle { get; set; }
 
+    // Voir GDD/demande utilisateur — "ajoute des consommables pour booster la luck l'xp la money"
+    // : chaque potion pose une expiration plutôt qu'un compteur, voir TemporaryBoostService.
+    public DateTime? XpBoostExpiresAtUtc { get; set; }
+    public DateTime? GoldBoostExpiresAtUtc { get; set; }
+    public DateTime? LuckBoostExpiresAtUtc { get; set; }
+
     public List<MonsterEntity> Monsters { get; set; } = new();
     public List<InventoryItemEntity> InventoryItems { get; set; } = new();
     public StatisticsEntity? Statistics { get; set; }

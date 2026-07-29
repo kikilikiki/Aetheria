@@ -41,7 +41,13 @@ public sealed class UserEntity
     /// <summary>Palier de grade payant possédé (0 = aucun, 1 à 3 — voir <see cref="PremiumService"/>) : bonus cosmétique + petit boost XP/or. Le Fondateur a toujours le palier maximum sans dépenser de gemmes.</summary>
     public int PremiumGradeTier { get; set; }
 
-    /// <summary>Palier de pass "emplacement de personnage" acheté (0 à 3 — voir <see cref="PremiumService"/>) : détermine le nombre maximum de personnages autorisés. Le Fondateur n'a aucune limite quel que soit ce palier.</summary>
+    /// <summary>
+    /// Ancien palier de pass "emplacement de personnage", séparé du grade. Voir GDD/demande
+    /// utilisateur — "les grades coûtent [...] +1/+2/+5 emplacements personnage" : les
+    /// emplacements de personnage font désormais partie du grade lui-même
+    /// (<see cref="PremiumGradeTier"/>, voir <see cref="PremiumService.MaxCharacters"/>). Colonne
+    /// conservée pour éviter une migration destructrice, mais plus lue par aucune logique.
+    /// </summary>
     public int CharacterSlotTier { get; set; }
 
     /// <summary>

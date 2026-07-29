@@ -255,6 +255,53 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    // Voir GDD/demande utilisateur — "dans le launcher quand on appuie sur un pseudo on doit
+    // avoir ces réseaux et les liens pour y accéder" (voir CreatorCredits, même registre que la
+    // fiche créateur en jeu). Seuls les pseudos reconnus l'ouvrent — les autres restent inertes.
+    [ObservableProperty]
+    private bool _isCreatorInfoOpen;
+
+    [ObservableProperty]
+    private CreatorProfile? _creatorInfo;
+
+    [RelayCommand]
+    private void ShowCreatorInfo(string? username)
+    {
+        if (username is null)
+        {
+            return;
+        }
+
+        var profile = CreatorCredits.Find(username);
+        if (profile is null)
+        {
+            return;
+        }
+
+        CreatorInfo = profile;
+        IsCreatorInfoOpen = true;
+    }
+
+    [RelayCommand]
+    private void CloseCreatorInfo() => IsCreatorInfoOpen = false;
+
+    [RelayCommand]
+    private void OpenCreatorLink(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+        }
+    }
+
     // Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
     [ObservableProperty]
     private bool _isLeaderboardOpen;

@@ -152,11 +152,12 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
         }
 
         // Voir GDD/demande utilisateur — "grade payant... 0.1%/0.2%/0.3% de gain d'xp en plus"
-        // (voir PremiumService) : calculé par destinataire, chacun ayant potentiellement un
-        // palier de grade différent.
+        // (voir PremiumService) et "consommables pour booster... l'xp" (voir
+        // TemporaryBoostService) : calculés par destinataire, chacun ayant potentiellement un
+        // palier de grade et une potion active différents.
         foreach (var recipient in recipients)
         {
-            var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, recipient.UserId, ct);
+            var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, recipient.UserId, ct) * TemporaryBoostService.XpMultiplier(recipient);
             CharacterProgressionService.GrantExperience(recipient, (long)Math.Round(amount * multiplier));
         }
 

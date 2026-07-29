@@ -162,18 +162,11 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
         session.ResolvedAtUtc = DateTime.UtcNow;
     }
 
+    // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".
     private async Task GrantItemAsync(Guid characterId, int itemId, CancellationToken ct)
     {
-        var existing = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == characterId && i.ItemId == itemId, ct);
-        if (existing is not null)
-        {
-            existing.Quantity++;
-        }
-        else
-        {
-            db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = characterId, ItemId = itemId, Quantity = 1 });
-        }
-
+        var maxStackSize = await db.Items.Where(i => i.Id == itemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+        await InventoryStackingService.AddQuantityAsync(db, characterId, itemId, 1, maxStackSize <= 0 ? 99 : maxStackSize, ct);
         await db.SaveChangesAsync(ct);
     }
 
