@@ -10,6 +10,9 @@ namespace Aetheria.Server.World.Combat;
 /// </summary>
 internal static class CombatEngine
 {
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown pour le spécial" : nombre de tours du combattant avant de pouvoir la réutiliser.</summary>
+    private const int SpecialAbilityCooldownTurns = 3;
+
     public static void Initialize(CombatSession session)
     {
         session.Combatants = [.. session.Combatants.OrderByDescending(c => c.Speed)];
@@ -80,6 +83,12 @@ internal static class CombatEngine
     /// </summary>
     public static void ResolveSpecialAbility(CombatSession session, Combatant actor, int targetX, int targetY)
     {
+        if (actor.SpecialAbilityCooldownRemaining > 0)
+        {
+            throw new InvalidOperationException(
+                $"Capacité spéciale en recharge ({actor.SpecialAbilityCooldownRemaining} tour(s) restant(s)).");
+        }
+
         if (actor.Type == MonsterType.Soigneur)
         {
             var lowest = session.Combatants
@@ -90,12 +99,14 @@ internal static class CombatEngine
             if (lowest is null || lowest.CurrentHealth >= lowest.MaxHealth)
             {
                 session.LastMessage = $"{actor.Name} ne trouve personne à soigner.";
+                actor.SpecialAbilityCooldownRemaining = SpecialAbilityCooldownTurns;
                 return;
             }
 
             var healAmount = Math.Max(1, lowest.MaxHealth * 3 / 10);
             lowest.CurrentHealth = Math.Min(lowest.MaxHealth, lowest.CurrentHealth + healAmount);
             session.LastMessage = $"{actor.Name} soigne {lowest.Name} de {healAmount} PV.";
+            actor.SpecialAbilityCooldownRemaining = SpecialAbilityCooldownTurns;
             return;
         }
 
@@ -112,6 +123,8 @@ internal static class CombatEngine
         {
             throw new InvalidOperationException("Cible hors de portée.");
         }
+
+        actor.SpecialAbilityCooldownRemaining = SpecialAbilityCooldownTurns;
 
         var multiplier = ElementalMultiplier(actor.Element, target.Element);
         int damage;
@@ -194,9 +207,15 @@ internal static class CombatEngine
         for (var i = 0; i < session.Combatants.Count; i++)
         {
             session.TurnIndex = (session.TurnIndex + 1) % session.Combatants.Count;
-            if (session.CurrentCombatant!.IsAlive)
+            var next = session.CurrentCombatant!;
+            if (next.IsAlive)
             {
                 session.TurnStartedAtUtc = DateTime.UtcNow;
+                if (next.SpecialAbilityCooldownRemaining > 0)
+                {
+                    next.SpecialAbilityCooldownRemaining--;
+                }
+
                 return;
             }
         }
@@ -215,9 +234,19 @@ internal static class CombatEngine
 
     private static void RunAiTurn(CombatSession session, Combatant actor)
     {
+        // Voir GDD/demande utilisateur — "cooldown pour le spécial" ET "certains mobs sont
+        // invincibles" (deux demandes liées : un Soigneur sauvage seul sur son équipe se soignait
+        // LUI-MÊME dès qu'il encaissait des dégâts, à chaque tour, sans jamais pouvoir mourir —
+        // c'était la vraie cause des mobs "invincibles" signalés). Le cooldown throttle
+        // maintenant ce comportement ; l'IA doit donc vérifier qu'elle n'est pas en recharge
+        // avant de choisir la capacité spéciale, sous peine de faire planter la résolution du
+        // tour (ResolveSpecialAbility lève une exception si en recharge).
+        var canUseSpecial = actor.SpecialAbilityCooldownRemaining == 0;
+
         // IA Soigneur (voir GDD — types de monstres) : priorité à soigner un allié blessé plutôt
-        // qu'attaquer, tant qu'il y en a un — sinon se rabat sur le comportement standard.
-        if (actor.Type == MonsterType.Soigneur
+        // qu'attaquer, tant qu'il y en a un et que la capacité n'est pas en recharge — sinon se
+        // rabat sur le comportement standard (attaquer/se rapprocher) comme les autres types.
+        if (actor.Type == MonsterType.Soigneur && canUseSpecial
             && session.Combatants.Any(c => c.IsAlive && c.Team == actor.Team && c.CurrentHealth < c.MaxHealth))
         {
             ResolveSpecialAbility(session, actor, actor.X, actor.Y);
@@ -241,19 +270,21 @@ internal static class CombatEngine
             // Hors de la portée d'attaque normale mais dans la portée étendue de l'Archer : la
             // capacité spéciale est alors la SEULE option valide (ResolveAttack refuserait cette
             // distance). Sinon, l'IA l'utilise aussi environ un tour sur trois pour ne pas rendre
-            // l'attaque de base totalement obsolète.
+            // l'attaque de base totalement obsolète. Dans les deux cas, seulement si disponible.
             var mustUseSpecial = distance > actor.AttackRange;
             var wantsSpecial = actor.Type != MonsterType.Soigneur && Random.Shared.NextDouble() < 0.35;
 
-            if (mustUseSpecial || wantsSpecial)
+            if (canUseSpecial && (mustUseSpecial || wantsSpecial))
             {
                 ResolveSpecialAbility(session, actor, target.X, target.Y);
             }
-            else
+            else if (distance <= actor.AttackRange)
             {
                 ResolveAttack(session, actor, target.X, target.Y);
             }
 
+            // Sinon (mustUseSpecial mais en recharge, hors de portée normale) : rien de valide
+            // cette fois-ci, l'IA passe simplement son tour plutôt que de planter.
             return;
         }
 

@@ -71,6 +71,14 @@ public sealed class KeyboardState
         return chars;
     }
 
+    /// <summary>
+    /// Vide la file de caractères tapés sans les consommer (voir GDD/demande utilisateur — les
+    /// touches de déplacement produisent aussi des évènements <c>KeyChar</c> ; sans purge
+    /// systématique en fin de frame quand aucun champ de saisie n'est actif, elles s'accumulaient
+    /// indéfiniment et se déversaient d'un coup dans le tchat à sa prochaine ouverture).
+    /// </summary>
+    public void DiscardTypedChars() => _typedChars.Clear();
+
     /// <summary>Copie du texte dans le presse-papiers système (voir GDD/demande utilisateur — bouton pour copier le code de groupe), via GLFW/Silk.NET plutôt qu'une dépendance WinForms/WPF.</summary>
     public void SetClipboardText(string text)
     {
