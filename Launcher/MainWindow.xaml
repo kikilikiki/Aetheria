@@ -42,6 +42,18 @@
             <Setter Property="Padding" Value="8,7" />
             <Setter Property="CaretBrush" Value="#E8E8F0" />
         </Style>
+        <!-- Voir GDD/demande utilisateur — "dans le classement, le fond est blanc et le texte
+             aussi dans la liste déroulante" : le cadre du popup déroulant par défaut de ComboBox
+             (pas ComboBoxItem, déjà stylé plus bas) lit ses couleurs via
+             {DynamicResource SystemColors.WindowBrushKey/WindowTextBrushKey} — jamais stylé
+             explicitement jusqu'ici, d'où un fond clair hérité du thème Windows quel que soit le
+             Foreground du ComboBox fermé. Réassigne ces clés système (portée fenêtre) plutôt que
+             de réécrire tout le ControlTemplate par défaut (plus risqué, beaucoup de détails
+             d'interaction à reproduire à l'identique).-->
+        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#1B1F2C" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#E8E8F0" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#1B1F2C" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#E8E8F0" />
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="#1B1F2C" />
             <Setter Property="Foreground" Value="#E8E8F0" />
@@ -49,10 +61,6 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="8,6" />
         </Style>
-        <!-- Le popup déroulant du ComboBox ne reprend pas le thème sombre par défaut (fond clair
-             hérité du système) alors que le texte hérite quand même du Foreground clair du
-             ComboBox fermé — texte clair sur fond clair, illisible (voir retour utilisateur).
-             Style explicite des lignes du menu déroulant pour corriger ça. -->
         <Style TargetType="ComboBoxItem">
             <Setter Property="Background" Value="#1B1F2C" />
             <Setter Property="Foreground" Value="#E8E8F0" />
