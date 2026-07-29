@@ -209,6 +209,24 @@ public static class MonsterCatalogSeeder
             {
                 db.MonsterSpecies.AddRange(missing);
             }
+
+            // Sauvegarde intermédiaire : sur une base fraîchement créée, les espèces ci-dessus
+            // n'existent encore que dans le suivi de changements EF Core (jamais interrogeables
+            // via une requête tant qu'elles ne sont pas persistées) — sans ce SaveChanges, le
+            // marquage "donjon uniquement" juste en dessous ne trouverait jamais rien au tout
+            // premier démarrage sur une base vide.
+            await db.SaveChangesAsync(ct);
+
+            // Voir GDD/demande utilisateur — "ajoute des monstres que l'on peut avoir que en
+            // donjon" : marque quelques espèces Rare/Légendaire déjà existantes comme exclusives
+            // au donjon (mini-boss/boss, voir CombatService) plutôt que d'en inventer de
+            // nouvelles — idempotent (revérifié à chaque démarrage, pas seulement à la création).
+            var dungeonOnlyNames = new HashSet<string> { "Ombrelune", "Chevalier Spectral", "Dracaelith", "Tempestia" };
+            var toFlag = await db.MonsterSpecies.Where(s => dungeonOnlyNames.Contains(s.Name) && !s.DungeonOnly).ToListAsync(ct);
+            foreach (var species in toFlag)
+            {
+                species.DungeonOnly = true;
+            }
         }
 
         if (!await db.Items.AnyAsync(i => i.ItemType == ItemType.ObjetDeCapture, ct))
@@ -312,6 +330,23 @@ public static class MonsterCatalogSeeder
             {
                 Name = "Blé", Description = "Récolté aux champs — utilisé par les cuisiniers et alchimistes.",
                 ItemType = ItemType.Ressource, Rarity = Rarity.Commun, IsStackable = true, MaxStackSize = 99, Price = 5,
+            },
+            // Voir GDD/demande utilisateur — "ajoute des consommables pour booster la luck l'xp la
+            // money" : voir TemporaryBoostService/ConsumableService (/use <idObjet>).
+            new()
+            {
+                Name = "Potion d'expérience", Description = "+50% d'expérience gagnée pendant 30 minutes. S'utilise avec /use.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Rare, IsStackable = true, MaxStackSize = 20, Price = 150,
+            },
+            new()
+            {
+                Name = "Potion de fortune", Description = "+50% d'or gagné pendant 30 minutes. S'utilise avec /use.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Rare, IsStackable = true, MaxStackSize = 20, Price = 150,
+            },
+            new()
+            {
+                Name = "Potion de chance", Description = "Réduit les malus de récolte hors territoire pendant 30 minutes. S'utilise avec /use.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Rare, IsStackable = true, MaxStackSize = 20, Price = 150,
             },
         };
 

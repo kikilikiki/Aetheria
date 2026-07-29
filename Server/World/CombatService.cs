@@ -114,11 +114,13 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var partyService = new PartyService(db, tokenStore);
         var scalingReference = await partyService.ResolveScalingReferenceAsync(character.Id, ct);
 
+        // Voir GDD/demande utilisateur — "ajoute des monstres que l'on peut avoir que en donjon" :
+        // exclus des rencontres sauvages, seule ResolveDungeonEncounterSpeciesAsync peut les tirer.
         var rarity = RarityForLevel(scalingReference.Level);
-        var candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == rarity).ToListAsync(ct);
+        var candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == rarity && !s.DungeonOnly).ToListAsync(ct);
         if (candidates.Count == 0)
         {
-            candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun).ToListAsync(ct);
+            candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun && !s.DungeonOnly).ToListAsync(ct);
         }
 
         if (candidates.Count == 0)

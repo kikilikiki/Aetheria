@@ -271,6 +271,9 @@ var remotePlayers = new Dictionary<Guid, RemotePlayer>();
 // extérieur comme le dialogue PNJ, ouverts via I/G/B, fermés via Échap.
 var activePanel = PanelKind.None;
 List<InventoryItemSummary> inventoryItems = [];
+// Voir GDD/demande utilisateur — "les items dépassent, ajoute une barre de scroll dans
+// l'inventaire" : indice du premier objet visible, avec un défilement clavier/molette.
+var inventoryScrollOffset = 0;
 GuildSummary? myGuild = null;
 var guildLoaded = false;
 
@@ -481,6 +484,11 @@ Task<List<KingdomWarStanding>>? warStandingsTask = null;
 // client (voir GameDataApiClient.GetKingdomLeaderboardAsync).
 List<LeaderboardRow> warKingdomLeaderboard = [];
 Task<List<LeaderboardRow>>? warKingdomLeaderboardTask = null;
+
+// Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
+List<KingdomData> kingdomPanelData = [];
+List<TerritorySummary> kingdomPanelTerritories = [];
+Task<(List<KingdomData> Kingdoms, List<TerritorySummary> Territories)>? kingdomPanelLoadTask = null;
 
 // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp", puis "propose un
 // pvp, si la personne est en team tout les membres doivent accepter" : invitation reçue (bouton
@@ -820,6 +828,10 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.U)) OpenPanel(PanelKind.Profile);
     else if (keyboard.WasJustPressed(Key.K)) OpenPanel(PanelKind.Leaderboard);
     else if (keyboard.WasJustPressed(Key.J)) OpenPanel(PanelKind.QuestList);
+    // Voir GDD/demande utilisateur — "ajoute un raccourci clavier" (panneau Duel).
+    else if (keyboard.WasJustPressed(Key.Y)) OpenPanel(PanelKind.Duel);
+    // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
+    else if (keyboard.WasJustPressed(Key.R)) OpenPanel(PanelKind.Kingdom);
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -1478,7 +1490,7 @@ void DrawCraftPanel(int w, int h)
         y += lineHeight + 6f;
     }
 
-    DrawPromptBanner("HAUT/BAS : choisir - C OU CLIC : fabriquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - C OU CLIC : fabriquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -1624,7 +1636,7 @@ void DrawFriendsPanel(int w, int h)
     {
         TextRenderer.Draw(spriteBatch, whiteTexture, "Nom du personnage a ajouter :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         TextRenderer.Draw(spriteBatch, whiteTexture, friendTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
-        DrawPromptBanner("ENTREE : ENVOYER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : ENVOYER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
@@ -1673,7 +1685,7 @@ void DrawFriendsPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, friendMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    DrawPromptBanner("HAUT/BAS : choisir - ENTREE : MP/accepter - SUPPR : retirer - A : ajouter - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : MP/accepter - SUPPR : retirer - A : ajouter - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -1783,7 +1795,7 @@ void DrawProfilePanel(int w, int h)
     if (myProfile is null)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Chargement...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, Vector4.One);
-        DrawPromptBanner("ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
@@ -1795,7 +1807,7 @@ void DrawProfilePanel(int w, int h)
             TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.6f, Vector4.One);
         }
 
-        DrawPromptBanner("ENTREE : VALIDER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : VALIDER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
@@ -1822,7 +1834,7 @@ void DrawProfilePanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, profileMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    DrawPromptBanner("D : modifier description - GAUCHE/DROITE : titre actif - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : modifier description - GAUCHE/DROITE : titre actif - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Panneau Classement (bouton HUD/touche K, voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher").</summary>
@@ -1889,7 +1901,7 @@ void DrawLeaderboardPanel(int w, int h)
         y += 28f;
     }
 
-    DrawPromptBanner("GAUCHE/DROITE : categorie - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : categorie - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -2446,6 +2458,80 @@ void DrawWarRoomPanel(int w, int h)
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
+/// <summary>Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom" : capitale, membres, points de guerre/classement, bonus de rendement et territoires contrôlés, en un seul chargement.</summary>
+async Task<(List<KingdomData> Kingdoms, List<TerritorySummary> Territories)> LoadKingdomPanelDataAsync()
+{
+    if (gameDataApi is null)
+    {
+        return ([], []);
+    }
+
+    var kingdoms = await gameDataApi.GetKingdomsAsync();
+    var territories = await gameDataApi.GetTerritoriesAsync();
+    return (kingdoms, territories);
+}
+
+void UpdateKingdomPanel()
+{
+    if (kingdomPanelLoadTask is { IsCompleted: true } loadTask)
+    {
+        (kingdomPanelData, kingdomPanelTerritories) = loadTask.IsFaulted ? ([], []) : loadTask.Result;
+        kingdomPanelLoadTask = null;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+    }
+}
+
+void DrawKingdomPanel(int w, int h)
+{
+    const float boxWidth = 560f;
+    const float boxHeight = 420f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.07f, 0.06f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.8f, 0.5f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ROYAUMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.7f, 0.95f, 0.7f, 1f));
+
+    if (kingdomPanelLoadTask is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var ranked = kingdomPanelData.OrderByDescending(k => k.WarPoints).ToList();
+        var y = topLeft.Y + 60f;
+
+        foreach (var kingdom in ranked)
+        {
+            var rank = ranked.IndexOf(kingdom) + 1;
+            var isMine = kingdom.Type == currentKingdom;
+            var nameColor = isMine ? new Vector4(0.95f, 0.85f, 0.4f, 1f) : Vector4.One;
+            var territoryCount = kingdomPanelTerritories.Count(t => t.ControllingKingdomId == kingdom.Id);
+
+            TextRenderer.Draw(spriteBatch, whiteTexture,
+                $"{rank}. {kingdom.Name.ToUpperInvariant()}{(isMine ? " (VOTRE ROYAUME)" : "")}",
+                new Vector2(topLeft.X + 20f, y), 1.9f, nameColor);
+            y += 26f;
+
+            TextRenderer.Draw(spriteBatch, whiteTexture,
+                $"Capitale : {kingdom.CapitalName}   -   {kingdom.MemberCount} membre(s)",
+                new Vector2(topLeft.X + 34f, y), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+            y += 22f;
+
+            TextRenderer.Draw(spriteBatch, whiteTexture,
+                $"{kingdom.WarPoints} points de guerre   -   {territoryCount} territoire(s)   -   bonus de rendement +{kingdom.BonusTerritoryCount}",
+                new Vector2(topLeft.X + 34f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.7f, 1f));
+            y += 34f;
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
 void OnDialogueFinished(string npcName)
 {
     // Voir GDD/demande utilisateur — "l'Apprenti forgeron" ouvre maintenant directement le
@@ -2760,7 +2846,7 @@ void ConnectAndEnterWorld(Guid characterId)
     {
         lock (stateLock)
         {
-            var line = new ChatLine(packet.Channel, packet.SenderName, packet.Rank, packet.Message);
+            var line = new ChatLine(packet.Channel, packet.SenderName, packet.Rank, packet.Message, packet.SenderGradeTier);
             chatMessages.Add(line);
             if (chatMessages.Count > MaxChatLines)
             {
@@ -2980,7 +3066,7 @@ void DrawQuestListPanel(int w, int h)
     if (activeStoryQuest is not { } quest)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE QUETE EN COURS", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-        DrawPromptBanner("ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
@@ -2999,7 +3085,7 @@ void DrawQuestListPanel(int w, int h)
         y += 20f;
     }
 
-    DrawPromptBanner("ENTREE OU CLIC : EPINGLER/DESEPINGLER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE OU CLIC : EPINGLER/DESEPINGLER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -3372,6 +3458,7 @@ void OpenPanel(PanelKind kind)
     switch (kind)
     {
         case PanelKind.Inventory:
+            inventoryScrollOffset = 0;
             _ = LoadInventoryAsync();
             break;
         case PanelKind.Guild:
@@ -3456,6 +3543,9 @@ void OpenPanel(PanelKind kind)
         case PanelKind.GemShop:
             premiumMessage = null;
             premiumLoadTask = options.SessionToken is null ? null : gameDataApi?.GetPremiumStatusAsync(options.SessionToken);
+            break;
+        case PanelKind.Kingdom:
+            kingdomPanelLoadTask = LoadKingdomPanelDataAsync();
             break;
     }
 }
@@ -4234,6 +4324,18 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.GemShop)
     {
         UpdateGemShopPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Kingdom)
+    {
+        UpdateKingdomPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Inventory)
+    {
+        UpdateInventoryPanel();
         return;
     }
 
@@ -5294,6 +5396,7 @@ void DrawOutdoorHud()
             case PanelKind.QuestList: DrawQuestListPanel(w, h); break;
             case PanelKind.Duel: DrawDuelPanel(w, h); break;
             case PanelKind.GemShop: DrawGemShopPanel(w, h); break;
+            case PanelKind.Kingdom: DrawKingdomPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -5328,26 +5431,39 @@ void DrawOutdoorHud()
 /// ouvert le referme (bascule), comme Échap.
 /// </summary>
 /// <summary>Libellés des boutons du HUD en haut à droite (voir <see cref="DrawOutdoorHudButtons"/>), factorisé pour que <see cref="OutdoorHudButtonsBounds"/> utilise exactement la même liste.</summary>
-(string Label, PanelKind Kind)[] OutdoorHudButtonLabels() =>
-[
-    ("INVENTAIRE (I)", PanelKind.Inventory),
-    ("MONSTRES (M)", PanelKind.Monsters),
-    ("GROUPE (P)", PanelKind.Party),
-    ("GUILDE (G)", PanelKind.Guild),
-    ("ARENE (V)", PanelKind.Arena),
-    ("TCHAT (T)", PanelKind.Chat),
-    ("AMIS (F)", PanelKind.Friends),
-    ("PROFIL (U)", PanelKind.Profile),
-    // Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
-    ("CLASSEMENT (K)", PanelKind.Leaderboard),
-    // Voir GDD/demande utilisateur — "un UI pour afficher toutes les quêtes en cours".
-    ("QUETES (J)", PanelKind.QuestList),
-    // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
-    // son pseudo".
-    ("DUEL", PanelKind.Duel),
-    // Voir GDD/demande utilisateur — "shop avec des gems".
-    ("GEMMES", PanelKind.GemShop),
-];
+(string Label, PanelKind Kind)[] OutdoorHudButtonLabels()
+{
+    List<(string, PanelKind)> labels =
+    [
+        ("INVENTAIRE (I)", PanelKind.Inventory),
+        ("MONSTRES (M)", PanelKind.Monsters),
+        ("GROUPE (P)", PanelKind.Party),
+        ("GUILDE (G)", PanelKind.Guild),
+        ("ARENE (V)", PanelKind.Arena),
+        ("TCHAT (T)", PanelKind.Chat),
+        ("AMIS (F)", PanelKind.Friends),
+        ("PROFIL (U)", PanelKind.Profile),
+        // Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher".
+        ("CLASSEMENT (K)", PanelKind.Leaderboard),
+        // Voir GDD/demande utilisateur — "un UI pour afficher toutes les quêtes en cours".
+        ("QUETES (J)", PanelKind.QuestList),
+        // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
+        // son pseudo".
+        ("DUEL (Y)", PanelKind.Duel),
+        // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
+        ("ROYAUME (R)", PanelKind.Kingdom),
+    ];
+
+    // Voir GDD/demande utilisateur — "masque le bouton des gems pour tout le monde sauf au
+    // fondateur" : aucune passerelle de paiement réel n'est encore branchée, la boutique de
+    // gemmes n'a donc rien d'utile à offrir aux joueurs ordinaires pour le moment.
+    if (myRank == UserRank.Fondateur)
+    {
+        labels.Add(("GEMMES", PanelKind.GemShop));
+    }
+
+    return [.. labels];
+}
 
 /// <summary>
 /// Voir GDD/demande utilisateur — "quand on appuie sur les boutons en haut à droite ça nous
@@ -5447,6 +5563,30 @@ void DrawOutdoorHudButtons(int w, int h)
     }
 }
 
+const int InventoryVisibleRows = 9;
+
+/// <summary>Voir GDD/demande utilisateur — "les items dépassent, ajoute une barre de scroll dans l'inventaire" : HAUT/BAS défilent d'une ligne, ECHAP ferme (et réinitialise le défilement, voir OpenPanel).</summary>
+void UpdateInventoryPanel()
+{
+    var maxOffset = Math.Max(0, inventoryItems.Count - InventoryVisibleRows);
+    inventoryScrollOffset = Math.Clamp(inventoryScrollOffset, 0, maxOffset);
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down))
+    {
+        inventoryScrollOffset = Math.Min(inventoryScrollOffset + 1, maxOffset);
+    }
+    else if (keyboard.WasJustPressed(Key.Up))
+    {
+        inventoryScrollOffset = Math.Max(inventoryScrollOffset - 1, 0);
+    }
+}
+
 void DrawInventoryPanel(int w, int h)
 {
     const float boxWidth = 480f;
@@ -5464,15 +5604,36 @@ void DrawInventoryPanel(int w, int h)
     }
     else
     {
-        var y = topLeft.Y + 56f;
-        foreach (var item in inventoryItems)
+        const float rowHeight = 28f;
+        const float listTop = 56f;
+        var maxOffset = Math.Max(0, inventoryItems.Count - InventoryVisibleRows);
+        var offset = Math.Clamp(inventoryScrollOffset, 0, maxOffset);
+
+        var y = topLeft.Y + listTop;
+        foreach (var item in inventoryItems.Skip(offset).Take(InventoryVisibleRows))
         {
             TextRenderer.Draw(spriteBatch, whiteTexture, $"{item.Name.ToUpperInvariant()} x{item.Quantity}", new Vector2(topLeft.X + 20f, y), 2f, Vector4.One);
-            y += 28f;
+            y += rowHeight;
+        }
+
+        // Voir GDD/demande utilisateur — "ajoute une barre de scroll" : piste + curseur proportionnel
+        // au nombre d'objets visibles, seulement affichée si tout ne tient pas déjà à l'écran.
+        if (inventoryItems.Count > InventoryVisibleRows)
+        {
+            const float trackWidth = 6f;
+            var trackTop = topLeft.Y + listTop - 4f;
+            var trackHeight = InventoryVisibleRows * rowHeight;
+            var trackX = topLeft.X + boxWidth - 18f;
+
+            DrawPanel(new Vector2(trackX, trackTop), new Vector2(trackWidth, trackHeight), new Vector4(1f, 1f, 1f, 0.12f));
+
+            var thumbHeight = Math.Max(20f, trackHeight * InventoryVisibleRows / inventoryItems.Count);
+            var thumbY = trackTop + (trackHeight - thumbHeight) * (maxOffset == 0 ? 0f : offset / (float)maxOffset);
+            DrawPanel(new Vector2(trackX, thumbY), new Vector2(trackWidth, thumbHeight), new Vector4(0.9f, 0.75f, 0.35f, 0.9f));
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : DEFILER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawGuildPanel(int w, int h)
@@ -5625,7 +5786,7 @@ void DrawMonstersPanel(int w, int h)
             }
         }
 
-        DrawPromptBanner("ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
     else if (monsterEquipMode)
@@ -5659,7 +5820,7 @@ void DrawMonstersPanel(int w, int h)
             }
         }
 
-        DrawPromptBanner("ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
     else
@@ -5723,7 +5884,7 @@ void DrawMonstersPanel(int w, int h)
         var hint = myRank == UserRank.Fondateur
             ? "D:OBJET - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
             : "D:DONNER OBJET - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
-        DrawPromptBanner(hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
     if (monsterMessage is not null)
@@ -6022,11 +6183,6 @@ void UpdateGemShopPanel()
         premiumMessage = null;
         premiumActionTask = gameDataApi.UpgradePremiumGradeAsync(options.SessionToken, chosenCharacterId.Value);
     }
-    else if (keyboard.WasJustPressed(Key.P) && premiumStatus.NextCharacterSlotCostGems is not null)
-    {
-        premiumMessage = null;
-        premiumActionTask = gameDataApi.UpgradeCharacterSlotAsync(options.SessionToken, chosenCharacterId.Value);
-    }
 }
 
 void DrawGemShopPanel(int w, int h)
@@ -6042,7 +6198,7 @@ void DrawGemShopPanel(int w, int h)
     if (premiumStatus is null)
     {
         TextRenderer.Draw(spriteBatch, whiteTexture, "Chargement...", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.7f, Vector4.One);
-        DrawPromptBanner("ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
@@ -6055,16 +6211,15 @@ void DrawGemShopPanel(int w, int h)
         new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.9f, 0.85f, 0.6f, 1f));
     y += 34f;
 
-    var gradeLine = premiumStatus.NextGradeTierCostGems is { } gradeCost
-        ? $"[G] Grade (palier {premiumStatus.GradeTier}/3, +{premiumStatus.GradeBonusPercent:0.0}% xp/or) -> palier suivant : {gradeCost} gemmes"
-        : $"Grade au palier maximum (+{premiumStatus.GradeBonusPercent:0.0}% xp/or)";
-    TextRenderer.Draw(spriteBatch, whiteTexture, gradeLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
-    y += 34f;
+    TextRenderer.Draw(spriteBatch, whiteTexture,
+        $"Grade actuel : {premiumStatus.GradeName} (+{premiumStatus.GradeBonusPercent:0.0}% xp/or, max {premiumStatus.MaxCharacters} personnages)",
+        new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
+    y += 30f;
 
-    var slotLine = premiumStatus.NextCharacterSlotCostGems is { } slotCost
-        ? $"[P] Pass personnage (max {premiumStatus.MaxCharacters}) -> palier suivant : {slotCost} gemmes"
-        : $"Emplacements de personnage au maximum ({premiumStatus.MaxCharacters})";
-    TextRenderer.Draw(spriteBatch, whiteTexture, slotLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.85f, 0.95f, 1f));
+    var gradeLine = premiumStatus.NextGradeTierCostGems is { } gradeCost
+        ? $"[G] Passer {premiumStatus.NextGradeTierName} : {gradeCost} gemmes"
+        : "Grade au palier maximum (Légende).";
+    TextRenderer.Draw(spriteBatch, whiteTexture, gradeLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.75f, 0.98f, 1f));
     y += 44f;
 
     TextRenderer.Draw(spriteBatch, whiteTexture, "Acheter des gemmes avec de l'argent reel :", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
@@ -6076,7 +6231,7 @@ void DrawGemShopPanel(int w, int h)
         TextRenderer.Draw(spriteBatch, whiteTexture, message, new Vector2(topLeft.X + 20f, topLeft.Y + boxHeight - 46f), 1.4f, new Vector4(0.95f, 0.9f, 0.5f, 1f));
     }
 
-    DrawPromptBanner("ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -6115,7 +6270,7 @@ void UpdateDuelPanel()
 void DrawDuelPanel(int w, int h)
 {
     const float boxWidth = 460f;
-    const float boxHeight = 170f;
+    const float boxHeight = 210f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.08f, 0.1f, 0.95f));
@@ -6123,9 +6278,9 @@ void DrawDuelPanel(int w, int h)
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "DEFIER EN DUEL", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
     TextRenderer.Draw(spriteBatch, whiteTexture, "Pseudo du joueur a defier :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
     TextRenderer.Draw(spriteBatch, whiteTexture, duelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
-    TextRenderer.Draw(spriteBatch, whiteTexture, "Si son groupe (ou le votre) compte plusieurs joueurs,", new Vector2(topLeft.X + 20f, topLeft.Y + 128f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-    TextRenderer.Draw(spriteBatch, whiteTexture, "tous ses membres devront accepter pour lancer le combat.", new Vector2(topLeft.X + 20f, topLeft.Y + 144f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-    DrawPromptBanner("ENTREE : DEFIER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, "Si son groupe (ou le votre) compte plusieurs joueurs,", new Vector2(topLeft.X + 20f, topLeft.Y + 132f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.Draw(spriteBatch, whiteTexture, "tous ses membres devront accepter pour lancer le combat.", new Vector2(topLeft.X + 20f, topLeft.Y + 148f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DEFIER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawChatToasts(int w, int h)
@@ -6207,15 +6362,30 @@ void DrawChatPanel(int w, int h)
         visible = chatMessages.Where(m => m.Channel == chatChannel).TakeLast(12).ToList();
     }
 
-    var y = messagesBottom - 20f;
+    // Voir GDD/demande utilisateur — "dans le tchat ça dépasse de l'UI quand un message est trop
+    // long" : les messages sont désormais renvoyés à la ligne (voir WrapTextToLines) au lieu de
+    // déborder du panneau — le pseudo/tag reste sur sa propre ligne (cliquable pour un créateur,
+    // voir CreatorCredits), le message est réparti sur autant de lignes que nécessaire en dessous.
+    // Dessiné du bas vers le haut (messages récents en bas) : pour chaque message, ses lignes de
+    // texte d'abord (de la dernière à la première), puis sa ligne d'expéditeur juste au-dessus.
+    const float chatLineHeight = 20f;
+    var chatWrapWidth = chatWidth - 24f;
+    var y = messagesBottom - chatLineHeight;
     for (var i = visible.Count - 1; i >= 0; i--)
     {
         var line = visible[i];
-        var senderTag = $"{ChatRankTag(line.Rank)}{line.SenderName}";
-        var senderColor = ChatRankColor(line.Rank);
+        var senderTag = $"{ChatRankTag(line.Rank)}{GradeBadgeTag(line.Rank, line.SenderGradeTier)}{line.SenderName}";
+        var senderColor = line.Rank == UserRank.Joueur && line.SenderGradeTier > 0
+            ? GradeBadgeColor(line.SenderGradeTier, animationClock)
+            : ChatRankColor(line.Rank);
+        var messageLines = WrapTextToLines(line.Message, chatWrapWidth, 1.6f);
 
-        // Voir GDD/demande utilisateur — "quand on clique sur un pseudo on a ces informations" :
-        // seuls les pseudos reconnus comme créateurs (voir CreatorCredits) sont cliquables.
+        for (var lineIndex = messageLines.Count - 1; lineIndex >= 0; lineIndex--)
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, messageLines[lineIndex], new Vector2(topLeft.X + 32f, y), 1.6f, senderColor);
+            y -= chatLineHeight;
+        }
+
         if (CreatorCredits.Find(line.SenderName) is not null)
         {
             var senderWidth = TextRenderer.MeasureWidth(senderTag, 1.6f);
@@ -6223,15 +6393,13 @@ void DrawChatPanel(int w, int h)
             {
                 creatorCardTarget = line.SenderName;
             }
-
-            TextRenderer.Draw(spriteBatch, whiteTexture, $" : {line.Message}", new Vector2(topLeft.X + 20f + senderWidth, y), 1.6f, senderColor);
         }
         else
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{senderTag} : {line.Message}", new Vector2(topLeft.X + 20f, y), 1.6f, senderColor);
+            TextRenderer.Draw(spriteBatch, whiteTexture, senderTag, new Vector2(topLeft.X + 20f, y), 1.6f, senderColor);
         }
 
-        y -= 20f;
+        y -= chatLineHeight;
         if (y < messagesTop)
         {
             break;
@@ -6315,7 +6483,7 @@ void DrawCreatorCardPopup(int w, int h, CreatorProfile profile)
         TextRenderer.Draw(spriteBatch, whiteTexture, $"YouTube : {youtube}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.5f, 0.5f, 1f));
     }
 
-    DrawPromptBanner("ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Préfixe affiché devant le pseudo (voir GDD/demande utilisateur — "il est affiché [FONDATEUR] pseudo") : rien pour le grade de base.</summary>
@@ -6337,6 +6505,24 @@ static Vector4 ChatRankColor(UserRank rank) => rank switch
     UserRank.Testeur => new Vector4(0.4f, 0.75f, 0.9f, 1f),
     UserRank.Moderateur => new Vector4(0.55f, 0.6f, 0.95f, 1f),
     UserRank.Fondateur => new Vector4(0.95f, 0.4f, 0.35f, 1f),
+    _ => Vector4.One,
+};
+
+/// <summary>Voir GDD/demande utilisateur — "les grades coûtent [...] badge/couleur de pseudo" : badge de grade payant, affiché après le grade de modération (voir ChatRankTag) — masqué pour le Fondateur (déjà au palier maximum, redondant avec son propre grade).</summary>
+static string GradeBadgeTag(UserRank rank, int gradeTier) => rank == UserRank.Fondateur ? "" : gradeTier switch
+{
+    1 => "[AVENTURIER] ",
+    2 => "[HEROS] ",
+    3 => "[LEGENDE] ",
+    _ => "",
+};
+
+/// <summary>Couleur du badge de grade — palier 3 ("Légende") a un effet de couleur changeante plutôt qu'une teinte fixe, seule approximation raisonnable d'un "effet spécial" avec un simple rendu de texte.</summary>
+static Vector4 GradeBadgeColor(int gradeTier, float clock) => gradeTier switch
+{
+    1 => new Vector4(0.4f, 0.85f, 0.5f, 1f),
+    2 => new Vector4(0.95f, 0.6f, 0.2f, 1f),
+    3 => Vector4.Lerp(new Vector4(0.95f, 0.8f, 0.35f, 1f), new Vector4(0.75f, 0.4f, 0.95f, 1f), 0.5f + 0.5f * MathF.Sin(clock * 1.5f)),
     _ => Vector4.One,
 };
 
@@ -7526,6 +7712,7 @@ enum PanelKind
     QuestList,
     Duel,
     GemShop,
+    Kingdom,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
@@ -7540,7 +7727,7 @@ enum GuildPanelMode
 record RemotePlayer(string Name, Vector2 Position, UserRank Rank = UserRank.Joueur);
 
 /// <summary>Un message affiché dans le panneau Tchat (voir GDD — tchat global/tchat de guilde).</summary>
-record ChatLine(ChatChannel Channel, string SenderName, UserRank Rank, string Message);
+record ChatLine(ChatChannel Channel, string SenderName, UserRank Rank, string Message, int SenderGradeTier = 0);
 
 enum StarterStage
 {

@@ -58,7 +58,10 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
 
         profession.LastGatheredAtUtc = DateTime.UtcNow;
 
-        if (isForeignTerritory && Random.Shared.Next(2) == 0)
+        // Voir GDD/demande utilisateur — "consommables pour booster la luck" (voir
+        // TemporaryBoostService) : neutralise le risque de récolte manquée hors territoire.
+        var hasLuckBoost = TemporaryBoostService.HasLuckBoost(character);
+        if (isForeignTerritory && !hasLuckBoost && Random.Shared.Next(2) == 0)
         {
             await db.SaveChangesAsync(ct);
             return BuildResponse(profession, leveledUp: false, "Récolte manquée — ce territoire est contrôlé par un royaume rival.");
@@ -66,7 +69,7 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
 
         var quantity = Math.Clamp(request.Quantity, 1, 10);
         quantity = Math.Max(1, (int)Math.Round(quantity * territoryYieldMultiplier));
-        if (isForeignTerritory)
+        if (isForeignTerritory && !hasLuckBoost)
         {
             quantity = Math.Max(1, quantity / 2);
         }
@@ -159,25 +162,12 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
         return entity;
     }
 
+    // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire"
+    // (voir ItemEntity.MaxStackSize, InventoryStackingService).
     private async Task AddToInventoryAsync(Guid characterId, int itemId, int quantity, CancellationToken ct)
     {
-        var existing = await db.InventoryItems.FirstOrDefaultAsync(
-            i => i.CharacterId == characterId && i.ItemId == itemId, ct);
-
-        if (existing is not null)
-        {
-            existing.Quantity += quantity;
-        }
-        else
-        {
-            db.InventoryItems.Add(new InventoryItemEntity
-            {
-                Id = Guid.NewGuid(),
-                CharacterId = characterId,
-                ItemId = itemId,
-                Quantity = quantity,
-            });
-        }
+        var maxStackSize = await db.Items.Where(i => i.Id == itemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+        await InventoryStackingService.AddQuantityAsync(db, characterId, itemId, quantity, maxStackSize <= 0 ? 99 : maxStackSize, ct);
     }
 
     private static bool GrantExperience(CharacterProfessionEntity profession, int amount)

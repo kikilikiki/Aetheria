@@ -58,24 +58,10 @@ public sealed class ShopService(AetheriaDbContext db, SessionTokenStore tokenSto
 
         character.Gold -= totalPrice;
 
-        var existingStack = item.IsStackable
-            ? await db.InventoryItems.FirstOrDefaultAsync(inv => inv.CharacterId == character.Id && inv.ItemId == item.Id, ct)
-            : null;
-
-        if (existingStack is not null)
-        {
-            existingStack.Quantity += quantity;
-        }
-        else
-        {
-            db.InventoryItems.Add(new InventoryItemEntity
-            {
-                Id = Guid.NewGuid(),
-                CharacterId = character.Id,
-                ItemId = item.Id,
-                Quantity = quantity,
-            });
-        }
+        // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire"
+        // (voir ItemEntity.MaxStackSize, InventoryStackingService) : répartit en plusieurs piles
+        // plutôt que de tout entasser dans une seule.
+        await InventoryStackingService.AddQuantityAsync(db, character.Id, item.Id, quantity, item.MaxStackSize, ct);
 
         await db.SaveChangesAsync(ct);
 

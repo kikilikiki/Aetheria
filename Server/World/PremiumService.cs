@@ -6,40 +6,44 @@ using Microsoft.EntityFrameworkCore;
 namespace Aetheria.Server.World;
 
 /// <summary>
-/// Économie premium (voir GDD/demande utilisateur — "shop avec des gems, si les personnes
-/// payent avec de l'argent réel on peut obtenir des gems"). Deux paliers indépendants et
-/// cumulatifs, achetés en gemmes (<see cref="UserEntity.Gems"/>) :
-/// - "Grade" (<see cref="UserEntity.PremiumGradeTier"/>) : cosmétique + petit boost XP/or.
-/// - "Pass d'emplacement de personnage" (<see cref="UserEntity.CharacterSlotTier"/>) : augmente
-///   le nombre maximum de personnages (2 de base).
-/// Le Fondateur obtient toujours l'équivalent du palier maximum des deux sans dépenser de
-/// gemmes (voir GDD — "le grade fondateur peut les avoir sans payer, pas de limite de
-/// personnage"). Aucune vraie passerelle de paiement n'est branchée pour le moment (voir GDD,
-/// "bloque la page pour le moment") : les gemmes ne sont créditées que manuellement (voir
-/// <c>PlayerSession</c> — <c>/givegems</c>, réservé au Fondateur) ou par conversion de pièces
-/// (voir <see cref="GoldPerGemBlock"/>).
+/// Économie premium (voir GDD/demande utilisateur — "shop avec des gems" puis "Grades Aetheria
+/// (achetés en Gems) : Aventurier/Héros/Légende"). Un seul palier cumulatif, acheté en gemmes
+/// (<see cref="UserEntity.Gems"/>, <see cref="UserEntity.PremiumGradeTier"/>), qui combine
+/// désormais bonus XP/or, emplacements de personnage et badge cosmétique — les paliers séparés
+/// "grade" et "pass de personnage" d'une version précédente ont été fusionnés en un seul système
+/// pour coller exactement à la grille de prix fournie. Le Fondateur obtient toujours l'équivalent
+/// du palier maximum sans dépenser de gemmes (voir GDD — "le grade fondateur peut les avoir sans
+/// payer, pas de limite de personnage"). Aucune vraie passerelle de paiement n'est branchée pour
+/// le moment (voir GDD, "bloque la page pour le moment") : les gemmes ne sont créditées que
+/// manuellement (voir <c>PlayerSession</c> — <c>/givegems</c>, réservé au Fondateur) ou par
+/// conversion de pièces (voir <see cref="GoldPerGemBlock"/>).
+///
+/// Perks NON implémentés, faute de système existant pour les porter (voir rapport donné à
+/// l'utilisateur) : emote exclusive, coffre premium mensuel, monture cosmétique exclusive, skins
+/// légendaires, "file d'attente boutique améliorée". Implémentés : bonus XP/or, emplacements de
+/// personnage, badge + couleur de pseudo dans le tchat (voir PlayerSession, ChatMessagePacket).
 /// </summary>
 public static class PremiumService
 {
     public const int MaxTier = 3;
 
-    /// <summary>Nombre maximum de personnages par palier (indice = <see cref="UserEntity.CharacterSlotTier"/>) — 2 de base, +1, +1, +2 (voir GDD).</summary>
-    private static readonly int[] SlotTierMaxCharacters = [2, 3, 4, 6];
+    public static readonly string[] GradeTierNames = ["Aucun", "Aventurier", "Héros", "Légende"];
 
-    /// <summary>Coût en gemmes pour ATTEINDRE ce palier depuis le précédent (indice 0 inutilisé, palier de départ).</summary>
-    private static readonly long[] SlotTierCostGems = [0, 5, 10, 20];
+    /// <summary>Emplacements de personnage EN PLUS des 2 de base, par palier (voir GDD — "+1/+2/+5 emplacements").</summary>
+    private static readonly int[] GradeTierSlotBonus = [0, 1, 2, 5];
 
-    /// <summary>Bonus XP/or en pourcentage par palier de grade (voir GDD — "0.1% le 1er, 0.2% le second, 0.3% le troisième").</summary>
+    /// <summary>Bonus XP/or en pourcentage par palier (voir GDD — "0.1%/0.2%/0.3% bonus xp / money").</summary>
     private static readonly double[] GradeTierBonusPercent = [0, 0.1, 0.2, 0.3];
 
-    private static readonly long[] GradeTierCostGems = [0, 5, 10, 20];
+    /// <summary>Coût en gemmes pour ATTEINDRE ce palier (voir GDD — "500/1500/3000 Gems").</summary>
+    private static readonly long[] GradeTierCostGems = [0, 500, 1500, 3000];
 
     /// <summary>Voir GDD/demande utilisateur — "transformer 100 millions de coins en 10 gems".</summary>
     public const long GoldPerGemBlock = 100_000_000;
     public const long GemsPerGemBlock = 10;
 
     public static int MaxCharacters(UserEntity user) =>
-        user.Rank == UserRank.Fondateur ? int.MaxValue : SlotTierMaxCharacters[Math.Clamp(user.CharacterSlotTier, 0, MaxTier)];
+        user.Rank == UserRank.Fondateur ? int.MaxValue : 2 + GradeTierSlotBonus[EffectiveGradeTier(user)];
 
     public static double XpGoldMultiplier(UserEntity user) =>
         1.0 + GradeTierBonusPercent[EffectiveGradeTier(user)] / 100.0;
@@ -51,25 +55,31 @@ public static class PremiumService
     public static long? NextGradeTierCost(UserEntity user) =>
         user.PremiumGradeTier >= MaxTier ? null : GradeTierCostGems[user.PremiumGradeTier + 1];
 
-    /// <summary>Coût en gemmes pour le prochain pass d'emplacement de personnage, ou <c>null</c> si déjà au maximum.</summary>
-    public static long? NextSlotTierCost(UserEntity user) =>
-        user.CharacterSlotTier >= MaxTier ? null : SlotTierCostGems[user.CharacterSlotTier + 1];
-
     public static async Task<double> GetXpGoldMultiplierAsync(AetheriaDbContext db, Guid userId, CancellationToken ct = default)
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         return user is null ? 1.0 : XpGoldMultiplier(user);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — badge affiché devant le pseudo dans le tchat, en plus du grade de modération (voir PlayerSession, ChatRankTag côté client).</summary>
+    public static string? BadgeTag(UserEntity user) =>
+        EffectiveGradeTier(user) switch
+        {
+            1 => "[AVENTURIER]",
+            2 => "[HEROS]",
+            3 => "[LEGENDE]",
+            _ => null,
+        };
+
     public static Aetheria.Shared.Models.Premium.PremiumStatus ToStatus(UserEntity user) => new()
     {
         Gems = user.Gems,
-        GradeTier = user.Rank == UserRank.Fondateur ? MaxTier : user.PremiumGradeTier,
+        GradeTier = EffectiveGradeTier(user),
+        GradeName = GradeTierNames[EffectiveGradeTier(user)],
         GradeBonusPercent = GradeTierBonusPercent[EffectiveGradeTier(user)],
         NextGradeTierCostGems = user.Rank == UserRank.Fondateur ? null : NextGradeTierCost(user),
-        CharacterSlotTier = user.CharacterSlotTier,
+        NextGradeTierName = user.PremiumGradeTier >= MaxTier || user.Rank == UserRank.Fondateur ? null : GradeTierNames[user.PremiumGradeTier + 1],
         MaxCharacters = MaxCharacters(user),
-        NextCharacterSlotCostGems = user.Rank == UserRank.Fondateur ? null : NextSlotTierCost(user),
         GoldPerGemBlock = GoldPerGemBlock,
         GemsPerGemBlock = GemsPerGemBlock,
     };

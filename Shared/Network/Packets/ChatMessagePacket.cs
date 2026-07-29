@@ -21,6 +21,9 @@ public sealed class ChatMessagePacket : IPacket
     /// <summary>Destinataire d'un message privé (voir <see cref="ChatChannel.Prive"/>) — envoyé par le client (le nom du destinataire choisi), ignoré pour les autres canaux.</summary>
     public string TargetCharacterName { get; init; } = string.Empty;
 
+    /// <summary>Voir GDD/demande utilisateur — "les grades coûtent [...] badge/couleur de pseudo" : palier de grade payant de l'expéditeur (0 = aucun), renseigné par le serveur avant diffusion — voir <c>PremiumService.BadgeTag</c>.</summary>
+    public int SenderGradeTier { get; init; }
+
     public void Write(BinaryWriter writer)
     {
         writer.Write(SenderName);
@@ -28,6 +31,7 @@ public sealed class ChatMessagePacket : IPacket
         writer.Write((byte)Channel);
         writer.Write((byte)Rank);
         writer.Write(TargetCharacterName);
+        writer.Write(SenderGradeTier);
     }
 
     public static IPacket Read(BinaryReader reader) => new ChatMessagePacket
@@ -37,5 +41,6 @@ public sealed class ChatMessagePacket : IPacket
         Channel = (ChatChannel)reader.ReadByte(),
         Rank = (UserRank)reader.ReadByte(),
         TargetCharacterName = reader.ReadString(),
+        SenderGradeTier = reader.ReadInt32(),
     };
 }

@@ -267,17 +267,6 @@ public sealed class GameDataApiClient : IDisposable
         return await ReadPremiumAsShopResponseAsync(response, ct);
     }
 
-    public async Task<ShopPurchaseResponse> UpgradeCharacterSlotAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
-    {
-        var response = await _http.PostAsJsonAsync("/api/shop/premium/characterslot/upgrade", new PurchasePremiumTierRequest
-        {
-            SessionToken = sessionToken,
-            CharacterId = characterId,
-        }, JsonOptions, ct);
-
-        return await ReadPremiumAsShopResponseAsync(response, ct);
-    }
-
     /// <summary>Les endpoints premium renvoient un <see cref="PremiumStatus"/> en succès — traduit en <see cref="ShopPurchaseResponse"/> pour réutiliser le même affichage de message que le reste de la boutique.</summary>
     private async Task<ShopPurchaseResponse> ReadPremiumAsShopResponseAsync(HttpResponseMessage response, CancellationToken ct)
     {

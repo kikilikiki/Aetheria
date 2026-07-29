@@ -761,6 +761,23 @@ app.MapPost("/api/shop/sell", async (ShopSellRequest request) =>
     }
 });
 
+// Voir GDD/demande utilisateur — "ajoute des consommables pour booster la luck l'xp la money".
+app.MapPost("/api/inventory/use", async (UseItemRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var consumableService = new ConsumableService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        var message = await consumableService.UseAsync(request.SessionToken, request.CharacterId, request.ItemId);
+        return Results.Ok(new { message });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Économie premium (voir GDD/demande utilisateur — "shop avec des gems") : palier de grade
 // (bonus XP/or) et palier de pass d'emplacement de personnage, tous deux achetés en gemmes.
 // Aucune passerelle de paiement réel branchée pour le moment (voir GDD, "bloque la page pour le
@@ -843,39 +860,6 @@ app.MapPost("/api/shop/premium/grade/upgrade", async (PurchasePremiumTierRequest
 
     user.Gems -= cost.Value;
     user.PremiumGradeTier++;
-    await db.SaveChangesAsync();
-
-    return Results.Ok(PremiumService.ToStatus(user));
-});
-
-app.MapPost("/api/shop/premium/characterslot/upgrade", async (PurchasePremiumTierRequest request) =>
-{
-    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
-    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
-    {
-        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
-    }
-
-    await using var db = await dbFactory.CreateDbContextAsync();
-    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
-    if (user is null)
-    {
-        return Results.Conflict(new ApiError { Message = "Compte introuvable." });
-    }
-
-    var cost = PremiumService.NextSlotTierCost(user);
-    if (cost is null)
-    {
-        return Results.Conflict(new ApiError { Message = "Pass d'emplacement de personnage déjà maximum." });
-    }
-
-    if (user.Gems < cost)
-    {
-        return Results.Conflict(new ApiError { Message = $"Pas assez de gemmes (coût : {cost} gemmes)." });
-    }
-
-    user.Gems -= cost.Value;
-    user.CharacterSlotTier++;
     await db.SaveChangesAsync();
 
     return Results.Ok(PremiumService.ToStatus(user));
@@ -1316,7 +1300,10 @@ app.MapGet("/api/kingdoms", async () =>
     await using var db = await dbFactory.CreateDbContextAsync();
     var kingdoms = await db.Kingdoms.ToListAsync();
     var territories = await db.Territories.ToListAsync();
+    var characters = await db.Characters.ToListAsync();
 
+    // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom" : points de guerre, bonus de
+    // rendement et nombre de membres, pour construire le panneau Royaume en un seul appel.
     return Results.Ok(kingdoms.Select(k => new KingdomData
     {
         Id = k.Id,
@@ -1324,6 +1311,9 @@ app.MapGet("/api/kingdoms", async () =>
         Name = k.Name,
         CapitalName = k.CapitalName,
         ControlledTerritoryIds = territories.Where(t => t.ControllingKingdomId == k.Id).Select(t => t.Id).ToList(),
+        WarPoints = k.WarPoints,
+        BonusTerritoryCount = k.BonusTerritoryCount,
+        MemberCount = characters.Count(c => c.Kingdom == k.Type),
     }));
 });
 
@@ -1873,7 +1863,7 @@ app.MapPost("/api/admin/game/give-item", async (AdminGiveItemRequest request) =>
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -1885,16 +1875,9 @@ app.MapPost("/api/admin/game/give-item", async (AdminGiveItemRequest request) =>
         return Results.NotFound(new ApiError { Message = "Objet introuvable." });
     }
 
+    // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".
     var quantity = Math.Max(1, request.Quantity);
-    var existing = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == target.Id && i.ItemId == item.Id);
-    if (existing is not null)
-    {
-        existing.Quantity += quantity;
-    }
-    else
-    {
-        db.InventoryItems.Add(new InventoryItemEntity { Id = Guid.NewGuid(), CharacterId = target.Id, ItemId = item.Id, Quantity = quantity });
-    }
+    await InventoryStackingService.AddQuantityAsync(db, target.Id, item.Id, quantity, item.MaxStackSize);
 
     await db.SaveChangesAsync();
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{quantity}x {item.Name} donné(s) à {target.Name}." });
@@ -2057,13 +2040,15 @@ app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest reque
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "je n'arrive pas à me give de monstre" : recherche insensible
+    // à la casse et aux accents (voir TextMatching) plutôt qu'une correspondance exacte.
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
     }
 
-    var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Name == request.SpeciesName);
+    var species = (await db.MonsterSpecies.ToListAsync()).FirstOrDefault(s => TextMatching.NamesMatch(s.Name, request.SpeciesName));
     if (species is null)
     {
         return Results.NotFound(new ApiError { Message = "Espèce introuvable." });
