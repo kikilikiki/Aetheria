@@ -1234,11 +1234,19 @@ void DrawTeleportPanel(int w, int h)
         var selected = i == teleportCursor;
         var color = selected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
         var prefix = selected ? "> " : "  ";
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{KingdomBiome.For(destinations[i]).CapitalName} ({destinations[i]})", new Vector2(topLeft.X + 24f, y), 2f, color);
+        var text = $"{prefix}{KingdomBiome.For(destinations[i]).CapitalName} ({destinations[i]})";
+        if (DrawClickableRow(text, new Vector2(topLeft.X + 24f, y), boxWidth - 48f, 2f, color))
+        {
+            teleportCursor = i;
+            RebuildWorldMapForKingdom(destinations[i]);
+            _ = RefreshDungeonPositionAsync();
+            isTeleportPanelOpen = false;
+        }
+
         y += 32f;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : VOYAGER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VOYAGER - HAUT/BAS : CHOISIR - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void OnDialogueFinished(string npcName)
@@ -3283,6 +3291,30 @@ bool DrawClickableCentered(string text, Vector2 topCenter, float pixelSize, Vect
     return isHovered && mouse.WasButtonJustPressed(MouseButton.Left);
 }
 
+/// <summary>
+/// Voir GDD/demande utilisateur — "fait en sorte que tout puisse se faire au clic et pas que au
+/// clavier" : équivalent de <see cref="DrawClickableCentered"/> pour une ligne de liste alignée à
+/// gauche (Boutique, Hôtel des ventes, Monstres, Téléporteur, panel admin, ...) plutôt qu'un
+/// bouton centré. Étend la zone cliquable sur toute la largeur du panneau (pas seulement le
+/// texte) pour rester facile à cliquer même avec un libellé court.
+/// </summary>
+bool DrawClickableRow(string text, Vector2 topLeft, float rowWidth, float pixelSize, Vector4 color)
+{
+    var height = TextRenderer.LineHeight(pixelSize);
+    var mousePos = mouse.Position;
+    var isHovered = mousePos.X >= topLeft.X - 4f && mousePos.X <= topLeft.X + rowWidth
+        && mousePos.Y >= topLeft.Y - 2f && mousePos.Y <= topLeft.Y + height + 2f;
+
+    if (isHovered)
+    {
+        DrawPanel(topLeft - new Vector2(4f, 2f), new Vector2(rowWidth + 4f, height + 4f), new Vector4(1f, 1f, 1f, 0.08f));
+    }
+
+    TextRenderer.Draw(spriteBatch, whiteTexture, text, topLeft, pixelSize, isHovered ? Vector4.Lerp(color, Vector4.One, 0.35f) : color);
+
+    return isHovered && mouse.WasButtonJustPressed(MouseButton.Left);
+}
+
 void DrawIsoDiamond(Vector2 gridPos, float scale, Vector4 color)
 {
     var center = IsoMath.GridToIso(gridPos.X, gridPos.Y);
@@ -3708,7 +3740,14 @@ void DrawMonstersPanel(int w, int h)
                 var isSelected = i == monsterGiveItemCursor;
                 var prefix = isSelected ? "> " : "  ";
                 var color = isSelected ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : Vector4.One;
-                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{inventoryItems[i].Name.ToUpperInvariant()} x{inventoryItems[i].Quantity}", new Vector2(topLeft.X + 30f, y), 2f, color);
+                var text = $"{prefix}{inventoryItems[i].Name.ToUpperInvariant()} x{inventoryItems[i].Quantity}";
+                if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 2f, color) && monsterGiveItemTask is null && ownedMonsters.Count > 0)
+                {
+                    monsterGiveItemCursor = i;
+                    monsterMessage = null;
+                    monsterGiveItemTask = gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, ownedMonsters[monsterCursor].Id, inventoryItems[i].ItemId);
+                }
+
                 y += 26f;
             }
         }
@@ -3742,7 +3781,11 @@ void DrawMonstersPanel(int w, int h)
             var typeLabel = species is not null ? $" [{species.Type}]".ToUpperInvariant() : "";
             // Voir GDD/demande utilisateur — bâtiment pour "déplacer ce que l'on a dans notre team".
             var teamLabel = monster.IsInActiveTeam ? " [EQUIPE]" : "";
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{name.ToUpperInvariant()}{typeLabel}{teamLabel} - NIV. {monster.Level}", new Vector2(textX, y), 2f, color);
+            var rowText = $"{prefix}{name.ToUpperInvariant()}{typeLabel}{teamLabel} - NIV. {monster.Level}";
+            if (DrawClickableRow(rowText, new Vector2(textX, y), boxWidth - textX + topLeft.X - 20f, 2f, color))
+            {
+                monsterCursor = i;
+            }
 
             var xpForNextLevel = monster.Level * 100;
             var xpRatio = Math.Clamp((float)monster.Experience / Math.Max(1, xpForNextLevel), 0f, 1f);
@@ -3913,7 +3956,23 @@ void DrawQuestPanel(int w, int h)
         var color = i < forgeronRecipes.Count && i == questRecipeCursor
             ? new Vector4(0.6f, 0.95f, 0.65f, 1f)
             : new Vector4(0.85f, 0.85f, 0.9f, 1f);
-        TextRenderer.Draw(spriteBatch, whiteTexture, displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, color);
+
+        if (i < forgeronRecipes.Count)
+        {
+            // Voir GDD/demande utilisateur — "tout puisse se faire au clic" : un clic sur une
+            // recette la sélectionne ET lance le craft directement, comme la touche C.
+            if (DrawClickableRow(displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), panelWidth - 24f, 1.5f, color) && chosenCharacterId is not null && gameDataApi is not null)
+            {
+                questRecipeCursor = i;
+                questMessage = null;
+                _ = CraftSelectedRecipeAsync();
+            }
+        }
+        else
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, displayLines[i], topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, color);
+        }
+
         y += lineHeight + 4f;
     }
 }
@@ -3943,7 +4002,22 @@ void DrawAdminGamePanel(int w, int h)
             var selected = i == adminPanelCursor;
             var color = selected ? new Vector4(0.95f, 0.6f, 0.55f, 1f) : Vector4.One;
             var prefix = selected ? "> " : "  ";
-            TextRenderer.Draw(spriteBatch, whiteTexture, prefix + AdminPanelCommands[i], new Vector2(topLeft.X + 20f, y), 1.8f, color);
+            if (DrawClickableRow(prefix + AdminPanelCommands[i], new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 1.8f, color) && adminPanelActionTask is null)
+            {
+                adminPanelCursor = i;
+                if (i == 1)
+                {
+                    adminPanelMessage = null;
+                    adminPanelActionTask = gameDataApi!.ActivateSignModeAsync(options.SessionToken!, 300);
+                }
+                else
+                {
+                    adminPanelTyping = true;
+                    adminPanelTextInput = string.Empty;
+                    adminPanelMessage = null;
+                }
+            }
+
             y += 30f;
         }
 
@@ -4146,7 +4220,16 @@ void DrawShopPanel(int w, int h)
                 var prefix = selected ? "> " : "  ";
                 var catalogEntry = shopCatalog.FirstOrDefault(c => c.ItemId == entry.ItemId);
                 var sellPrice = catalogEntry is not null ? $"{(int)(catalogEntry.Price * 0.4)} OR" : "?";
-                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{entry.Name.ToUpperInvariant()} x{entry.Quantity} - {sellPrice}/u", new Vector2(topLeft.X + 20f, y), 2f, color);
+                var text = $"{prefix}{entry.Name.ToUpperInvariant()} x{entry.Quantity} - {sellPrice}/u";
+                // Voir GDD/demande utilisateur — "tout puisse se faire au clic" : un clic sélectionne
+                // ET valide directement, comme Entrée, plutôt que d'exiger deux étapes séparées.
+                if (DrawClickableRow(text, new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 2f, color) && shopBuyTask is null)
+                {
+                    shopSellCursor = i;
+                    shopMessage = null;
+                    shopBuyTask = gameDataApi!.SellItemAsync(options.SessionToken!, chosenCharacterId!.Value, entry.ItemId, 1);
+                }
+
                 y += 28f;
             }
         }
@@ -4164,7 +4247,14 @@ void DrawShopPanel(int w, int h)
             var selected = i == shopCursor;
             var color = selected ? new Vector4(0.9f, 0.75f, 0.35f, 1f) : Vector4.One;
             var prefix = selected ? "> " : "  ";
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{item.Name.ToUpperInvariant()} - {item.Price} OR", new Vector2(topLeft.X + 20f, y), 2f, color);
+            var text = $"{prefix}{item.Name.ToUpperInvariant()} - {item.Price} OR";
+            if (DrawClickableRow(text, new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 2f, color) && shopBuyTask is null)
+            {
+                shopCursor = i;
+                shopMessage = null;
+                shopBuyTask = gameDataApi!.BuyItemAsync(options.SessionToken!, chosenCharacterId!.Value, item.ItemId);
+            }
+
             y += 28f;
         }
     }
@@ -4174,7 +4264,7 @@ void DrawShopPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, shopMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TAB : ACHAT/VENTE - HAUT/BAS : CHOISIR - ENTREE : VALIDER - ECHAP : FERMER",
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VALIDER - TAB : ACHAT/VENTE - ECHAP : FERMER",
         new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
@@ -4206,7 +4296,13 @@ void DrawAuctionPanel(int w, int h)
                 var selected = i == auctionSellCursor;
                 var color = selected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
                 var prefix = selected ? "> " : "  ";
-                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{entry.Name.ToUpperInvariant()} x{entry.Quantity}", new Vector2(topLeft.X + 20f, y), 2f, color);
+                var text = $"{prefix}{entry.Name.ToUpperInvariant()} x{entry.Quantity}";
+                // Clic = sélection seule ici (le prix se règle ensuite avec Gauche/Droite avant Entrée).
+                if (DrawClickableRow(text, new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 2f, color))
+                {
+                    auctionSellCursor = i;
+                }
+
                 y += 28f;
             }
 
@@ -4228,9 +4324,16 @@ void DrawAuctionPanel(int w, int h)
             var color = selected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
             var prefix = selected ? "> " : "  ";
             var suffix = listing.IsMine ? " (VOTRE ANNONCE)" : $" - {listing.SellerName}";
-            TextRenderer.Draw(spriteBatch, whiteTexture,
-                $"{prefix}{listing.ItemName.ToUpperInvariant()} x{listing.Quantity} - {listing.PricePerUnit} OR/u{suffix}",
-                new Vector2(topLeft.X + 20f, y), 1.9f, color);
+            var text = $"{prefix}{listing.ItemName.ToUpperInvariant()} x{listing.Quantity} - {listing.PricePerUnit} OR/u{suffix}";
+            if (DrawClickableRow(text, new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 1.9f, color) && auctionActionTask is null)
+            {
+                auctionCursor = i;
+                auctionMessage = null;
+                auctionActionTask = listing.IsMine
+                    ? gameDataApi!.CancelAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId)
+                    : gameDataApi!.BuyAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
+            }
+
             y += 28f;
         }
     }
