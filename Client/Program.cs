@@ -943,6 +943,18 @@ static (string Title, string[] Lines)[] TutorialPages() =>
         "À l'intérieur : avancez de salle en salle avec Entrée",
         "(combats, coffres d'or, et autres événements).",
     ]),
+    // Voir GDD/demande utilisateur — "menu F1 : liste des types, efficace/inefficace face à
+    // quoi" : même triangle de types que CombatEngine.StrongAgainst côté serveur (dupliqué ici,
+    // c'est de la donnée de game design statique, pas une raison d'exposer une API dédiée).
+    ("TYPES ELEMENTAIRES",
+    [
+        "Feu > Nature, Glace   Eau > Feu, Terre",
+        "Nature > Eau, Terre   Glace > Nature, Air",
+        "Foudre > Eau, Air     Terre > Foudre, Feu",
+        "Air > Terre, Nature   Lumière > Ombre",
+        "Ombre > Lumière       Neutre : sans avantage",
+        "'>' = 1.5x dégâts infligés, 0.67x dégâts subis en retour.",
+    ]),
 ];
 
 /// <summary>Rendu du tutoriel (voir <see cref="UpdateTutorial"/>) : une page de texte à la fois, façon écran d'intérieur.</summary>
