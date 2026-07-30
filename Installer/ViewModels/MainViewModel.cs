@@ -37,7 +37,15 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = null;
         try
         {
+            // Voir GDD/demande utilisateur — "un seul exécutable pour télécharger le Launcher avec
+            // le jeu" : dossier Payload/ à côté de l'exécutable en priorité (mode dev/zip
+            // classique), sinon ressource Payload.zip embarquée (voir EmbeddedPayloadExtractor,
+            // version "fichier unique" publiée avec PublishSingleFile).
             var payloadDirectory = Path.Combine(AppContext.BaseDirectory, "Payload");
+            if (!Directory.Exists(payloadDirectory))
+            {
+                payloadDirectory = EmbeddedPayloadExtractor.ExtractToTempDirectory() ?? payloadDirectory;
+            }
 
             var result = await Task.Run(() =>
                 _installService.Install(payloadDirectory, InstallPath, CreateDesktopShortcut));

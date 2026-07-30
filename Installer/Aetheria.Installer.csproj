@@ -21,4 +21,14 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
 
+  <!-- Voir GDD/demande utilisateur — "un seul exécutable pour télécharger le Launcher avec le
+       jeu" : Payload.zip (Launcher + Client publiés, voir Sites/README.md) embarqué comme
+       ressource quand présent, pour publier l'installateur en un seul fichier autonome
+       (PublishSingleFile) plutôt qu'un zip contenant l'exécutable + un dossier Payload/ à côté.
+       Condition="Exists(...)" : le projet continue de se construire normalement en développement,
+       avant que ce fichier n'ait été produit. -->
+  <ItemGroup Condition="Exists('Resources\Payload.zip')">
+    <EmbeddedResource Include="Resources\Payload.zip" LogicalName="Aetheria.Installer.Resources.Payload.zip" />
+  </ItemGroup>
+
 </Project>
