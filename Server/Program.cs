@@ -400,6 +400,27 @@ app.MapPost("/api/monsters/{monsterId:guid}/set-active-team", async (Guid monste
     }
 });
 
+// Voir GDD/demande utilisateur — "Prestige après niveau maximum".
+app.MapPost("/api/monsters/{monsterId:guid}/prestige", async (Guid monsterId, PrestigeMonsterRequest request) =>
+{
+    if (monsterId != request.MonsterId)
+    {
+        return Results.BadRequest(new ApiError { Message = "Identifiant de créature incohérent." });
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var prestigeService = new PrestigeService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await prestigeService.PrestigeAsync(request.SessionToken, request.CharacterId, request.MonsterId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos monstres".
 app.MapPost("/api/monsters/{monsterId:guid}/equip", async (Guid monsterId, EquipItemRequest request) =>
 {
@@ -2450,6 +2471,7 @@ static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnly
     EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
     EquippedAccessoryName = entity.EquippedAccessoryItemId is { } accessoryId ? itemNames?.GetValueOrDefault(accessoryId) : null,
     CapturedAtUtc = entity.CapturedAtUtc,
+    PrestigeLevel = entity.PrestigeLevel,
 };
 
 static DungeonData ToDungeonData(DungeonEntity entity) => new()

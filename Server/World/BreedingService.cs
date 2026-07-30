@@ -66,6 +66,7 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
 
         db.Monsters.Add(offspring);
         await db.SaveChangesAsync(ct);
+        await new AchievementService(db).UnlockAsync(character.UserId, "eleveur", ct);
 
         return ToMonsterInstanceData(offspring);
     }
@@ -86,5 +87,6 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
         EquippedArmorItemId = entity.EquippedArmorItemId,
         EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
         CapturedAtUtc = entity.CapturedAtUtc,
+        PrestigeLevel = entity.PrestigeLevel,
     };
 }

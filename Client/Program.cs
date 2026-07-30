@@ -523,6 +523,13 @@ Task<MonsterInstanceData?>? monsterEquipTask = null;
 /// <summary>Voir GDD/demande utilisateur — "une touche pour avoir les details de son monstre (atq, def, passif etc)".</summary>
 var monsterDetailOpen = false;
 
+/// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : voir MonsterProgressionService.MaxLevel côté serveur (1000, dupliqué ici — champ de service, pas exposé au Client).</summary>
+const int MonsterMaxLevel = 1000;
+Task<MonsterInstanceData?>? monsterPrestigeTask = null;
+
+/// <summary>Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections" : parcourt <see cref="speciesById"/> (déjà chargé), "connue" si le personnage possède/a possédé au moins une créature de cette espèce (voir ownedMonsters — approximation "actuellement possédée", pas un historique permanent).</summary>
+var encyclopediaCursor = 0;
+
 // Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
 // (ArenaQueueService), sondée régulièrement tant que le joueur attend un appairage.
 var arenaFormats = Enum.GetValues<ArenaFormat>();
@@ -899,6 +906,7 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.B)) OpenPanel(PanelKind.Professions);
     else if (keyboard.WasJustPressed(Key.N)) OpenPanel(PanelKind.BattlePass);
     else if (keyboard.WasJustPressed(Key.H)) OpenPanel(PanelKind.WorldBoss);
+    else if (keyboard.WasJustPressed(Key.C)) OpenPanel(PanelKind.Encyclopedia);
     // Voir GDD/demande utilisateur — "ajoute un raccourci clavier" (panneau Duel).
     else if (keyboard.WasJustPressed(Key.Y)) OpenPanel(PanelKind.Duel);
     // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
@@ -2475,6 +2483,89 @@ void DrawHatcheryPanel(int w, int h)
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Panneau Encyclopédie (touche C, voir GDD/demande utilisateur — "Encyclopédie complète" et
+/// "Collections") : parcourt le catalogue complet des espèces (déjà chargé dans
+/// <see cref="speciesById"/>), grisées et masquées ("???") tant qu'aucune créature de cette espèce
+/// n'est actuellement possédée — approximation "possédée maintenant" plutôt qu'un historique
+/// permanent de toutes les espèces un jour capturées, pour ne pas ajouter de table dédiée.
+/// </summary>
+void UpdateEncyclopediaPanel()
+{
+    var speciesList = speciesById.Values.OrderBy(s => s.BaseRarity).ThenBy(s => s.Name).ToList();
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (speciesList.Count == 0)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) encyclopediaCursor = Math.Min(encyclopediaCursor + 1, speciesList.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) encyclopediaCursor = Math.Max(encyclopediaCursor - 1, 0);
+}
+
+void DrawEncyclopediaPanel(int w, int h)
+{
+    const float boxWidth = 560f;
+    const float boxHeight = 500f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.07f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.55f, 0.75f, 0.95f, 1f));
+
+    var speciesList = speciesById.Values.OrderBy(s => s.BaseRarity).ThenBy(s => s.Name).ToList();
+    var ownedSpeciesIds = ownedMonsters.Select(m => m.SpeciesId).ToHashSet();
+    var knownCount = speciesList.Count(s => ownedSpeciesIds.Contains(s.Id));
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENCYCLOPEDIE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{knownCount} / {speciesList.Count} ESPECES DECOUVERTES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+    if (speciesList.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        const int visibleRows = 12;
+        var scrollStart = Math.Clamp(encyclopediaCursor - visibleRows / 2, 0, Math.Max(0, speciesList.Count - visibleRows));
+        var y = topLeft.Y + 88f;
+        for (var i = scrollStart; i < Math.Min(speciesList.Count, scrollStart + visibleRows); i++)
+        {
+            var species = speciesList[i];
+            var isKnown = ownedSpeciesIds.Contains(species.Id);
+            var isSelected = i == encyclopediaCursor;
+            var prefix = isSelected ? "> " : "  ";
+            var color = !isKnown ? new Vector4(0.45f, 0.45f, 0.5f, 1f) : isSelected ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
+            var label = isKnown ? species.Name : "???";
+            var rowText = $"{prefix}{label.ToUpperInvariant()} - {species.BaseRarity.ToString().ToUpperInvariant()}{(isKnown ? $" - {species.Element}".ToUpperInvariant() : "")}";
+            if (DrawClickableRow(rowText, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+            {
+                encyclopediaCursor = i;
+            }
+
+            y += 28f;
+        }
+
+        var selectedSpecies = speciesList[encyclopediaCursor];
+        var detailY = topLeft.Y + boxHeight - 96f;
+        if (ownedSpeciesIds.Contains(selectedSpecies.Id))
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, selectedSpecies.Lore, new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        }
+        else
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, "Capturez cette espèce pour révéler sa fiche.", new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -4238,6 +4329,14 @@ void OpenPanel(PanelKind kind)
             monstersLoaded = false;
             _ = LoadMonstersAsync();
             break;
+        case PanelKind.Encyclopedia:
+            encyclopediaCursor = 0;
+            if (!monstersLoaded)
+            {
+                _ = LoadMonstersAsync();
+            }
+
+            break;
     }
 }
 
@@ -4637,9 +4736,38 @@ void UpdateMonstersPanel()
     // le panneau directement.
     if (monsterDetailOpen)
     {
+        if (monsterPrestigeTask is { IsCompleted: true } prestigeTask)
+        {
+            if (!prestigeTask.IsFaulted && prestigeTask.Result is { } prestiged)
+            {
+                var index = ownedMonsters.FindIndex(m => m.Id == prestiged.Id);
+                if (index >= 0)
+                {
+                    ownedMonsters[index] = prestiged;
+                }
+
+                monsterMessage = $"Prestige ! Niveau réinitialisé, palier {prestiged.PrestigeLevel} atteint.";
+            }
+            else
+            {
+                monsterMessage = "Prestige impossible.";
+            }
+
+            monsterPrestigeTask = null;
+            return;
+        }
+
         if (keyboard.WasJustPressed(Key.Escape))
         {
             monsterDetailOpen = false;
+        }
+        else if (keyboard.WasJustPressed(Key.P) && monsterPrestigeTask is null && ownedMonsters.Count > 0
+            && chosenCharacterId is not null && gameDataApi is not null
+            && ownedMonsters[Math.Clamp(monsterCursor, 0, ownedMonsters.Count - 1)].Level >= MonsterMaxLevel)
+        {
+            var monster = ownedMonsters[Math.Clamp(monsterCursor, 0, ownedMonsters.Count - 1)];
+            monsterMessage = null;
+            monsterPrestigeTask = gameDataApi.PrestigeMonsterAsync(options.SessionToken!, chosenCharacterId.Value, monster.Id);
         }
 
         return;
@@ -5068,6 +5196,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Hatchery)
     {
         UpdateHatcheryPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Encyclopedia)
+    {
+        UpdateEncyclopediaPanel();
         return;
     }
 
@@ -6148,6 +6282,7 @@ void DrawOutdoorHud()
             case PanelKind.WorldBoss: DrawWorldBossPanel(w, h); break;
             case PanelKind.Fusion: DrawFusionPanel(w, h); break;
             case PanelKind.Hatchery: DrawHatcheryPanel(w, h); break;
+            case PanelKind.Encyclopedia: DrawEncyclopediaPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -6204,6 +6339,8 @@ void DrawOutdoorHud()
         ("PASSE (N)", PanelKind.BattlePass),
         // Voir GDD/demande utilisateur — "un boss monde".
         ("BOSS MONDIAL (H)", PanelKind.WorldBoss),
+        // Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections".
+        ("ENCYCLOPEDIE (C)", PanelKind.Encyclopedia),
         // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
         // son pseudo".
         ("DUEL (Y)", PanelKind.Duel),
@@ -6696,7 +6833,7 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
     var baseStats = species?.BaseStats ?? StatBlock.Zero;
     var lines = new List<(string Label, string Value)>
     {
-        ("Niveau", $"{monster.Level}"),
+        ("Niveau", monster.PrestigeLevel > 0 ? $"{monster.Level} (prestige {monster.PrestigeLevel})" : $"{monster.Level}"),
         ("Variante", MonsterVariantCatalog.Get(monster.Variant).DisplayName),
         ("PV max", $"{ClientScaledStat(baseStats.Health, monster.Level, monster.Variant)}"),
         ("Attaque", $"{ClientScaledStat(baseStats.Attack, monster.Level, monster.Variant)}"),
@@ -6720,7 +6857,12 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
         TextRenderer.Draw(spriteBatch, whiteTexture, description, new Vector2(topLeft.X + 26f, y + 8f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : RETOUR", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    // Voir GDD/demande utilisateur — "Prestige après niveau maximum".
+    var footerHint = monster.Level >= MonsterMaxLevel
+        ? "P : PRESTIGE (reinitialise le niveau, +5% de stats permanent) - ECHAP : RETOUR"
+        : "ECHAP : RETOUR";
+    var footerColor = monster.Level >= MonsterMaxLevel ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.7f, 0.7f, 0.75f, 1f);
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footerHint, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, footerColor);
 }
 
 void DrawPartyPanel(int w, int h)
@@ -8616,6 +8758,9 @@ enum PanelKind
 
     /// <summary>Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction".</summary>
     Hatchery,
+
+    /// <summary>Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections".</summary>
+    Encyclopedia,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>

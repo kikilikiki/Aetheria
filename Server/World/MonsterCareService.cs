@@ -95,5 +95,6 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         EquippedArmorItemId = entity.EquippedArmorItemId,
         EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
         CapturedAtUtc = entity.CapturedAtUtc,
+        PrestigeLevel = entity.PrestigeLevel,
     };
 }

@@ -167,6 +167,9 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) : bonus multiplicatif appliqué APRÈS la mise à l'échelle par niveau.</summary>
     private static int ScaledStat(int baseStat, int level, MonsterVariant variant) => MonsterStatMath.ScaledStat(baseStat, level, variant);
 
+    /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : bonus permanent supplémentaire, uniquement pour les créatures possédées (pas les monstres sauvages, qui n'ont pas de prestige).</summary>
+    private static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel) => MonsterStatMath.ScaledStat(baseStat, level, variant, prestigeLevel);
+
     /// <summary>Voir GDD/demande utilisateur — "l'archer doit pouvoir attaquer à distance" : portée de base plutôt que réservée à la capacité spéciale (qui garde son propre bonus de portée, voir CombatEngine.ResolveSpecialAbility).</summary>
     private static int BaseAttackRange(MonsterType type) => type == MonsterType.Archer ? 3 : 1;
 
@@ -670,16 +673,16 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // emplacements d'équipement (arme/armure/accessoire) ajoutés par-dessus les stats
             // mises à l'échelle du niveau.
             var equipBonus = await GetEquipmentBonusAsync(monster, ct);
-            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant) + equipBonus.Health;
+            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Health;
             var type = species?.Type ?? MonsterType.Guerrier;
 
             combatants.Add(new Combatant
             {
                 Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
                 MaxHealth = maxHealth, CurrentHealth = maxHealth,
-                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant) + equipBonus.Attack,
-                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant) + equipBonus.Defense,
-                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant) + equipBonus.Speed,
+                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Attack,
+                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Defense,
+                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Speed,
                 MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
                 Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,

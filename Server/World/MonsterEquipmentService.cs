@@ -144,6 +144,7 @@ public sealed class MonsterEquipmentService(AetheriaDbContext db, SessionTokenSt
             EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
             EquippedAccessoryName = entity.EquippedAccessoryItemId is { } acc ? itemNames.GetValueOrDefault(acc) : null,
             CapturedAtUtc = entity.CapturedAtUtc,
+            PrestigeLevel = entity.PrestigeLevel,
         };
     }
 }

@@ -32,4 +32,7 @@ public sealed class MonsterInstanceData
     public string? EquippedAccessoryName { get; set; }
 
     public DateTime CapturedAtUtc { get; init; } = DateTime.UtcNow;
+
+    /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum".</summary>
+    public int PrestigeLevel { get; set; }
 }
