@@ -336,6 +336,23 @@ var isTeleportPanelOpen = false;
 var teleportCursor = 0;
 var currentKingdom = KingdomType.Nature;
 
+// Voir GDD/demande utilisateur — "Exploration : îles volantes/aquatiques + montures dédiées" :
+// destinations supplémentaires du téléporteur, visibles seulement si le compte possède une
+// monture du bon type (voir MountCatalog/ProfileSummary.OwnedMountKeys).
+List<MountKind> ownedMountKinds = [];
+Task<List<MountKind>>? islandEligibilityTask = null;
+string? islandVisitMessage = null;
+Task<string?>? islandVisitTask = null;
+
+// Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour rentrer" : le
+// portail du royaume n'ouvrait auparavant TOUJOURS que le donjon dont le nom correspond au biome
+// (voir RefreshDungeonPositionAsync), rendant les autres donjons du même royaume (hardcore,
+// mythique) inaccessibles. Liste de sélection plutôt qu'une entrée automatique.
+var isDungeonSelectOpen = false;
+var dungeonSelectCursor = 0;
+List<DungeonData> dungeonSelectOptions = [];
+Task<(List<DungeonData> Dungeons, List<KingdomData> Kingdoms)>? dungeonSelectTask = null;
+
 var isAdminPanelOpen = false;
 var adminPanelCursor = 0;
 var adminPanelTyping = false;
@@ -591,6 +608,11 @@ Task<bool>? kingdomVoteTask = null;
 Task<KingdomPoliticsStatus?>? kingdomConstructTask = null;
 string? kingdomPoliticsMessage = null;
 
+// Voir GDD/demande utilisateur — "Exploration : coffres cachés hebdomadaires par royaume".
+WeeklyChestStatus? weeklyChest = null;
+Task<WeeklyChestStatus?>? weeklyChestTask = null;
+Task<WeeklyChestStatus?>? weeklyChestClaimTask = null;
+
 // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp", puis "propose un
 // pvp, si la personne est en team tout les membres doivent accepter" : invitation reçue (bouton
 // DUEL ou "/duel <pseudo>" dans le tchat pour en envoyer une), avec une limite de temps miroir de
@@ -788,6 +810,12 @@ host.Update += deltaTime =>
     if (isTeleportPanelOpen)
     {
         UpdateTeleportPanel();
+        return;
+    }
+
+    if (isDungeonSelectOpen)
+    {
+        UpdateDungeonSelectPanel();
         return;
     }
 
@@ -1112,6 +1140,8 @@ host.Update += deltaTime =>
                 // inventaire restent des données serveur, jamais réinitialisées ici.
                 isTeleportPanelOpen = true;
                 teleportCursor = 0;
+                islandVisitMessage = null;
+                islandEligibilityTask = LoadOwnedMountKindsAsync();
                 break;
             case InteractionKind.Building when interaction.Building!.Name.StartsWith("Mine"):
                 // Voir GDD/demande utilisateur — "guerre de territoire... quêtes de minage".
@@ -1179,32 +1209,13 @@ host.Update += deltaTime =>
                 interiorNpcs = [.. layout.Npcs];
                 break;
             case InteractionKind.Dungeon:
-                sceneMode = SceneMode.Interior;
-                interiorTitle = worldMap.DungeonName;
-                interiorBodyLines = DungeonFlavor();
-                interiorAccent = WorldMap.PortalMidColorBright;
-                interiorIsDungeon = true;
-                interiorFurniture = [];
-                interiorNpcs = [];
-                dungeonFloorNumber = 1;
-                dungeonRoomIndex = 0;
-                dungeonFloor = null;
-                dungeonClearedRooms = [];
-                dungeonLastAutoFightRoomIndex = -1;
-                dungeonClickTarget = null;
-                dungeonExitConfirmOpen = false;
-                dungeonPlayerPos = new Vector2(0.5f, 0.5f);
-                dungeonRoomMessage = null;
-                dungeonEncounterPreview = null;
-                dungeonEncounterPreviewTask = null;
-                dungeonEncounterPreviewRoomIndex = -1;
-                if (worldMap.DungeonId >= 0 && gameDataApi is not null)
-                {
-                    dungeonFloorTask = gameDataApi.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
-                }
-
-                // Voir GDD/demande utilisateur — quête 6 "Les échos du donjon".
-                _ = CompleteStoryQuestAsync("Les échos du donjon");
+                // Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour
+                // rentrer" : liste de sélection (voir UpdateDungeonSelectPanel) plutôt qu'une
+                // entrée automatique dans le seul donjon associé au biome du royaume.
+                isDungeonSelectOpen = true;
+                dungeonSelectCursor = 0;
+                dungeonSelectOptions = [];
+                dungeonSelectTask = LoadDungeonSelectDataAsync();
                 break;
         }
     }
@@ -1340,6 +1351,11 @@ host.Render += _ =>
     if (isTeleportPanelOpen)
     {
         DrawTeleportPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    }
+
+    if (isDungeonSelectOpen)
+    {
+        DrawDungeonSelectPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
     }
 
     if (isMinePanelOpen)
@@ -2882,6 +2898,40 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
 /// <summary>Royaumes accessibles depuis le téléporteur (voir <see cref="UpdateTeleportPanel"/>) : tous sauf celui où l'on se trouve déjà.</summary>
 List<KingdomType> TeleportDestinations() => Enum.GetValues<KingdomType>().Where(k => k != currentKingdom).ToList();
 
+async Task<List<MountKind>> LoadOwnedMountKindsAsync()
+{
+    if (gameDataApi is null || chosenCharacterId is null)
+    {
+        return [];
+    }
+
+    var profile = await gameDataApi.GetProfileAsync(chosenCharacterId.Value);
+    if (profile is null)
+    {
+        return [];
+    }
+
+    return profile.OwnedMountKeys.Select(k => MountCatalog.Find(k)?.Kind).Where(k => k is not null).Select(k => k!.Value).Distinct().ToList();
+}
+
+/// <summary>Voir GDD/demande utilisateur — "Exploration : îles volantes/aquatiques + montures dédiées" : options supplémentaires du téléporteur, une entrée par type de monture possédée (voir <see cref="ownedMountKinds"/>).</summary>
+List<(string Label, KingdomType? Kingdom, MountKind? Island)> TeleportOptions()
+{
+    var options = TeleportDestinations().Select(k => ((string)$"{KingdomBiome.For(k).CapitalName} ({k})", (KingdomType?)k, (MountKind?)null)).ToList();
+
+    if (ownedMountKinds.Contains(MountKind.Volant))
+    {
+        options.Add(("ILE VOLANTE (monture volante)", null, MountKind.Volant));
+    }
+
+    if (ownedMountKinds.Contains(MountKind.Aquatique))
+    {
+        options.Add(("ILE AQUATIQUE (monture aquatique)", null, MountKind.Aquatique));
+    }
+
+    return options;
+}
+
 /// <summary>
 /// Voir GDD/demande utilisateur — "un téléporteur pour se déplacer de ville en ville mais notre
 /// team ne change pas" : reconstruit juste la carte locale (<see cref="RebuildWorldMapForKingdom"/>,
@@ -2890,7 +2940,26 @@ List<KingdomType> TeleportDestinations() => Enum.GetValues<KingdomType>().Where(
 /// </summary>
 void UpdateTeleportPanel()
 {
-    var destinations = TeleportDestinations();
+    if (islandEligibilityTask is { IsCompleted: true } eligibilityTask)
+    {
+        ownedMountKinds = eligibilityTask.IsFaulted ? [] : eligibilityTask.Result;
+        islandEligibilityTask = null;
+        return;
+    }
+
+    if (islandVisitTask is { IsCompleted: true } visitTask)
+    {
+        islandVisitMessage = visitTask.IsFaulted ? "Deplacement impossible." : visitTask.Result;
+        islandVisitTask = null;
+        return;
+    }
+
+    if (islandEligibilityTask is not null || islandVisitTask is not null)
+    {
+        return;
+    }
+
+    var destinations = TeleportOptions();
 
     if (keyboard.WasJustPressed(Key.Escape))
     {
@@ -2902,18 +2971,27 @@ void UpdateTeleportPanel()
     else if (keyboard.WasJustPressed(Key.Up)) teleportCursor = Math.Max(teleportCursor - 1, 0);
     else if (keyboard.WasJustPressed(Key.Enter) && destinations.Count > 0)
     {
-        RebuildWorldMapForKingdom(destinations[teleportCursor]);
-        _ = RefreshDungeonPositionAsync();
-        isTeleportPanelOpen = false;
+        var chosen = destinations[teleportCursor];
+        if (chosen.Kingdom is { } kingdom)
+        {
+            RebuildWorldMapForKingdom(kingdom);
+            _ = RefreshDungeonPositionAsync();
+            isTeleportPanelOpen = false;
+        }
+        else if (chosen.Island is { } island)
+        {
+            islandVisitMessage = null;
+            islandVisitTask = gameDataApi!.VisitIslandAsync(options.SessionToken!, chosenCharacterId!.Value, island);
+        }
     }
 }
 
 void DrawTeleportPanel(int w, int h)
 {
-    var destinations = TeleportDestinations();
+    var destinations = TeleportOptions();
 
     const float boxWidth = 420f;
-    const float boxHeight = 260f;
+    const float boxHeight = 300f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.12f, 0.95f));
@@ -2926,16 +3004,34 @@ void DrawTeleportPanel(int w, int h)
         var selected = i == teleportCursor;
         var color = selected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
         var prefix = selected ? "> " : "  ";
-        var text = $"{prefix}{KingdomBiome.For(destinations[i]).CapitalName} ({destinations[i]})";
+        var text = $"{prefix}{destinations[i].Label}";
         if (DrawClickableRow(text, new Vector2(topLeft.X + 24f, y), boxWidth - 48f, 2f, color))
         {
             teleportCursor = i;
-            RebuildWorldMapForKingdom(destinations[i]);
-            _ = RefreshDungeonPositionAsync();
-            isTeleportPanelOpen = false;
+            var chosen = destinations[i];
+            if (chosen.Kingdom is { } kingdom)
+            {
+                RebuildWorldMapForKingdom(kingdom);
+                _ = RefreshDungeonPositionAsync();
+                isTeleportPanelOpen = false;
+            }
+            else if (chosen.Island is { } island)
+            {
+                islandVisitMessage = null;
+                islandVisitTask = gameDataApi!.VisitIslandAsync(options.SessionToken!, chosenCharacterId!.Value, island);
+            }
         }
 
         y += 32f;
+    }
+
+    if (islandVisitMessage is { Length: > 0 })
+    {
+        foreach (var line in WrapTextToLines(islandVisitMessage, boxWidth - 40f, 1.5f))
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.95f, 1f));
+            y += 20f;
+        }
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VOYAGER - HAUT/BAS : CHOISIR - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -3339,6 +3435,35 @@ void UpdateKingdomPanel()
     {
         kingdomPolitics = politicsTask.IsFaulted ? null : politicsTask.Result;
         kingdomPoliticsTask = null;
+        weeklyChestTask = kingdomPolitics is null ? null : gameDataApi?.GetWeeklyChestAsync(kingdomPolitics.KingdomId);
+        return;
+    }
+
+    if (weeklyChestTask is { IsCompleted: true } chestTask)
+    {
+        weeklyChest = chestTask.IsFaulted ? null : chestTask.Result;
+        weeklyChestTask = null;
+        return;
+    }
+
+    if (weeklyChestClaimTask is { IsCompleted: true } chestClaimTask)
+    {
+        if (!chestClaimTask.IsFaulted && chestClaimTask.Result is { } claimedChest)
+        {
+            weeklyChest = claimedChest;
+            kingdomPoliticsMessage = $"Coffre cache trouve : +{claimedChest.RewardGold} or !";
+        }
+        else
+        {
+            kingdomPoliticsMessage = "Coffre deja reclame cette semaine.";
+        }
+
+        weeklyChestClaimTask = null;
+        return;
+    }
+
+    if (weeklyChestClaimTask is not null)
+    {
         return;
     }
 
@@ -3416,6 +3541,11 @@ void UpdateKingdomPanel()
         kingdomPoliticsMessage = null;
         kingdomConstructTask = gameDataApi!.ConstructKingdomBuildingAsync(options.SessionToken!, chosenCharacterId!.Value);
     }
+    else if (keyboard.WasJustPressed(Key.H) && weeklyChest is { IsClaimed: false } && kingdomPolitics is not null)
+    {
+        kingdomPoliticsMessage = null;
+        weeklyChestClaimTask = gameDataApi!.ClaimWeeklyChestAsync(options.SessionToken!, chosenCharacterId!.Value, kingdomPolitics.KingdomId);
+    }
 }
 
 void DrawKingdomPanel(int w, int h)
@@ -3465,7 +3595,16 @@ void DrawKingdomPanel(int w, int h)
                 TextRenderer.Draw(spriteBatch, whiteTexture,
                     $"Roi elu : {kingLabel}   -   Tresor : {kingdomPolitics.TreasuryGold} or{(kingdomPolitics.IsTaxExempt ? "   -   EXEMPT DE TAXES" : "")}",
                     new Vector2(topLeft.X + 34f, y), 1.4f, new Vector4(0.9f, 0.8f, 0.5f, 1f));
-                y += 30f;
+                y += 26f;
+
+                // Voir GDD/demande utilisateur — "Exploration : coffres cachés hebdomadaires par royaume".
+                if (weeklyChest is { } chest)
+                {
+                    var chestLabel = chest.IsClaimed ? $"Coffre cache : deja trouve par {chest.ClaimedByCharacterName}" : $"Coffre cache : NON TROUVE CETTE SEMAINE (H pour le chercher, +{chest.RewardGold} or)";
+                    var chestColor = chest.IsClaimed ? new Vector4(0.6f, 0.6f, 0.65f, 1f) : new Vector4(0.95f, 0.85f, 0.4f, 1f);
+                    TextRenderer.Draw(spriteBatch, whiteTexture, chestLabel.ToUpperInvariant(), new Vector2(topLeft.X + 34f, y), 1.3f, chestColor);
+                    y += 24f;
+                }
             }
         }
 
@@ -3481,7 +3620,7 @@ void DrawKingdomPanel(int w, int h)
         }
     }
 
-    var kingdomFooter = kingdomVoteMode ? "ENTREE : VOTER - ECHAP : ANNULER" : "V : VOTER POUR LE ROI   B : CONSTRUIRE (ROI)   -   ECHAP : FERMER";
+    var kingdomFooter = kingdomVoteMode ? "ENTREE : VOTER - ECHAP : ANNULER" : "V : VOTER   B : CONSTRUIRE (ROI)   H : COFFRE CACHE   -   ECHAP : FERMER";
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, kingdomFooter, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
@@ -4086,6 +4225,136 @@ async Task RefreshDungeonPositionAsync()
     {
         Console.WriteLine($"[Donjon] Impossible de récupérer la position du donjon : {ex.Message}");
     }
+}
+
+async Task<(List<DungeonData> Dungeons, List<KingdomData> Kingdoms)> LoadDungeonSelectDataAsync()
+{
+    if (gameDataApi is null)
+    {
+        return ([], []);
+    }
+
+    var dungeons = await gameDataApi.GetDungeonsAsync();
+    var kingdoms = await gameDataApi.GetKingdomsAsync();
+    return (dungeons, kingdoms);
+}
+
+/// <summary>Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour rentrer" : liste des donjons du royaume courant (voir <see cref="isDungeonSelectOpen"/>).</summary>
+void UpdateDungeonSelectPanel()
+{
+    if (dungeonSelectTask is { IsCompleted: true } loadTask)
+    {
+        var (dungeons, kingdoms) = loadTask.IsFaulted ? ([], new List<KingdomData>()) : loadTask.Result;
+        var kingdomId = kingdoms.FirstOrDefault(k => k.Type == currentKingdom)?.Id;
+        dungeonSelectOptions = kingdomId is null ? [] : dungeons.Where(d => d.KingdomId == kingdomId).OrderBy(d => d.MinLevel).ToList();
+        dungeonSelectCursor = 0;
+        dungeonSelectTask = null;
+        return;
+    }
+
+    if (dungeonSelectTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        isDungeonSelectOpen = false;
+        return;
+    }
+
+    if (dungeonSelectOptions.Count == 0)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) dungeonSelectCursor = Math.Min(dungeonSelectCursor + 1, dungeonSelectOptions.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) dungeonSelectCursor = Math.Max(dungeonSelectCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        // Voir GDD/demande utilisateur — "niveau min pour rentrer" : déjà vérifié côté serveur
+        // au premier combat engagé dans ce donjon (voir CombatService.StartFromDungeonAsync),
+        // pas ici — l'écran d'étage lui-même reste consultable sous le niveau requis.
+        isDungeonSelectOpen = false;
+        EnterDungeonInterior(dungeonSelectOptions[dungeonSelectCursor]);
+    }
+}
+
+void DrawDungeonSelectPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 380f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.04f, 0.09f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), WorldMap.PortalMidColorBright);
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "DONJONS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
+
+    if (dungeonSelectTask is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (dungeonSelectOptions.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN DONJON DANS CE ROYAUME", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 62f;
+        for (var i = 0; i < dungeonSelectOptions.Count; i++)
+        {
+            var dungeon = dungeonSelectOptions[i];
+            var isSelected = i == dungeonSelectCursor;
+            var prefix = isSelected ? "> " : "  ";
+            var color = isSelected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
+            var tags = (dungeon.IsMythic ? " [MYTHIQUE]" : "") + (dungeon.IsHardcore ? " [HARDCORE]" : "");
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{dungeon.Name.ToUpperInvariant()} - NIV. {dungeon.MinLevel}+{tags}", new Vector2(topLeft.X + 24f, y), 1.8f, color);
+            y += 28f;
+        }
+
+        var selected = dungeonSelectOptions[dungeonSelectCursor];
+        var descY = topLeft.Y + boxHeight - 96f;
+        var descText = selected.IsMythic && selected.MythicModifierDescription.Length > 0 ? selected.MythicModifierDescription : selected.Description;
+        foreach (var line in WrapTextToLines(descText, boxWidth - 40f, 1.4f))
+        {
+            TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, descY), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            descY += 20f;
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : entrer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>Voir GDD/demande utilisateur — extrait de l'ex-<c>case InteractionKind.Dungeon</c> pour être réutilisable depuis <see cref="UpdateDungeonSelectPanel"/>.</summary>
+void EnterDungeonInterior(DungeonData dungeon)
+{
+    worldMap.SetDungeon(dungeon.Id, dungeon.WorldX, dungeon.WorldY);
+    sceneMode = SceneMode.Interior;
+    interiorTitle = dungeon.Name;
+    interiorBodyLines = DungeonFlavor();
+    interiorAccent = WorldMap.PortalMidColorBright;
+    interiorIsDungeon = true;
+    interiorFurniture = [];
+    interiorNpcs = [];
+    dungeonFloorNumber = 1;
+    dungeonRoomIndex = 0;
+    dungeonFloor = null;
+    dungeonClearedRooms = [];
+    dungeonLastAutoFightRoomIndex = -1;
+    dungeonClickTarget = null;
+    dungeonExitConfirmOpen = false;
+    dungeonPlayerPos = new Vector2(0.5f, 0.5f);
+    dungeonRoomMessage = null;
+    dungeonEncounterPreview = null;
+    dungeonEncounterPreviewTask = null;
+    dungeonEncounterPreviewRoomIndex = -1;
+    if (gameDataApi is not null)
+    {
+        dungeonFloorTask = gameDataApi.GetDungeonFloorAsync(dungeon.Id, dungeonFloorNumber);
+    }
+
+    // Voir GDD/demande utilisateur — quête 6 "Les échos du donjon".
+    _ = CompleteStoryQuestAsync("Les échos du donjon");
 }
 
 /// <summary>
