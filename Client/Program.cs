@@ -6804,7 +6804,13 @@ void UpdateDungeonCorridor(float deltaTime)
     {
         dungeonFloor = floorTask.IsFaulted ? null : floorTask.Result;
         dungeonFloorTask = null;
-        dungeonRoomMessage = dungeonFloor is null ? "Impossible de charger cet étage." : null;
+        // Voir retour utilisateur — "plafonne à 10 étages" : ne réinitialise plus le message sur
+        // un chargement réussi, pour laisser le temps au message "donjon nettoyé, nouveau
+        // parcours" (voir plus bas) de rester visible au lieu de disparaître aussitôt affiché.
+        if (dungeonFloor is null)
+        {
+            dungeonRoomMessage = "Impossible de charger cet étage.";
+        }
 
         if (dungeonFloor is not null)
         {
@@ -6895,11 +6901,15 @@ void UpdateDungeonCorridor(float deltaTime)
 
     // Voir remarque ci-dessus — "l'étage entier nettoyé" tient lieu d'escalier pour cette
     // première version, accessible depuis n'importe quelle salle une fois toutes résolues.
+    // Voir retour utilisateur — "plafonne à 10 étages" : un parcours recommence à l'étage 1
+    // (nouveau tirage, nouveau butin) une fois DungeonProgression.MaxFloor nettoyé, au lieu de
+    // continuer indéfiniment.
     if (allCleared && keyboard.WasJustPressed(Key.E))
     {
-        dungeonFloorNumber++;
+        var wasFinalFloor = dungeonFloorNumber >= DungeonProgression.MaxFloor;
+        dungeonFloorNumber = wasFinalFloor ? 1 : dungeonFloorNumber + 1;
         dungeonFloor = null;
-        dungeonRoomMessage = null;
+        dungeonRoomMessage = wasFinalFloor ? "Donjon entierement nettoye ! Un nouveau parcours recommence a l'etage 1." : null;
         dungeonEncounterPreview = null;
         dungeonEncounterPreviewTask = null;
         dungeonEncounterPreviewRoomIndex = -1;

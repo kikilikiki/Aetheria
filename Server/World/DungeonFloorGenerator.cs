@@ -6,14 +6,18 @@ namespace Aetheria.Server.World;
 /// <summary>
 /// Génère le contenu d'un étage de donjon de façon déterministe à partir de
 /// <c>(dungeonSeed, floorNumber)</c> : le même étage produit toujours le même contenu, mais
-/// deux donjons différents (seeds différents) divergent (voir <c>Docs/GameDesign.md</c> —
-/// section Donjons : mini-boss tous les 10 étages, boss tous les 50, boss légendaire tous les
-/// 100). La disposition spatiale des salles (grille, corridors) reste à faire côté
+/// deux donjons différents (seeds différents) divergent. Voir retour utilisateur — "plafonne à
+/// 10 étages, mini boss à 3, boss à 5 et boss légendaire à 10" : un parcours complet va de
+/// l'étage 1 à <see cref="MaxFloor"/> (voir Client/Program.cs, UpdateDungeonCorridor —
+/// recommence à l'étage 1 une fois <see cref="MaxFloor"/> nettoyé plutôt que de continuer à
+/// l'infini). La disposition spatiale des salles (grille, corridors) reste à faire côté
 /// Client/MapEditor ; ce générateur ne produit que la séquence de rencontres.
 /// </summary>
 public static class DungeonFloorGenerator
 {
     private const int RoomsPerFloor = 6;
+
+    private const int MaxFloor = DungeonProgression.MaxFloor;
 
     private static readonly (DungeonEncounterType Type, int Weight)[] EncounterWeights =
     [
@@ -29,16 +33,17 @@ public static class DungeonFloorGenerator
 
     public static DungeonFloor GenerateFloor(int dungeonSeed, int floorNumber)
     {
-        if (floorNumber <= 0)
+        if (floorNumber is <= 0 or > MaxFloor)
         {
-            throw new ArgumentOutOfRangeException(nameof(floorNumber), "Le numéro d'étage doit être positif.");
+            throw new ArgumentOutOfRangeException(nameof(floorNumber), $"Le numéro d'étage doit être entre 1 et {MaxFloor}.");
         }
 
         var milestone = GetMilestoneEncounter(floorNumber);
         if (milestone is { } bossEncounter)
         {
             // L'étage jalon est entièrement dédié au combat de boss — une seule salle, pas de
-            // disposition spatiale nécessaire (voir GDD — mini-boss/10, boss/50, boss légendaire/100).
+            // disposition spatiale nécessaire (voir retour utilisateur — mini-boss à l'étage 3,
+            // boss à l'étage 5, boss légendaire à l'étage 10).
             return new DungeonFloor(floorNumber, [new DungeonRoom(0, bossEncounter, IsStart: true)]);
         }
 
@@ -92,25 +97,16 @@ public static class DungeonFloorGenerator
         return positions;
     }
 
-    private static DungeonEncounterType? GetMilestoneEncounter(int floorNumber)
+    // Voir retour utilisateur — "plafonne à 10 étages, mini boss à 3, boss à 5 et boss
+    // légendaire à 10" (remplace l'ancien rythme mini-boss/10, boss/50, boss légendaire/100 —
+    // cohérent avec un parcours désormais borné à MaxFloor au lieu d'infini).
+    private static DungeonEncounterType? GetMilestoneEncounter(int floorNumber) => floorNumber switch
     {
-        if (floorNumber % 100 == 0)
-        {
-            return DungeonEncounterType.BossLegendaire;
-        }
-
-        if (floorNumber % 50 == 0)
-        {
-            return DungeonEncounterType.Boss;
-        }
-
-        if (floorNumber % 10 == 0)
-        {
-            return DungeonEncounterType.MiniBoss;
-        }
-
-        return null;
-    }
+        10 => DungeonEncounterType.BossLegendaire,
+        5 => DungeonEncounterType.Boss,
+        3 => DungeonEncounterType.MiniBoss,
+        _ => null,
+    };
 
     private static DungeonEncounterType PickEncounter(Random random)
     {
