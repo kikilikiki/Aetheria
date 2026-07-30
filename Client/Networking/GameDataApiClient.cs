@@ -694,11 +694,12 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ProfileSummary>(JsonOptions, ct) : null;
     }
 
-    public async Task<ProfileSummary?> UpdateProfileAsync(string sessionToken, Guid characterId, string description, int? showcaseItemId, string? activeTitle, CancellationToken ct = default)
+    public async Task<ProfileSummary?> UpdateProfileAsync(string sessionToken, Guid characterId, string description, int? showcaseItemId, string? activeTitle, string? activeMountKey = null, string? activeWingKey = null, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/api/profile/update", new UpdateProfileRequest
         {
             SessionToken = sessionToken, CharacterId = characterId, Description = description, ShowcaseItemId = showcaseItemId, ActiveTitle = activeTitle,
+            ActiveMountKey = activeMountKey, ActiveWingKey = activeWingKey,
         }, JsonOptions, ct);
 
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ProfileSummary>(JsonOptions, ct) : null;

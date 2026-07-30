@@ -12,5 +12,9 @@ public sealed class CollectionEntity
     public UserEntity? User { get; set; }
 
     public required string CollectionKey { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Collections : montures, ailes, titres" : "Monture" ou "Ailes" pour l'instant (voir <see cref="Server.World.AchievementService"/>) ; vide pour les entrées historiques génériques.</summary>
+    public string Category { get; set; } = string.Empty;
+
     public DateTime CompletedAtUtc { get; set; } = DateTime.UtcNow;
 }

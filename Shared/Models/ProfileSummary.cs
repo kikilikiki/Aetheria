@@ -13,4 +13,10 @@ public sealed class ProfileSummary
     public string? ShowcaseItemName { get; init; }
     public string? ActiveTitle { get; init; }
     public IReadOnlyList<string> OwnedTitles { get; init; } = [];
+
+    /// <summary>Voir GDD/demande utilisateur — "Collections : montures, ailes".</summary>
+    public string? ActiveMountKey { get; init; }
+    public IReadOnlyList<string> OwnedMountKeys { get; init; } = [];
+    public string? ActiveWingKey { get; init; }
+    public IReadOnlyList<string> OwnedWingKeys { get; init; } = [];
 }
