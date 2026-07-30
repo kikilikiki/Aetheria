@@ -177,15 +177,75 @@ internal static class CombatEngine
         // suite à un retour utilisateur ("les monstres ont beaucoup trop de vie").
         var multiplier = ElementalMultiplier(actor.Element, target.Element);
         var damage = Math.Max(2, (int)((actor.Attack - target.Defense / 2) * multiplier));
+        damage = ApplyAffinityBonus(session, actor, damage);
+        damage = ApplyComboBonus(session, actor, target, damage, out var comboSuffix);
         damage = ApplyPassiveDamageModifiers(actor, target, damage);
         target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
         var suffix = ElementalSuffix(multiplier);
         session.LastMessage = target.IsAlive
-            ? $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix}."
-            : $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix} et le met K.O. !";
+            ? $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix}.{comboSuffix}"
+            : $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix} et le met K.O. !{comboSuffix}";
         ApplyPostDamagePassives(session, actor, target, damage);
 
         CheckEndCondition(session);
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "Affinité entre monstres" : +10% de dégâts quand un allié du
+    /// même élément (autre que Neutre) est adjacent — récompense un positionnement groupé par
+    /// élément plutôt qu'un simple bonus passif de plus.
+    /// </summary>
+    private static int ApplyAffinityBonus(CombatSession session, Combatant actor, int rawDamage)
+    {
+        var hasAffinityAlly = session.Combatants.Any(c =>
+            c.IsAlive && c != actor && c.Team == actor.Team && c.Element == actor.Element
+            && c.Element != Element.Neutre && Distance(c.X, c.Y, actor.X, actor.Y) == 1);
+
+        return hasAffinityAlly ? Math.Max(1, (int)(rawDamage * 1.1)) : rawDamage;
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "Combo entre monstres", "Combo entre joueurs", "Ultime
+    /// d'équipe" : un même système couvre les trois — enchaîner des coups d'ATTAQUANTS DIFFÉRENTS
+    /// (monstres et/ou personnage joueur, peu importe) sur la MÊME cible sans qu'un autre
+    /// combattant ne l'attaque entre-temps augmente les dégâts, jusqu'à un bonus maximal quand
+    /// TOUTE l'équipe a frappé la même cible d'affilée ("ultime d'équipe"). La chaîne se
+    /// réinitialise dès qu'une cible différente est attaquée.
+    /// </summary>
+    private static int ApplyComboBonus(CombatSession session, Combatant actor, Combatant target, int rawDamage, out string suffix)
+    {
+        if (session.ComboTargetId != target.Id)
+        {
+            session.ComboTargetId = target.Id;
+            session.ComboAttackerIds.Clear();
+        }
+
+        if (session.ComboAttackerIds.Contains(actor.Id))
+        {
+            suffix = "";
+            return rawDamage;
+        }
+
+        var hitNumber = session.ComboAttackerIds.Count + 1;
+        session.ComboAttackerIds.Add(actor.Id);
+
+        var bonusMultiplier = hitNumber switch
+        {
+            1 => 1.0,
+            2 => 1.2,
+            3 => 1.35,
+            _ => 1.6,
+        };
+
+        suffix = hitNumber switch
+        {
+            >= 4 => " ULTIME D'EQUIPE !",
+            2 => " Combo x2 !",
+            3 => " Combo x3 !",
+            _ => "",
+        };
+
+        return bonusMultiplier > 1.0 ? Math.Max(1, (int)(rawDamage * bonusMultiplier)) : rawDamage;
     }
 
     /// <summary>
@@ -300,12 +360,14 @@ internal static class CombatEngine
             verb = isUltimate ? "frappe (ultime)" : "frappe (coup puissant)";
         }
 
+        damage = ApplyAffinityBonus(session, actor, damage);
+        damage = ApplyComboBonus(session, actor, target, damage, out var comboSuffix);
         damage = ApplyPassiveDamageModifiers(actor, target, damage);
         target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
         var suffix = ElementalSuffix(multiplier);
         session.LastMessage = target.IsAlive
-            ? $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix}."
-            : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !";
+            ? $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix}.{comboSuffix}"
+            : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !{comboSuffix}";
         ApplyPostDamagePassives(session, actor, target, damage);
 
         CheckEndCondition(session);
