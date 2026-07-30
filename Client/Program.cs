@@ -488,11 +488,22 @@ Guid? fusionFirstMonsterId = null;
 var fusionCursor = 0;
 string? fusionMessage = null;
 Task<MonsterInstanceData>? fusionActionTask = null;
+// Voir retour utilisateur — "ajoute un temps et une validation avant de le faire" : confirmation
+// avant de lancer (fusionConfirming), puis état "en attente" côté serveur (fusionPending) plutôt
+// qu'une fusion instantanée — voir FusionService.StartAsync/ClaimAsync.
+var fusionConfirming = false;
+PendingFusionStatus? fusionPending = null;
+Task<PendingFusionStatus?>? fusionPendingLoadTask = null;
+Task<PendingFusionStatus>? fusionStartTask = null;
 
 Guid? hatcheryFirstMonsterId = null;
 var hatcheryCursor = 0;
 string? hatcheryMessage = null;
 Task<MonsterInstanceData>? hatcheryActionTask = null;
+var hatcheryConfirming = false;
+PendingBreedStatus? hatcheryPending = null;
+Task<PendingBreedStatus?>? hatcheryPendingLoadTask = null;
+Task<PendingBreedStatus>? hatcheryStartTask = null;
 
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
@@ -2469,6 +2480,32 @@ string MonsterDisplayName(MonsterInstanceData monster)
 /// </summary>
 void UpdateFusionPanel()
 {
+    if (fusionPendingLoadTask is { IsCompleted: true } pendingLoadTask)
+    {
+        fusionPending = pendingLoadTask.IsFaulted ? null : pendingLoadTask.Result;
+        fusionPendingLoadTask = null;
+        return;
+    }
+
+    if (fusionStartTask is { IsCompleted: true } startTask)
+    {
+        if (startTask.IsFaulted)
+        {
+            fusionMessage = "Connexion au serveur impossible.";
+            fusionConfirming = false;
+        }
+        else
+        {
+            fusionPending = startTask.Result;
+            fusionConfirming = false;
+            fusionFirstMonsterId = null;
+            fusionMessage = null;
+        }
+
+        fusionStartTask = null;
+        return;
+    }
+
     if (fusionActionTask is { IsCompleted: true } actionTask)
     {
         if (actionTask.IsFaulted)
@@ -2477,8 +2514,8 @@ void UpdateFusionPanel()
         }
         else
         {
-            fusionMessage = "Fusion réussie !";
-            fusionFirstMonsterId = null;
+            fusionMessage = "Fusion terminée !";
+            fusionPending = null;
             monstersLoaded = false;
             _ = LoadMonstersAsync();
         }
@@ -2489,18 +2526,58 @@ void UpdateFusionPanel()
 
     if (keyboard.WasJustPressed(Key.Escape))
     {
+        if (fusionConfirming)
+        {
+            fusionConfirming = false;
+            fusionFirstMonsterId = null;
+            return;
+        }
+
         activePanel = PanelKind.None;
         return;
     }
 
-    if (!monstersLoaded || fusionActionTask is not null)
+    if (fusionPendingLoadTask is not null || fusionStartTask is not null || fusionActionTask is not null)
+    {
+        return;
+    }
+
+    // Voir retour utilisateur — "ajoute un temps et une validation avant de le faire" : fusion
+    // en cours (ou prête) côté serveur - Entrée récupère le résultat une fois le délai écoulé,
+    // calculé côté client depuis CompletesAtUtc plutôt que de sonder le serveur en boucle.
+    if (fusionPending is { } pending)
+    {
+        var ready = DateTime.UtcNow >= pending.CompletesAtUtc;
+        if (ready && keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            fusionMessage = null;
+            fusionActionTask = gameDataApi.ClaimFusionAsync(options.SessionToken!, chosenCharacterId.Value);
+        }
+
+        return;
+    }
+
+    if (fusionConfirming)
+    {
+        if (keyboard.WasJustPressed(Key.Enter) && fusionFirstMonsterId is not null && ownedMonsters.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            var second = ownedMonsters[fusionCursor];
+            fusionMessage = null;
+            fusionStartTask = gameDataApi.StartFusionAsync(options.SessionToken!, chosenCharacterId.Value, fusionFirstMonsterId.Value, second.Id);
+        }
+
+        return;
+    }
+
+    if (!monstersLoaded)
     {
         return;
     }
 
     if (keyboard.WasJustPressed(Key.Down)) fusionCursor = Math.Min(fusionCursor + 1, Math.Max(0, ownedMonsters.Count - 1));
     else if (keyboard.WasJustPressed(Key.Up)) fusionCursor = Math.Max(fusionCursor - 1, 0);
-    else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    fusionCursor = ApplyScrollWheel(fusionCursor, ownedMonsters.Count);
+    if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
     {
         var selected = ownedMonsters[fusionCursor];
         if (fusionFirstMonsterId is null)
@@ -2510,8 +2587,10 @@ void UpdateFusionPanel()
         }
         else if (fusionFirstMonsterId != selected.Id)
         {
+            // Voir retour utilisateur — "ajoute ... une validation avant de le faire" : ne lance
+            // plus la fusion immédiatement, affiche d'abord un récapitulatif à confirmer.
+            fusionConfirming = true;
             fusionMessage = null;
-            fusionActionTask = gameDataApi.FuseMonstersAsync(options.SessionToken!, chosenCharacterId.Value, fusionFirstMonsterId.Value, selected.Id);
         }
         else
         {
@@ -2530,36 +2609,79 @@ void DrawFusionPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.75f, 0.42f, 0.68f, 1f));
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FUSION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.55f, 0.78f, 1f));
 
-    var instructions = fusionFirstMonsterId is null
-        ? "CHOISISSEZ LA PREMIERE CREATURE (ENTREE)"
-        : $"PREMIERE : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == fusionFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LA SECONDE";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-
-    if (!monstersLoaded)
+    if (fusionPendingLoadTask is not null)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
-    else if (ownedMonsters.Count < 2)
+    else if (fusionPending is { } pending)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        var ready = DateTime.UtcNow >= pending.CompletesAtUtc;
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{pending.SurvivorName.ToUpperInvariant()} FUSIONNE AVEC {pending.ConsumedName.ToUpperInvariant()}",
+            new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 50f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU FINAL : {pending.ResultingLevel}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 16f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+
+        if (ready)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FUSION PRETE ! (ENTREE POUR RECUPERER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 2f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+        }
+        else
+        {
+            var remaining = pending.CompletesAtUtc - DateTime.UtcNow;
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EN COURS... ({(int)Math.Max(0, remaining.TotalMinutes)}M {(int)Math.Max(0, remaining.Seconds)}S RESTANT)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 2f, new Vector4(0.85f, 0.75f, 0.5f, 1f));
+        }
+    }
+    else if (fusionConfirming)
+    {
+        var first = ownedMonsters.FirstOrDefault(m => m.Id == fusionFirstMonsterId);
+        var second = ownedMonsters.Count > 0 ? ownedMonsters[fusionCursor] : null;
+        if (first is not null && second is not null)
+        {
+            var resultingLevel = Math.Max(1, (first.Level + second.Level) / 2);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CONFIRMER LA FUSION ?", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 70f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(first).ToUpperInvariant()} SURVIVRA (NIV. {resultingLevel})",
+                new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 1.8f, new Vector4(0.6f, 0.95f, 0.65f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(second).ToUpperInvariant()} SERA CONSOMMEE",
+                new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 4f), 1.8f, new Vector4(0.9f, 0.5f, 0.5f, 1f));
+        }
     }
     else
     {
-        var y = topLeft.Y + 92f;
-        for (var i = 0; i < ownedMonsters.Count; i++)
+        var instructions = fusionFirstMonsterId is null
+            ? "CHOISISSEZ LA PREMIERE CREATURE (ENTREE)"
+            : $"PREMIERE : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == fusionFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LA SECONDE";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        if (!monstersLoaded)
         {
-            var monster = ownedMonsters[i];
-            var isSelected = i == fusionCursor;
-            var isLockedFirst = monster.Id == fusionFirstMonsterId;
-            var prefix = isSelected ? "> " : (isLockedFirst ? "* " : "  ");
-            var color = isLockedFirst ? new Vector4(0.95f, 0.6f, 0.8f, 1f) : isSelected ? new Vector4(0.85f, 0.55f, 0.78f, 1f) : Vector4.One;
-            var text = $"{prefix}{MonsterDisplayName(monster).ToUpperInvariant()} - NIV. {monster.Level}";
-            if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else if (ownedMonsters.Count < 2)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            const int visibleRows = 12;
+            const float rowHeight = 26f;
+            var scrollStart = Math.Clamp(fusionCursor - visibleRows / 2, 0, Math.Max(0, ownedMonsters.Count - visibleRows));
+            var y = topLeft.Y + 92f;
+            for (var i = scrollStart; i < Math.Min(ownedMonsters.Count, scrollStart + visibleRows); i++)
             {
-                fusionCursor = i;
+                var monster = ownedMonsters[i];
+                var isSelected = i == fusionCursor;
+                var isLockedFirst = monster.Id == fusionFirstMonsterId;
+                var prefix = isSelected ? "> " : (isLockedFirst ? "* " : "  ");
+                var color = isLockedFirst ? new Vector4(0.95f, 0.6f, 0.8f, 1f) : isSelected ? new Vector4(0.85f, 0.55f, 0.78f, 1f) : Vector4.One;
+                var text = $"{prefix}{MonsterDisplayName(monster).ToUpperInvariant()} - NIV. {monster.Level}";
+                if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+                {
+                    fusionCursor = i;
+                }
+
+                y += rowHeight;
             }
 
-            y += 26f;
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 92f), visibleRows * rowHeight, ownedMonsters.Count, visibleRows, scrollStart);
         }
     }
 
@@ -2568,7 +2690,12 @@ void DrawFusionPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, fusionMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    var footer = fusionPending is not null
+        ? (DateTime.UtcNow >= fusionPending.CompletesAtUtc ? "ENTREE : RECUPERER - ECHAP : FERMER" : "ECHAP : FERMER (recuperable plus tard)")
+        : fusionConfirming
+            ? "ENTREE : CONFIRMER - ECHAP : ANNULER"
+            : "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -2579,6 +2706,32 @@ void DrawFusionPanel(int w, int h)
 /// </summary>
 void UpdateHatcheryPanel()
 {
+    if (hatcheryPendingLoadTask is { IsCompleted: true } pendingLoadTask)
+    {
+        hatcheryPending = pendingLoadTask.IsFaulted ? null : pendingLoadTask.Result;
+        hatcheryPendingLoadTask = null;
+        return;
+    }
+
+    if (hatcheryStartTask is { IsCompleted: true } startTask)
+    {
+        if (startTask.IsFaulted)
+        {
+            hatcheryMessage = "Connexion au serveur impossible.";
+            hatcheryConfirming = false;
+        }
+        else
+        {
+            hatcheryPending = startTask.Result;
+            hatcheryConfirming = false;
+            hatcheryFirstMonsterId = null;
+            hatcheryMessage = null;
+        }
+
+        hatcheryStartTask = null;
+        return;
+    }
+
     if (hatcheryActionTask is { IsCompleted: true } actionTask)
     {
         if (actionTask.IsFaulted)
@@ -2588,7 +2741,7 @@ void UpdateHatcheryPanel()
         else
         {
             hatcheryMessage = $"{MonsterDisplayName(actionTask.Result)} est né !";
-            hatcheryFirstMonsterId = null;
+            hatcheryPending = null;
             monstersLoaded = false;
             _ = LoadMonstersAsync();
         }
@@ -2599,18 +2752,58 @@ void UpdateHatcheryPanel()
 
     if (keyboard.WasJustPressed(Key.Escape))
     {
+        if (hatcheryConfirming)
+        {
+            hatcheryConfirming = false;
+            hatcheryFirstMonsterId = null;
+            return;
+        }
+
         activePanel = PanelKind.None;
         return;
     }
 
-    if (!monstersLoaded || hatcheryActionTask is not null)
+    if (hatcheryPendingLoadTask is not null || hatcheryStartTask is not null || hatcheryActionTask is not null)
+    {
+        return;
+    }
+
+    // Voir retour utilisateur — "la couveuse doit ajouter un temps et une validation avant de le
+    // faire" + "ajoute un cooldown" : reproduction en cours (ou prête) côté serveur - Entrée fait
+    // naître le bébé une fois le délai écoulé, calculé côté client depuis CompletesAtUtc.
+    if (hatcheryPending is { } pending)
+    {
+        var ready = DateTime.UtcNow >= pending.CompletesAtUtc;
+        if (ready && keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            hatcheryMessage = null;
+            hatcheryActionTask = gameDataApi.ClaimBreedAsync(options.SessionToken!, chosenCharacterId.Value);
+        }
+
+        return;
+    }
+
+    if (hatcheryConfirming)
+    {
+        if (keyboard.WasJustPressed(Key.Enter) && hatcheryFirstMonsterId is not null && ownedMonsters.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            var second = ownedMonsters[hatcheryCursor];
+            hatcheryMessage = null;
+            hatcheryStartTask = gameDataApi.StartBreedAsync(options.SessionToken!, chosenCharacterId.Value, hatcheryFirstMonsterId.Value, second.Id);
+        }
+
+        return;
+    }
+
+    if (!monstersLoaded)
     {
         return;
     }
 
     if (keyboard.WasJustPressed(Key.Down)) hatcheryCursor = Math.Min(hatcheryCursor + 1, Math.Max(0, ownedMonsters.Count - 1));
     else if (keyboard.WasJustPressed(Key.Up)) hatcheryCursor = Math.Max(hatcheryCursor - 1, 0);
-    else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    hatcheryCursor = ApplyScrollWheel(hatcheryCursor, ownedMonsters.Count);
+    if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
     {
         var selected = ownedMonsters[hatcheryCursor];
         if (hatcheryFirstMonsterId is null)
@@ -2620,8 +2813,8 @@ void UpdateHatcheryPanel()
         }
         else if (hatcheryFirstMonsterId != selected.Id)
         {
+            hatcheryConfirming = true;
             hatcheryMessage = null;
-            hatcheryActionTask = gameDataApi.BreedMonstersAsync(options.SessionToken!, chosenCharacterId.Value, hatcheryFirstMonsterId.Value, selected.Id);
         }
         else
         {
@@ -2640,36 +2833,76 @@ void DrawHatcheryPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.55f, 0.6f, 1f));
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "REPRODUCTION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.65f, 0.7f, 1f));
 
-    var instructions = hatcheryFirstMonsterId is null
-        ? "CHOISISSEZ LE PREMIER PARENT (ENTREE)"
-        : $"PREMIER PARENT : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == hatcheryFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LE SECOND";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-
-    if (!monstersLoaded)
+    if (hatcheryPendingLoadTask is not null)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
-    else if (ownedMonsters.Count < 2)
+    else if (hatcheryPending is { } pending)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        var ready = DateTime.UtcNow >= pending.CompletesAtUtc;
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"UN {pending.OffspringSpeciesName.ToUpperInvariant()} EST EN INCUBATION",
+            new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 1.9f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        if (ready)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PRET A NAITRE ! (ENTREE POUR RECUPERER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+        }
+        else
+        {
+            var remaining = pending.CompletesAtUtc - DateTime.UtcNow;
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EN COURS... ({(int)Math.Max(0, remaining.TotalMinutes)}M {(int)Math.Max(0, remaining.Seconds)}S RESTANT)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2f, new Vector4(0.85f, 0.75f, 0.5f, 1f));
+        }
+    }
+    else if (hatcheryConfirming)
+    {
+        var first = ownedMonsters.FirstOrDefault(m => m.Id == hatcheryFirstMonsterId);
+        var second = ownedMonsters.Count > 0 ? ownedMonsters[hatcheryCursor] : null;
+        if (first is not null && second is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CONFIRMER LA REPRODUCTION ?", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 50f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(first).ToUpperInvariant()} + {MonsterDisplayName(second).ToUpperInvariant()}",
+                new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 10f), 1.9f, new Vector4(0.6f, 0.95f, 0.65f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "LES DEUX PARENTS SURVIVENT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 24f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
     }
     else
     {
-        var y = topLeft.Y + 92f;
-        for (var i = 0; i < ownedMonsters.Count; i++)
+        var instructions = hatcheryFirstMonsterId is null
+            ? "CHOISISSEZ LE PREMIER PARENT (ENTREE)"
+            : $"PREMIER PARENT : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == hatcheryFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LE SECOND";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        if (!monstersLoaded)
         {
-            var monster = ownedMonsters[i];
-            var isSelected = i == hatcheryCursor;
-            var isLockedFirst = monster.Id == hatcheryFirstMonsterId;
-            var prefix = isSelected ? "> " : (isLockedFirst ? "* " : "  ");
-            var color = isLockedFirst ? new Vector4(0.95f, 0.7f, 0.75f, 1f) : isSelected ? new Vector4(0.9f, 0.65f, 0.7f, 1f) : Vector4.One;
-            var text = $"{prefix}{MonsterDisplayName(monster).ToUpperInvariant()} - NIV. {monster.Level}";
-            if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else if (ownedMonsters.Count < 2)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            const int visibleRows = 12;
+            const float rowHeight = 26f;
+            var scrollStart = Math.Clamp(hatcheryCursor - visibleRows / 2, 0, Math.Max(0, ownedMonsters.Count - visibleRows));
+            var y = topLeft.Y + 92f;
+            for (var i = scrollStart; i < Math.Min(ownedMonsters.Count, scrollStart + visibleRows); i++)
             {
-                hatcheryCursor = i;
+                var monster = ownedMonsters[i];
+                var isSelected = i == hatcheryCursor;
+                var isLockedFirst = monster.Id == hatcheryFirstMonsterId;
+                var prefix = isSelected ? "> " : (isLockedFirst ? "* " : "  ");
+                var color = isLockedFirst ? new Vector4(0.95f, 0.7f, 0.75f, 1f) : isSelected ? new Vector4(0.9f, 0.65f, 0.7f, 1f) : Vector4.One;
+                var text = $"{prefix}{MonsterDisplayName(monster).ToUpperInvariant()} - NIV. {monster.Level}";
+                if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+                {
+                    hatcheryCursor = i;
+                }
+
+                y += rowHeight;
             }
 
-            y += 26f;
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 92f), visibleRows * rowHeight, ownedMonsters.Count, visibleRows, scrollStart);
         }
     }
 
@@ -2678,7 +2911,12 @@ void DrawHatcheryPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, hatcheryMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    var footer = hatcheryPending is not null
+        ? (DateTime.UtcNow >= hatcheryPending.CompletesAtUtc ? "ENTREE : RECUPERER - ECHAP : FERMER" : "ECHAP : FERMER (recuperable plus tard)")
+        : hatcheryConfirming
+            ? "ENTREE : CONFIRMER - ECHAP : ANNULER"
+            : "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -5140,15 +5378,25 @@ void OpenPanel(PanelKind kind)
             fusionFirstMonsterId = null;
             fusionCursor = 0;
             fusionMessage = null;
+            fusionConfirming = false;
+            fusionPending = null;
             monstersLoaded = false;
             _ = LoadMonstersAsync();
+            // Voir retour utilisateur — "ajoute un temps et une validation avant de le faire" :
+            // une fusion en cours vit côté serveur (voir CharacterEntity.PendingFusion*) - la
+            // revérifier à chaque ouverture du panneau pour retrouver l'attente en cours plutôt
+            // que de proposer d'en lancer une nouvelle par-dessus.
+            fusionPendingLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetPendingFusionAsync(options.SessionToken!, chosenCharacterId.Value);
             break;
         case PanelKind.Hatchery:
             hatcheryFirstMonsterId = null;
             hatcheryCursor = 0;
             hatcheryMessage = null;
+            hatcheryConfirming = false;
+            hatcheryPending = null;
             monstersLoaded = false;
             _ = LoadMonstersAsync();
+            hatcheryPendingLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetPendingBreedAsync(options.SessionToken!, chosenCharacterId.Value);
             break;
         case PanelKind.Encyclopedia:
             encyclopediaCursor = 0;

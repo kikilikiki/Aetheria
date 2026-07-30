@@ -814,10 +814,12 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> RemoveFriendAsync(string sessionToken, Guid characterId, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/friends/remove", new FriendActionRequest { SessionToken = sessionToken, CharacterId = characterId, TargetCharacterName = targetCharacterName }, ct);
 
-    // Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres".
-    public async Task<MonsterInstanceData> FuseMonstersAsync(string sessionToken, Guid characterId, Guid survivorMonsterId, Guid consumedMonsterId, CancellationToken ct = default)
+    // Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres" + retour
+    // utilisateur "ajoute un temps et une validation avant de le faire" : en deux temps
+    // (start puis claim une fois le délai écoulé, voir GetPendingFusionAsync pour le sondage).
+    public async Task<PendingFusionStatus> StartFusionAsync(string sessionToken, Guid characterId, Guid survivorMonsterId, Guid consumedMonsterId, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/monsters/fuse", new FuseMonstersRequest
+        var response = await _http.PostAsJsonAsync("/api/monsters/fuse/start", new FuseMonstersRequest
         {
             SessionToken = sessionToken,
             CharacterId = characterId,
@@ -831,13 +833,28 @@ public sealed class GameDataApiClient : IDisposable
             throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
         }
 
+        return (await response.Content.ReadFromJsonAsync<PendingFusionStatus>(JsonOptions, ct))!;
+    }
+
+    public async Task<PendingFusionStatus?> GetPendingFusionAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<PendingFusionStatus>($"/api/monsters/fuse/status?sessionToken={Uri.EscapeDataString(sessionToken)}&characterId={characterId}", JsonOptions, ct);
+
+    public async Task<MonsterInstanceData> ClaimFusionAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/monsters/fuse/claim", new ClaimPendingMonsterRequest { SessionToken = sessionToken, CharacterId = characterId }, JsonOptions, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
         return (await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct))!;
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction avec heritage de statistiques".</summary>
-    public async Task<MonsterInstanceData> BreedMonstersAsync(string sessionToken, Guid characterId, Guid parentMonsterId1, Guid parentMonsterId2, CancellationToken ct = default)
+    /// <summary>Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction avec heritage de statistiques" + retour utilisateur — "ajoute un temps et une validation avant de le faire" : en deux temps (start puis claim).</summary>
+    public async Task<PendingBreedStatus> StartBreedAsync(string sessionToken, Guid characterId, Guid parentMonsterId1, Guid parentMonsterId2, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/monsters/breed", new BreedMonstersRequest
+        var response = await _http.PostAsJsonAsync("/api/monsters/breed/start", new BreedMonstersRequest
         {
             SessionToken = sessionToken,
             CharacterId = characterId,
@@ -845,6 +862,21 @@ public sealed class GameDataApiClient : IDisposable
             ParentMonsterId2 = parentMonsterId2,
         }, JsonOptions, ct);
 
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        return (await response.Content.ReadFromJsonAsync<PendingBreedStatus>(JsonOptions, ct))!;
+    }
+
+    public async Task<PendingBreedStatus?> GetPendingBreedAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<PendingBreedStatus>($"/api/monsters/breed/status?sessionToken={Uri.EscapeDataString(sessionToken)}&characterId={characterId}", JsonOptions, ct);
+
+    public async Task<MonsterInstanceData> ClaimBreedAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/monsters/breed/claim", new ClaimPendingMonsterRequest { SessionToken = sessionToken, CharacterId = characterId }, JsonOptions, ct);
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);

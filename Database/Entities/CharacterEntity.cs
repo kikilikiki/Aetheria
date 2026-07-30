@@ -65,4 +65,22 @@ public sealed class CharacterEntity
     public List<InventoryItemEntity> InventoryItems { get; set; } = new();
     public StatisticsEntity? Statistics { get; set; }
     public List<CharacterTitleEntity> Titles { get; set; } = new();
+
+    // Voir retour utilisateur — "la couveuse doit ajouter un temps et une validation avant de le
+    // faire (fait pareil pour la fusion) plus le monstre que l'on obtient apres fusion/reproduction
+    // plus sa prendra de temps" : un seul slot en attente à la fois (voir FusionService), la
+    // créature résultante est déjà déterminée au lancement (voir StartAsync) pour que la durée
+    // reflète sa force réelle plutôt que d'être devinée à l'avance.
+    public Guid? PendingFusionSurvivorId { get; set; }
+    public Guid? PendingFusionConsumedId { get; set; }
+    public DateTime? PendingFusionCompletesAtUtc { get; set; }
+
+    /// <summary>Voir retour utilisateur — "ajoute un cooldown si une personne a reproduit (pas qu'ils se reproduisent direct)" : espèce/variante/passif du bébé tirés au lancement (voir BreedingService.StartAsync), pas à la récupération — la durée d'attente en dépend.</summary>
+    public Guid? PendingBreedParentId1 { get; set; }
+    public Guid? PendingBreedParentId2 { get; set; }
+    public int? PendingBreedOffspringSpeciesId { get; set; }
+    public MonsterVariant? PendingBreedOffspringVariant { get; set; }
+    public string? PendingBreedOffspringPassiveTalent { get; set; }
+    public DateTime? PendingBreedCompletesAtUtc { get; set; }
+    public DateTime? NextBreedAllowedAtUtc { get; set; }
 }
