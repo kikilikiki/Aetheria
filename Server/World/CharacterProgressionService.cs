@@ -11,6 +11,17 @@ public static class CharacterProgressionService
 {
     private const int ExperiencePerLevel = 100;
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "recompenses de niveau de personnage en plus du pass" : or
+    /// accordé à chaque niveau multiple de <see cref="RewardLevelInterval"/>, en plus (pas à la
+    /// place) des paliers du passe de combat (voir BattlePassService), qui restent inchangés. Le
+    /// gain est déjà surfacé au joueur sans code client supplémentaire — voir
+    /// Client/Program.cs ApplyProfileUpdate, qui affiche un toast dès que l'or/le niveau du profil
+    /// augmente, quelle qu'en soit la source.
+    /// </summary>
+    private const int RewardLevelInterval = 5;
+    private const int RewardGoldPerInterval = 100;
+
     public static void GrantExperience(CharacterEntity character, long amount)
     {
         if (amount <= 0)
@@ -24,6 +35,11 @@ public static class CharacterProgressionService
         {
             character.Experience -= character.Level * ExperiencePerLevel;
             character.Level++;
+
+            if (character.Level % RewardLevelInterval == 0)
+            {
+                character.Gold += RewardGoldPerInterval * (character.Level / RewardLevelInterval);
+            }
         }
     }
 }
