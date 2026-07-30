@@ -50,6 +50,8 @@ public static class NpcDialogues
         [
             "Assieds-toi, la soupe est chaude.",
             "Les chambres sont à l'étage, si le cœur t'en dit.",
+            "Les voyageurs se font rares depuis que les créatures",
+            "des donjons rôdent plus près des routes. Sois prudent.",
         ],
         ["Commis"] =
         [

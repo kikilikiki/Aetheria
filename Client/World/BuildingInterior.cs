@@ -33,7 +33,7 @@ public static class BuildingInteriors
                 ],
                 [new InteriorNpc("Chambellan", new Vector4(0.30f, 0.25f, 0.45f, 1f), new Vector4(0.85f, 0.70f, 0.55f, 1f))]),
 
-        "Village" =>
+        "Aubergiste" =>
             new BuildingInteriorLayout(
                 [
                     new InteriorFurniture("Table", 0.40f, 0.68f, 0.20f, 0.10f, WoodDark),

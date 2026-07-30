@@ -107,7 +107,7 @@ public sealed class WorldMap
         Buildings =
         [
             new Building(biome.CapitalName, capital.X, capital.Y, 2.6f, Gold * tint, DarkGold * tint, Gold * tint * 0.8f),
-            new Building("Village", village.X, village.Y, 1.4f, Tan * tint, Brown * tint, Tan * tint * 0.8f),
+            new Building("Aubergiste", village.X, village.Y, 1.4f, Tan * tint, Brown * tint, Tan * tint * 0.8f),
             new Building("Hôtel des ventes", auctionHouse.X, auctionHouse.Y, 1.6f, SteelBlue * tint, DarkBlue * tint, SteelBlue * tint * 0.8f),
             new Building("Forge", forge.X, forge.Y, 1.5f, Ember * tint, DarkEmber * tint, Ember * tint * 0.8f),
             new Building("Guilde", guild.X, guild.Y, 1.8f, Purple * tint, DarkPurple * tint, Purple * tint * 0.8f),
@@ -143,7 +143,7 @@ public sealed class WorldMap
             new Building("Fusion", fusion.X, fusion.Y, 1.3f, new Vector4(0.6f, 0.3f, 0.55f, 1f), new Vector4(0.36f, 0.16f, 0.32f, 1f), new Vector4(0.75f, 0.42f, 0.68f, 1f)),
             // Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction avec
             // heritage de statistiques" : rose tendre, thème "couvée".
-            new Building("Couvée", hatchery.X, hatchery.Y, 1.3f, new Vector4(0.85f, 0.55f, 0.6f, 1f), new Vector4(0.55f, 0.3f, 0.35f, 1f), new Vector4(0.95f, 0.7f, 0.75f, 1f)),
+            new Building("Reproduction", hatchery.X, hatchery.Y, 1.3f, new Vector4(0.85f, 0.55f, 0.6f, 1f), new Vector4(0.55f, 0.3f, 0.35f, 1f), new Vector4(0.95f, 0.7f, 0.75f, 1f)),
         ];
 
         Npcs =

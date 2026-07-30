@@ -653,7 +653,16 @@
                                 <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
 
                                 <TextBlock Text="MOT DE PASSE" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
-                                <PasswordBox x:Name="PasswordBox" Margin="0,0,0,22" PasswordChanged="OnPasswordChanged" />
+                                <Grid Margin="0,0,0,22">
+                                    <PasswordBox x:Name="PasswordBox" Padding="12,9,34,9" PasswordChanged="OnPasswordChanged"
+                                                 Visibility="{Binding IsPasswordVisible, Converter={StaticResource InverseBoolToVis}}" />
+                                    <TextBox x:Name="PasswordTextBox" Padding="12,9,34,9" Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}"
+                                             Visibility="{Binding IsPasswordVisible, Converter={StaticResource BoolToVis}}" />
+                                    <!-- Voir retour utilisateur — "au launcher pouvoir voir le mot de passe que l'on tape". -->
+                                    <Button Content="&#xE7B3;" FontFamily="Segoe MDL2 Assets" FontSize="14" Click="OnTogglePasswordVisibility"
+                                            Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMutedBrush}"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center" Padding="8,0" Margin="0,0,4,0" Cursor="Hand" />
+                                </Grid>
 
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                     <Button Content="Se connecter" Command="{Binding LoginCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0" />
