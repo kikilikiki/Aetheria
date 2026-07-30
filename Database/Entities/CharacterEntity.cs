@@ -38,6 +38,10 @@ public sealed class CharacterEntity
     /// <summary>Voir GDD/demande utilisateur — "des titres que l'on peut obtenir en pvp dans des classements" : doit correspondre à un <see cref="CharacterTitleEntity.TitleKey"/> déjà possédé (voir ProfileService.UpdateAsync), sinon ignoré.</summary>
     public string? ActiveTitle { get; set; }
 
+    /// <summary>Voir GDD/demande utilisateur — "Collections : montures, ailes" : doit correspondre à une entrée possédée du compte (voir CollectionEntity/MountCatalog/WingCatalog, ProfileService.UpdateAsync), sinon ignoré. Purement déclaratif — aucun rendu visuel de monture/ailes dans le moteur (voir Docs/README.md).</summary>
+    public string? ActiveMountKey { get; set; }
+    public string? ActiveWingKey { get; set; }
+
     // Voir GDD/demande utilisateur — "ajoute des consommables pour booster la luck l'xp la money"
     // : chaque potion pose une expiration plutôt qu'un compteur, voir TemporaryBoostService.
     public DateTime? XpBoostExpiresAtUtc { get; set; }

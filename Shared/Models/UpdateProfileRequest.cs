@@ -8,4 +8,8 @@ public sealed class UpdateProfileRequest
     public string Description { get; init; } = string.Empty;
     public int? ShowcaseItemId { get; init; }
     public string? ActiveTitle { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Collections : montures, ailes".</summary>
+    public string? ActiveMountKey { get; init; }
+    public string? ActiveWingKey { get; init; }
 }

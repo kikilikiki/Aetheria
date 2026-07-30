@@ -31,6 +31,14 @@ public sealed class ProfileService(AetheriaDbContext db, SessionTokenStore token
             .Select(t => t.TitleKey)
             .ToListAsync(ct);
 
+        // Voir GDD/demande utilisateur — "Collections : montures, ailes" : possédées par le
+        // COMPTE (voir CollectionEntity/AchievementService), pas par ce seul personnage.
+        var ownedCollectionKeys = await db.Collections
+            .Where(c => c.UserId == character.UserId && (c.Category == "Monture" || c.Category == "Ailes"))
+            .ToListAsync(ct);
+        var ownedMountKeys = ownedCollectionKeys.Where(c => c.Category == "Monture").Select(c => c.CollectionKey).ToList();
+        var ownedWingKeys = ownedCollectionKeys.Where(c => c.Category == "Ailes").Select(c => c.CollectionKey).ToList();
+
         return new ProfileSummary
         {
             CharacterName = character.Name,
@@ -41,6 +49,10 @@ public sealed class ProfileService(AetheriaDbContext db, SessionTokenStore token
             ShowcaseItemName = showcaseItemName,
             ActiveTitle = character.ActiveTitle,
             OwnedTitles = ownedTitles,
+            ActiveMountKey = character.ActiveMountKey,
+            OwnedMountKeys = ownedMountKeys,
+            ActiveWingKey = character.ActiveWingKey,
+            OwnedWingKeys = ownedWingKeys,
         };
     }
 
@@ -74,6 +86,26 @@ public sealed class ProfileService(AetheriaDbContext db, SessionTokenStore token
         else
         {
             character.ActiveTitle = null;
+        }
+
+        if (request.ActiveMountKey is { } mountKey)
+        {
+            var owned = await db.Collections.AnyAsync(c => c.UserId == character.UserId && c.Category == "Monture" && c.CollectionKey == mountKey, ct);
+            character.ActiveMountKey = owned ? mountKey : character.ActiveMountKey;
+        }
+        else
+        {
+            character.ActiveMountKey = null;
+        }
+
+        if (request.ActiveWingKey is { } wingKey)
+        {
+            var owned = await db.Collections.AnyAsync(c => c.UserId == character.UserId && c.Category == "Ailes" && c.CollectionKey == wingKey, ct);
+            character.ActiveWingKey = owned ? wingKey : character.ActiveWingKey;
+        }
+        else
+        {
+            character.ActiveWingKey = null;
         }
 
         await db.SaveChangesAsync(ct);

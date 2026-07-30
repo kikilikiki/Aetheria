@@ -1891,20 +1891,38 @@ void UpdateProfilePanel()
     {
         var index = myProfile.ActiveTitle is null ? -1 : myProfile.OwnedTitles.ToList().IndexOf(myProfile.ActiveTitle);
         var newTitle = index <= 0 ? null : myProfile.OwnedTitles[index - 1];
-        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, newTitle);
+        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, newTitle, myProfile.ActiveMountKey, myProfile.ActiveWingKey);
     }
     else if (keyboard.WasJustPressed(Key.Right) && myProfile.OwnedTitles.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
     {
         var index = myProfile.ActiveTitle is null ? -1 : myProfile.OwnedTitles.ToList().IndexOf(myProfile.ActiveTitle);
         var newTitle = index + 1 >= myProfile.OwnedTitles.Count ? myProfile.OwnedTitles[^1] : myProfile.OwnedTitles[index + 1];
-        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, newTitle);
+        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, newTitle, myProfile.ActiveMountKey, myProfile.ActiveWingKey);
+    }
+    else if (keyboard.WasJustPressed(Key.Up) && myProfile.OwnedMountKeys.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        var index = myProfile.ActiveMountKey is null ? -1 : myProfile.OwnedMountKeys.ToList().IndexOf(myProfile.ActiveMountKey);
+        var newMount = index <= 0 ? null : myProfile.OwnedMountKeys[index - 1];
+        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, myProfile.ActiveTitle, newMount, myProfile.ActiveWingKey);
+    }
+    else if (keyboard.WasJustPressed(Key.Down) && myProfile.OwnedMountKeys.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        var index = myProfile.ActiveMountKey is null ? -1 : myProfile.OwnedMountKeys.ToList().IndexOf(myProfile.ActiveMountKey);
+        var newMount = index + 1 >= myProfile.OwnedMountKeys.Count ? myProfile.OwnedMountKeys[^1] : myProfile.OwnedMountKeys[index + 1];
+        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, myProfile.ActiveTitle, newMount, myProfile.ActiveWingKey);
+    }
+    else if (keyboard.WasJustPressed(Key.Tab) && myProfile.OwnedWingKeys.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        var index = myProfile.ActiveWingKey is null ? -1 : myProfile.OwnedWingKeys.ToList().IndexOf(myProfile.ActiveWingKey);
+        var newWing = index + 1 >= myProfile.OwnedWingKeys.Count ? null : myProfile.OwnedWingKeys[index + 1];
+        profileActionTask = gameDataApi.UpdateProfileAsync(options.SessionToken!, chosenCharacterId.Value, myProfile.Description, myProfile.ShowcaseItemId, myProfile.ActiveTitle, myProfile.ActiveMountKey, newWing);
     }
 }
 
 void DrawProfilePanel(int w, int h)
 {
     const float boxWidth = 480f;
-    const float boxHeight = 340f;
+    const float boxHeight = 392f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.07f, 0.1f, 0.95f));
@@ -1936,6 +1954,16 @@ void DrawProfilePanel(int w, int h)
 
     TextRenderer.Draw(spriteBatch, whiteTexture, $"Titre actif : {myProfile.ActiveTitle ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
     y += 26f;
+
+    // Voir GDD/demande utilisateur — "Collections : montures, ailes".
+    var mountName = myProfile.ActiveMountKey is { } mKey ? MountCatalog.Find(mKey)?.Name ?? mKey : "(aucune)";
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"Monture active : {mountName} ({myProfile.OwnedMountKeys.Count} possedee(s))", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    y += 26f;
+
+    var wingName = myProfile.ActiveWingKey is { } wKey ? WingCatalog.Find(wKey)?.Name ?? wKey : "(aucunes)";
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"Ailes actives : {wingName} ({myProfile.OwnedWingKeys.Count} possedee(s))", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    y += 26f;
+
     TextRenderer.Draw(spriteBatch, whiteTexture, $"Objet à montrer : {myProfile.ShowcaseItemName ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
     y += 34f;
 
@@ -1953,7 +1981,7 @@ void DrawProfilePanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, profileMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : modifier description - GAUCHE/DROITE : titre actif - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : description - GAUCHE/DROITE : titre - HAUT/BAS : monture - TAB : ailes - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Panneau Classement (bouton HUD/touche K, voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher").</summary>
