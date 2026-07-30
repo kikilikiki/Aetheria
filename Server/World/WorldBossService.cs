@@ -28,8 +28,11 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
     private static readonly ConcurrentDictionary<Guid, DateTime> LastAttackAtUtc = new();
     private static readonly TimeSpan AttackCooldown = TimeSpan.FromSeconds(8);
 
-    public async Task<WorldBossEntity> SpawnAsync(string name, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
+    public async Task<WorldBossEntity> SpawnAsync(int speciesId, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
     {
+        var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == speciesId, ct)
+            ?? throw new AccountOperationException("Espèce introuvable pour ce boss mondial.");
+
         var previouslyAlive = await db.WorldBosses.Where(b => b.IsAlive).ToListAsync(ct);
         foreach (var previous in previouslyAlive)
         {
@@ -39,7 +42,9 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
         var boss = new WorldBossEntity
         {
             Id = Guid.NewGuid(),
-            Name = name,
+            Name = species.Name,
+            SpeciesId = species.Id,
+            BossElement = species.Element,
             MaxHealth = Math.Max(1, maxHealth),
             CurrentHealth = Math.Max(1, maxHealth),
             TargetKingdom = targetKingdom,
@@ -137,6 +142,30 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
                     participantCharacter.Gold += participant.TotalDamage * 2L;
                 }
             }
+
+            // Voir GDD/demande utilisateur — "refonte du spawn de boss mondial... la recompense va
+            // au royaume qui inflige le plus de degats" : en plus (pas à la place) de la
+            // récompense individuelle ci-dessus, un bonus supplémentaire pour tous les
+            // participants du royaume ayant cumulé le plus de dégâts au total.
+            var damageByKingdom = participants
+                .Select(p => (Kingdom: participantCharacters.FirstOrDefault(c => c.Id == p.CharacterId)?.Kingdom, p.TotalDamage))
+                .Where(p => p.Kingdom is not null)
+                .GroupBy(p => p.Kingdom!.Value)
+                .Select(g => (Kingdom: g.Key, TotalDamage: g.Sum(p => p.TotalDamage)))
+                .OrderByDescending(g => g.TotalDamage)
+                .ToList();
+
+            if (damageByKingdom.Count > 0)
+            {
+                var winningKingdom = damageByKingdom[0].Kingdom;
+                boss.WinningKingdom = winningKingdom;
+
+                const long KingdomBonusGold = 200L;
+                foreach (var participantCharacter in participantCharacters.Where(c => c.Kingdom == winningKingdom))
+                {
+                    participantCharacter.Gold += KingdomBonusGold;
+                }
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -193,5 +222,6 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
     }
 
     private static WorldBossStatus ToStatus(WorldBossEntity boss) => new(
-        boss.Id, boss.Name, boss.CurrentHealth, boss.MaxHealth, boss.IsAlive, boss.SpawnedAtUtc, boss.KilledAtUtc, boss.KillerCharacterName, boss.TargetKingdom);
+        boss.Id, boss.Name, boss.CurrentHealth, boss.MaxHealth, boss.IsAlive, boss.SpawnedAtUtc, boss.KilledAtUtc, boss.KillerCharacterName, boss.TargetKingdom,
+        boss.BossElement, boss.WinningKingdom);
 }

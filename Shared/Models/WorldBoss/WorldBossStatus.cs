@@ -12,4 +12,6 @@ public sealed record WorldBossStatus(
     DateTime SpawnedAtUtc,
     DateTime? KilledAtUtc,
     string? KillerCharacterName,
-    KingdomType? TargetKingdom);
+    KingdomType? TargetKingdom,
+    Element BossElement,
+    KingdomType? WinningKingdom);

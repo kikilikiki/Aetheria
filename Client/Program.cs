@@ -392,7 +392,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
-        "INVOQUER BOSS MONDIAL (nom;pv;royaume optionnel)",
+        "INVOQUER BOSS MONDIAL (id espece;pv;royaume optionnel)",
         "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
@@ -418,7 +418,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
-        "INVOQUER BOSS MONDIAL (nom;pv;royaume optionnel)",
+        "INVOQUER BOSS MONDIAL (id espece;pv;royaume optionnel)",
         "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
@@ -2503,7 +2503,7 @@ void UpdateWorldBossPanel()
 void DrawWorldBossPanel(int w, int h)
 {
     const float boxWidth = 480f;
-    const float boxHeight = 460f;
+    const float boxHeight = 480f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
@@ -2521,9 +2521,14 @@ void DrawWorldBossPanel(int w, int h)
     else
     {
         var status = worldBossStatus;
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 62f), 2.2f, Vector4.One);
 
-        var barTop = new Vector2(topLeft.X + 30f, topLeft.Y + 92f);
+        // Voir GDD/demande utilisateur — "refonte du spawn de boss mondial par ID" : invoqué à
+        // partir d'une espèce réelle du catalogue, donc un vrai portrait coloré par Element au
+        // lieu de rien (avant, ce n'était qu'un nom libre sans identité visuelle).
+        DrawStarterPortrait(new Vector2(w / 2f, topLeft.Y + 54f), 30f, ElementColor(status.BossElement));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 90f), 2.2f, Vector4.One);
+
+        var barTop = new Vector2(topLeft.X + 30f, topLeft.Y + 118f);
         var barSize = new Vector2(boxWidth - 60f, 22f);
         var healthRatio = status.MaxHealth <= 0 ? 0f : Math.Clamp((float)status.CurrentHealth / status.MaxHealth, 0f, 1f);
         DrawPanel(barTop, barSize, new Vector4(0.2f, 0.08f, 0.08f, 1f));
@@ -2532,9 +2537,16 @@ void DrawWorldBossPanel(int w, int h)
 
         if (!status.IsAlive)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VAINCU PAR {status.KillerCharacterName?.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 130f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VAINCU PAR {status.KillerCharacterName?.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 156f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+
+            // Voir GDD/demande utilisateur — "la recompense va au royaume qui inflige le plus de
+            // degats" : affiché en plus du vainqueur du coup de grâce ci-dessus.
+            if (status.WinningKingdom is { } winningKingdom)
+            {
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ROYAUME VAINQUEUR : {winningKingdom.ToString().ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 178f), 1.6f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+            }
         }
-        else if (DrawClickableCentered("ATTAQUER (ENTREE)", new Vector2(w / 2f, topLeft.Y + 134f), 2f, new Vector4(0.95f, 0.45f, 0.4f, 1f))
+        else if (DrawClickableCentered("ATTAQUER (ENTREE)", new Vector2(w / 2f, topLeft.Y + 156f), 2f, new Vector4(0.95f, 0.45f, 0.4f, 1f))
             && worldBossAttackTask is null && chosenCharacterId is not null && gameDataApi is not null)
         {
             worldBossMessage = null;
@@ -2543,15 +2555,15 @@ void DrawWorldBossPanel(int w, int h)
 
         if (worldBossMessage is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, worldBossMessage, new Vector2(w / 2f, topLeft.Y + 166f), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, worldBossMessage, new Vector2(w / 2f, topLeft.Y + 202f), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
         }
     }
 
     var leaderboardTitle = worldBossShowAllTime ? "< CLASSEMENT DE TOUJOURS >" : "< CLASSEMENT DU BOSS ACTUEL >";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, leaderboardTitle, new Vector2(w / 2f, topLeft.Y + 210f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, leaderboardTitle, new Vector2(w / 2f, topLeft.Y + 226f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
     var leaderboard = worldBossShowAllTime ? worldBossAllTimeLeaderboard : worldBossCurrentLeaderboard;
-    var y = topLeft.Y + 244f;
+    var y = topLeft.Y + 260f;
     if (leaderboard.Count == 0)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE DONNEE POUR CE CLASSEMENT", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -3515,19 +3527,21 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             break;
         case 12:
         {
-            // Voir GDD/demande utilisateur — "boss geant mondial [invoque] a un royaume" :
-            // disponible à tout admin (le serveur revérifie IsAdmin, pas seulement Fondateur —
-            // voir /api/admin/game/spawn-world-boss). Le royaume est optionnel (purement
-            // informatif, voir WorldBossEntity.TargetKingdom).
+            // Voir GDD/demande utilisateur — "refonte du spawn de boss mondial (par ID, meme
+            // boss/pv pour tous les royaumes, recompense au royaume qui inflige le plus de
+            // degats)" : invoque desormais a partir de l'ID d'une espece deja existante du
+            // catalogue (voir Server/Persistence/MonsterCatalogSeeder) plutot qu'un nom libre. Le
+            // royaume cible reste optionnel (purement informatif, voir WorldBossEntity.TargetKingdom)
+            // - la barre de vie et les degats restent deja partages entre tous les royaumes.
             var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 2 && int.TryParse(parts[1], out var bossHealth))
+            if (parts.Length >= 2 && int.TryParse(parts[0], out var bossSpeciesId) && int.TryParse(parts[1], out var bossHealth))
             {
                 KingdomType? targetKingdom = parts.Length >= 3 && Enum.TryParse<KingdomType>(parts[2], true, out var bossKingdom) ? bossKingdom : null;
-                adminPanelActionTask = gameDataApi!.SpawnWorldBossAsync(options.SessionToken!, parts[0], bossHealth, targetKingdom);
+                adminPanelActionTask = gameDataApi!.SpawnWorldBossAsync(options.SessionToken!, bossSpeciesId, bossHealth, targetKingdom);
             }
             else
             {
-                adminPanelMessage = "Format attendu : nom;pv;royaume (optionnel)";
+                adminPanelMessage = "Format attendu : id espece;pv;royaume (optionnel)";
             }
 
             break;
