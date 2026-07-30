@@ -520,6 +520,9 @@ var monsterEquipMode = false;
 var monsterEquipCursor = 0;
 Task<MonsterInstanceData?>? monsterEquipTask = null;
 
+/// <summary>Voir GDD/demande utilisateur — "une touche pour avoir les details de son monstre (atq, def, passif etc)".</summary>
+var monsterDetailOpen = false;
+
 // Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
 // (ArenaQueueService), sondée régulièrement tant que le joueur attend un appairage.
 var arenaFormats = Enum.GetValues<ArenaFormat>();
@@ -4149,6 +4152,7 @@ void OpenPanel(PanelKind kind)
         case PanelKind.Monsters:
             monstersLoaded = false;
             monsterGiveItemMode = false;
+            monsterDetailOpen = false;
             monsterMessage = null;
             _ = LoadMonstersAsync();
             _ = LoadInventoryAsync();
@@ -4628,6 +4632,19 @@ void UpdateMonstersPanel()
         return;
     }
 
+    // Voir GDD/demande utilisateur — "une touche pour avoir les details de son monstre (atq, def,
+    // passif etc)" : superposé au-dessus de la liste, Échap y revient plutôt que de fermer tout
+    // le panneau directement.
+    if (monsterDetailOpen)
+    {
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            monsterDetailOpen = false;
+        }
+
+        return;
+    }
+
     if (keyboard.WasJustPressed(Key.Escape))
     {
         activePanel = PanelKind.None;
@@ -4642,6 +4659,10 @@ void UpdateMonstersPanel()
 
     if (keyboard.WasJustPressed(Key.Down)) monsterCursor = Math.Min(monsterCursor + 1, ownedMonsters.Count - 1);
     else if (keyboard.WasJustPressed(Key.Up)) monsterCursor = Math.Max(monsterCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.I))
+    {
+        monsterDetailOpen = true;
+    }
     else if (keyboard.WasJustPressed(Key.D) && inventoryItems.Count > 0)
     {
         monsterGiveItemMode = true;
@@ -6630,8 +6651,8 @@ void DrawMonstersPanel(int w, int h)
         // : bannière pulsante en bas (DrawPromptBanner) plutôt qu'un texte simple dans la boîte,
         // pour rester cohérent avec les panneaux plus récents.
         var hint = myRank == UserRank.Fondateur
-            ? "D:OBJET - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
-            : "D:DONNER OBJET - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
+            ? "I:DETAILS - D:OBJET - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
+            : "I:DETAILS - D:DONNER OBJET - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
@@ -6641,6 +6662,65 @@ void DrawMonstersPanel(int w, int h)
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+    if (monsterDetailOpen && ownedMonsters.Count > 0)
+    {
+        DrawMonsterDetailOverlay(w, h, ownedMonsters[Math.Clamp(monsterCursor, 0, ownedMonsters.Count - 1)]);
+    }
+}
+
+/// <summary>Même formule que Server/World/MonsterStatMath.cs (mise à l'échelle par niveau puis par variante) — dupliquée côté Client pour afficher les stats sans aller-retour serveur, voir GDD/demande utilisateur "une touche pour avoir les details de son monstre (atq, def, passif etc)".</summary>
+static int ClientScaledStat(int baseStat, int level, MonsterVariant variant)
+{
+    var levelScaled = Math.Max(1, baseStat + (level - 1) * Math.Max(1, baseStat / 10));
+    return Math.Max(1, (int)Math.Round(levelScaled * MonsterVariantCatalog.Get(variant).StatMultiplier));
+}
+
+void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
+{
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0f, 0f, 0f, 0.65f));
+
+    const float boxWidth = 420f;
+    const float boxHeight = 380f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.07f, 0.08f, 0.07f, 0.97f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.9f, 0.6f, 1f));
+
+    speciesById.TryGetValue(monster.SpeciesId, out var species);
+    var name = monster.Nickname.Length > 0 ? monster.Nickname : (species?.Name ?? "Créature");
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 26f), 2.4f, new Vector4(0.6f, 0.95f, 0.65f, 1f));
+
+    var subtitle = species is not null ? $"{species.Element} - {species.Type} - {species.BaseRarity}".ToUpperInvariant() : "ESPECE INCONNUE";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, subtitle, new Vector2(w / 2f, topLeft.Y + 56f), 1.5f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+
+    var baseStats = species?.BaseStats ?? StatBlock.Zero;
+    var lines = new List<(string Label, string Value)>
+    {
+        ("Niveau", $"{monster.Level}"),
+        ("Variante", MonsterVariantCatalog.Get(monster.Variant).DisplayName),
+        ("PV max", $"{ClientScaledStat(baseStats.Health, monster.Level, monster.Variant)}"),
+        ("Attaque", $"{ClientScaledStat(baseStats.Attack, monster.Level, monster.Variant)}"),
+        ("Defense", $"{ClientScaledStat(baseStats.Defense, monster.Level, monster.Variant)}"),
+        ("Vitesse", $"{ClientScaledStat(baseStats.Speed, monster.Level, monster.Variant)}"),
+        ("Intelligence", $"{ClientScaledStat(baseStats.Intelligence, monster.Level, monster.Variant)}"),
+        ("Resistance", $"{ClientScaledStat(baseStats.Resistance, monster.Level, monster.Variant)}"),
+        ("Passif", monster.PassiveTalent.Length > 0 ? monster.PassiveTalent : "Aucun"),
+    };
+
+    var y = topLeft.Y + 90f;
+    foreach (var (label, value) in lines)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{label.ToUpperInvariant()} :", new Vector2(topLeft.X + 26f, y), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, value.ToUpperInvariant(), new Vector2(topLeft.X + 190f, y), 1.7f, Vector4.One);
+        y += 26f;
+    }
+
+    if (PassiveTalentCatalog.Describe(monster.PassiveTalent) is { Length: > 0 } description)
+    {
+        TextRenderer.Draw(spriteBatch, whiteTexture, description, new Vector2(topLeft.X + 26f, y + 8f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : RETOUR", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawPartyPanel(int w, int h)
