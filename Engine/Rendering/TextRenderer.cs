@@ -17,9 +17,22 @@ public static class TextRenderer
     private const int GlyphColumns = 3;
     private const int GlyphRows = 5;
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "augmente la taille du texte en jeu (general)" : applique un
+    /// facteur d'agrandissement une seule fois, à l'entrée de chaque méthode publique (<see
+    /// cref="Draw"/>/<see cref="DrawCentered"/>/<see cref="MeasureWidth"/>/<see cref="LineHeight"/>),
+    /// plutôt que de retoucher les centaines d'appels existants avec leur propre pixelSize. Les
+    /// variantes "Raw" ci-dessous travaillent en pixelSize déjà agrandi et ne doivent être
+    /// utilisées qu'en interne (jamais depuis un site d'appel externe), pour éviter d'appliquer le
+    /// facteur deux fois.
+    /// </summary>
+    private const float GlobalTextScale = 1.25f;
+
     private static readonly Dictionary<char, string[]> Glyphs = BuildGlyphs();
 
-    public static float MeasureWidth(string text, float pixelSize)
+    public static float MeasureWidth(string text, float pixelSize) => MeasureWidthRaw(text, pixelSize * GlobalTextScale);
+
+    private static float MeasureWidthRaw(string text, float pixelSize)
     {
         var lineWidth = 0f;
         var maxWidth = 0f;
@@ -52,18 +65,21 @@ public static class TextRenderer
         return (columns + 1) * pixelSize;
     }
 
-    public static float LineHeight(float pixelSize) => (GlyphRows + 2) * pixelSize;
+    public static float LineHeight(float pixelSize) => LineHeightRaw(pixelSize * GlobalTextScale);
+
+    private static float LineHeightRaw(float pixelSize) => (GlyphRows + 2) * pixelSize;
 
     /// <summary>Dessine du texte multi-lignes, origine en haut-gauche du premier caractère.</summary>
     public static void Draw(SpriteBatch spriteBatch, Texture2D pixel, string text, Vector2 position, float pixelSize, Vector4 color)
     {
+        pixelSize *= GlobalTextScale;
         var cursor = position;
 
         foreach (var ch in StripDiacritics(text))
         {
             if (ch == '\n')
             {
-                cursor = new Vector2(position.X, cursor.Y + LineHeight(pixelSize));
+                cursor = new Vector2(position.X, cursor.Y + LineHeightRaw(pixelSize));
                 continue;
             }
 
