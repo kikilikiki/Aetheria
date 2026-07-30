@@ -27,6 +27,13 @@ public sealed class CharacterEntity
     public int ClothesColorIndex { get; set; }
     public int AccessoryIndex { get; set; }
 
+    // Voir GDD/demande utilisateur — "restaurer la position du joueur en quittant/revenant" :
+    // dernière position connue sur la carte du monde, relue par PlayerSession.HandleEnterWorld
+    // (0,0 par défaut pour un personnage qui n'a encore jamais été sauvegardé — capitale de
+    // départ, comportement inchangé) et réécrite à la déconnexion (voir PlayerSession.Run).
+    public int LastPositionX { get; set; }
+    public int LastPositionY { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     // Voir GDD/demande utilisateur — "un endroit pour modifier son profil (description, item que
