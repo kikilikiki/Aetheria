@@ -12,8 +12,8 @@ public static class MonsterProgressionService
 {
     private const int ExperiencePerLevel = 100;
 
-    /// <summary>Voir GDD/demande utilisateur — "mais la limite de niveau à 1000 pour les monstres, pas de limite pour les joueurs" : plafond propre aux créatures uniquement (voir <see cref="CharacterProgressionService"/>, non plafonné).</summary>
-    public const int MaxLevel = 1000;
+    /// <summary>Voir GDD/demande utilisateur — limite de niveau à 150 pour les monstres, pas de limite pour les joueurs : plafond propre aux créatures uniquement (voir <see cref="CharacterProgressionService"/>, non plafonné).</summary>
+    public const int MaxLevel = 150;
 
     public static void GrantExperience(MonsterEntity monster, int amount)
     {
