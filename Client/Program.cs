@@ -1077,11 +1077,16 @@ host.Update += deltaTime =>
         {
             moveQueue.Clear();
             var next = positionBeforeInput + (Vector2.Normalize(direction) * 4.5f * deltaTime);
-            lock (stateLock)
+            var clamped = new Vector2(
+                Math.Clamp(next.X, 0, worldMap.Size - 1),
+                Math.Clamp(next.Y, 0, worldMap.Size - 1));
+
+            if (!IsBuildingBlocking((int)MathF.Round(clamped.X), (int)MathF.Round(clamped.Y)))
             {
-                gridPosition = new Vector2(
-                    Math.Clamp(next.X, 0, worldMap.Size - 1),
-                    Math.Clamp(next.Y, 0, worldMap.Size - 1));
+                lock (stateLock)
+                {
+                    gridPosition = clamped;
+                }
             }
         }
         else if (moveQueue.Count > 0)
@@ -1127,7 +1132,7 @@ host.Update += deltaTime =>
             else if (keyboard.IsDown(Key.D) || keyboard.IsDown(Key.Right)) dx = 1;
         }
 
-        if (dx != 0 || dy != 0)
+        if ((dx != 0 || dy != 0) && !IsBuildingBlocking(Math.Clamp((int)positionBeforeInput.X + dx, 0, worldMap.Size - 1), Math.Clamp((int)positionBeforeInput.Y + dy, 0, worldMap.Size - 1)))
         {
             moveQueue.Clear();
             isAwaitingServerStep = true;
@@ -1459,7 +1464,10 @@ characterApi?.Dispose();
 gameDataApi?.Dispose();
 combatApi?.Dispose();
 
-static Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, int Y) to)
+// Voir retour utilisateur — "faire en sorte que l'on ne puisse pas traverser les murs" : le
+// chemin cliqué s'arrête net avant un bâtiment plutôt que de continuer au travers (plus
+// "static" pour accéder à IsBuildingBlocking, capturé depuis worldMap).
+Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, int Y) to)
 {
     var queue = new Queue<(int X, int Y)>();
     var x = from.X;
@@ -1468,17 +1476,39 @@ static Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, in
     while (x != to.X)
     {
         x += Math.Sign(to.X - x);
+        if (IsBuildingBlocking(x, y))
+        {
+            return queue;
+        }
+
         queue.Enqueue((x, y));
     }
 
     while (y != to.Y)
     {
         y += Math.Sign(to.Y - y);
+        if (IsBuildingBlocking(x, y))
+        {
+            return queue;
+        }
+
         queue.Enqueue((x, y));
     }
 
     return queue;
 }
+
+/// <summary>
+/// Voir retour utilisateur — "faire en sorte que l'on ne puisse pas traverser les murs" : aucune
+/// collision n'existait sur la carte extérieure (le serveur accepte tel quel la position envoyée
+/// par le client, voir PlayerSession.HandlePlayerMove — limite documentée assumée pour un monde
+/// partagé complet côté serveur, voir Docs/README.md) - bloque au moins côté client le passage
+/// à travers un bâtiment (empreinte d'une seule case, voir Building.cs), sans nécessiter que le
+/// serveur connaisse la disposition des bâtiments (générée uniquement côté Client aujourd'hui).
+/// Le seuil de proximité d'interaction (1.6 case, voir ComputeNearbyInteraction) reste largement
+/// suffisant pour entrer dans un bâtiment sans jamais avoir à se tenir sur sa case exacte.
+/// </summary>
+bool IsBuildingBlocking(int gridX, int gridY) => worldMap.Buildings.Any(b => b.GridX == gridX && b.GridY == gridY);
 
 NearbyInteraction? ComputeNearbyInteraction(Vector2 position)
 {
