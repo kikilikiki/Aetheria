@@ -6587,9 +6587,13 @@ void DrawMonstersPanel(int w, int h)
             // affichée en toutes lettres, rien pour la variante Normal (immense majorité des
             // créatures) pour ne pas surcharger la liste.
             var variantLabel = monster.Variant == MonsterVariant.Normal ? "" : $" [{MonsterVariantCatalog.Get(monster.Variant).DisplayName}]".ToUpperInvariant();
+            // Voir GDD/demande utilisateur — "Monstres cosmétiques rares" : badge de prestige (pas
+            // de caractère "✦" dans la police à points 3x5 maison, voir TextRenderer — un tag
+            // entre crochets comme les autres reste lisible avec le même rendu).
+            var cosmeticLabel = species is { IsCosmetic: true } ? " [COSMETIQUE]" : "";
             // Voir GDD/demande utilisateur — bâtiment pour "déplacer ce que l'on a dans notre team".
             var teamLabel = monster.IsInActiveTeam ? " [EQUIPE]" : "";
-            var rowText = $"{prefix}{name.ToUpperInvariant()}{variantLabel}{typeLabel}{teamLabel} - NIV. {monster.Level}";
+            var rowText = $"{prefix}{name.ToUpperInvariant()}{cosmeticLabel}{variantLabel}{typeLabel}{teamLabel} - NIV. {monster.Level}";
             if (monster.PassiveTalent.Length > 0)
             {
                 rowText += $" - {monster.PassiveTalent.ToUpperInvariant()}";

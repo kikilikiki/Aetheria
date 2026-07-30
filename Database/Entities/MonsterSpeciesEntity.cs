@@ -72,4 +72,12 @@ public sealed class MonsterSpeciesEntity
     /// <see cref="DungeonOnly"/>) — la seule façon de l'obtenir est <c>BreedingService.BreedAsync</c>.
     /// </summary>
     public bool BreedingOnly { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "Monstres cosmétiques rares" : purement une distinction
+    /// d'affichage/prestige (badge ✦ dans le panneau Monstres) — mêmes statistiques que sa
+    /// rareté, aucune obtention naturelle (voir WorldBossService.AttackAsync, seule voie
+    /// d'obtention : petite chance à chaque coup fatal porté à un boss mondial).
+    /// </summary>
+    public bool IsCosmetic { get; set; }
 }

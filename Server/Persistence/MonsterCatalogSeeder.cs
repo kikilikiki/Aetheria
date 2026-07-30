@@ -206,6 +206,28 @@ public static class MonsterCatalogSeeder
                     Habitat = "Né en Couvée uniquement", Lore = "Un mélange improbable de deux lignées, jamais vu à l'état sauvage.",
                     BaseStats = epicStats, BreedingOnly = true,
                 },
+
+                // Voir GDD/demande utilisateur — "Monstres cosmétiques rares" : jamais en
+                // rencontre naturelle (voir IsCosmetic), seule voie d'obtention une petite chance
+                // au coup fatal porté à un boss mondial (voir WorldBossService.AttackAsync).
+                new MonsterSpeciesEntity
+                {
+                    Name = "Prismail", Element = Element.Cristal, Type = MonsterType.Support, BaseRarity = Rarity.Mythique,
+                    Habitat = "Trophée de boss mondial", Lore = "Chaque écaille reflète une couleur différente selon l'angle — un pur objet de collection.",
+                    BaseStats = mythicStats, IsCosmetic = true,
+                },
+                new MonsterSpeciesEntity
+                {
+                    Name = "Auroriel", Element = Element.Lumiere, Type = MonsterType.Controleur, BaseRarity = Rarity.Ancestral,
+                    Habitat = "Trophée de boss mondial", Lore = "Laisse une traînée d'aurore derrière lui, visible même les yeux fermés.",
+                    BaseStats = ancestralStats, IsCosmetic = true,
+                },
+                new MonsterSpeciesEntity
+                {
+                    Name = "Nocturnelle", Element = Element.Ombre, Type = MonsterType.Assassin, BaseRarity = Rarity.Divin,
+                    Habitat = "Trophée de boss mondial", Lore = "N'existe que dans les récits de ceux qui prétendent l'avoir croisée.",
+                    BaseStats = divineStats, IsCosmetic = true,
+                },
             };
 
             var missingExtended = extendedBestiary.Where(s => !existingNames.Contains(s.Name)).ToList();
