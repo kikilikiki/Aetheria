@@ -474,15 +474,17 @@ app.MapPost("/api/monsters/{monsterId:guid}/unequip", async (Guid monsterId, Une
 });
 
 // Voir GDD/demande utilisateur — bâtiment Fusion ("leur niveau sera leur 2 niveaux additionnés
-// puis divisé par 2") et bâtiment Couvée ("reproduction avec heritage de statistiques... des
-// monstres que l'on peut avoir que en reproduction").
-app.MapPost("/api/monsters/fuse", async (FuseMonstersRequest request) =>
+// puis divisé par 2") et bâtiment Reproduction ("reproduction avec heritage de statistiques...
+// des monstres que l'on peut avoir que en reproduction"). Voir retour utilisateur — "ajoute un
+// temps et une validation avant de le faire" : en deux temps (start/claim) plutôt qu'instantané,
+// voir FusionService/BreedingService.
+app.MapPost("/api/monsters/fuse/start", async (FuseMonstersRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var fusionService = new FusionService(db, app.Services.GetRequiredService<SessionTokenStore>());
     try
     {
-        return Results.Ok(await fusionService.FuseAsync(request.SessionToken, request.CharacterId, request.SurvivorMonsterId, request.ConsumedMonsterId));
+        return Results.Ok(await fusionService.StartAsync(request.SessionToken, request.CharacterId, request.SurvivorMonsterId, request.ConsumedMonsterId));
     }
     catch (AccountOperationException ex)
     {
@@ -490,13 +492,69 @@ app.MapPost("/api/monsters/fuse", async (FuseMonstersRequest request) =>
     }
 });
 
-app.MapPost("/api/monsters/breed", async (BreedMonstersRequest request) =>
+app.MapGet("/api/monsters/fuse/status", async (string sessionToken, Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var fusionService = new FusionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await fusionService.GetStatusAsync(sessionToken, characterId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/monsters/fuse/claim", async (ClaimPendingMonsterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var fusionService = new FusionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await fusionService.ClaimAsync(request.SessionToken, request.CharacterId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/monsters/breed/start", async (BreedMonstersRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var breedingService = new BreedingService(db, app.Services.GetRequiredService<SessionTokenStore>());
     try
     {
-        return Results.Ok(await breedingService.BreedAsync(request.SessionToken, request.CharacterId, request.ParentMonsterId1, request.ParentMonsterId2));
+        return Results.Ok(await breedingService.StartAsync(request.SessionToken, request.CharacterId, request.ParentMonsterId1, request.ParentMonsterId2));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/monsters/breed/status", async (string sessionToken, Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var breedingService = new BreedingService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await breedingService.GetStatusAsync(sessionToken, characterId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/monsters/breed/claim", async (ClaimPendingMonsterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var breedingService = new BreedingService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await breedingService.ClaimAsync(request.SessionToken, request.CharacterId));
     }
     catch (AccountOperationException ex)
     {
@@ -1570,24 +1628,28 @@ app.MapGet("/api/territories", async () =>
     }));
 });
 
-// Voir GDD/demande utilisateur — "guerre de territoire... quêtes de minage" : la première
-// ressource brute du catalogue (voir ProfessionCatalogSeeder — "Minerai de fer" pour cette
-// première version, une seule mine "type" plutôt qu'une par territoire).
+// Voir retour utilisateur — "on recupere du ble a la mine" : bug reproduit et corrige. L'ancienne
+// requête prenait le PREMIER item ItemType.Ressource du catalogue sans filtrer par nom — comme
+// MonsterCatalogSeeder (qui seed "Blé") tourne avant ProfessionCatalogSeeder (qui seed "Minerai
+// de fer" et les autres minerais), la Mine renvoyait systématiquement le Blé du Champ. Voir aussi
+// retour utilisateur — "ajoute autre chose que du blé pour les champs et du fer pour la mine" :
+// un item choisi au hasard (pondéré par rareté, voir PickWeightedResource) dans un pool dédié par
+// bâtiment plutôt qu'un seul item fixe pour toujours.
+var mineResourcePool = new[] { "Minerai de fer", "Minerai d'argent", "Minerai d'or", "Cristal de mana", "Écaille de dragon" };
 app.MapGet("/api/items/gatherable", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var item = await db.Items.FirstOrDefaultAsync(i => i.ItemType == ItemType.Ressource);
+    var pool = await db.Items.Where(i => i.ItemType == ItemType.Ressource && mineResourcePool.Contains(i.Name)).ToListAsync();
+    var item = PickWeightedResource(pool);
     return item is null ? Results.NotFound() : Results.Ok(new ShopItem { ItemId = item.Id, Name = item.Name, Description = item.Description, ItemType = item.ItemType, Rarity = item.Rarity, Price = item.Price });
 });
 
-// Voir GDD/demande utilisateur — "ajoute des bâtiments dans les villes (mine, champs etc) pour
-// avoir des objets" : ressource du Champ (voir WorldMap), pendant du Minerai de fer de la Mine
-// (voir /api/items/gatherable ci-dessus) — identifiée par nom plutôt que "premier Ressource" pour
-// ne pas entrer en collision avec elle.
+var fieldResourcePool = new[] { "Blé", "Herbe médicinale", "Bois ancien" };
 app.MapGet("/api/items/gatherable-crop", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var item = await db.Items.FirstOrDefaultAsync(i => i.ItemType == ItemType.Ressource && i.Name == "Blé");
+    var pool = await db.Items.Where(i => i.ItemType == ItemType.Ressource && fieldResourcePool.Contains(i.Name)).ToListAsync();
+    var item = PickWeightedResource(pool);
     return item is null ? Results.NotFound() : Results.Ok(new ShopItem { ItemId = item.Id, Name = item.Name, Description = item.Description, ItemType = item.ItemType, Rarity = item.Rarity, Price = item.Price });
 });
 
@@ -2854,6 +2916,40 @@ static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnly
     CapturedAtUtc = entity.CapturedAtUtc,
     PrestigeLevel = entity.PrestigeLevel,
 };
+
+// Voir retour utilisateur — "ajoute autre chose que du blé pour les champs et du fer pour la
+// mine" : tirage pondéré par rareté (Commun le plus fréquent, Légendaire le plus rare) plutôt
+// qu'un choix uniforme, pour que les ressources rares restent rares.
+static ItemEntity? PickWeightedResource(List<ItemEntity> pool)
+{
+    if (pool.Count == 0)
+    {
+        return null;
+    }
+
+    static int Weight(Rarity rarity) => rarity switch
+    {
+        Rarity.Commun => 10,
+        Rarity.PeuCommun => 4,
+        Rarity.Rare => 2,
+        Rarity.Legendaire => 1,
+        _ => 1,
+    };
+
+    var totalWeight = pool.Sum(i => Weight(i.Rarity));
+    var roll = Random.Shared.Next(totalWeight);
+    var cursor = 0;
+    foreach (var item in pool)
+    {
+        cursor += Weight(item.Rarity);
+        if (roll < cursor)
+        {
+            return item;
+        }
+    }
+
+    return pool[^1];
+}
 
 static DungeonData ToDungeonData(DungeonEntity entity) => new()
 {
