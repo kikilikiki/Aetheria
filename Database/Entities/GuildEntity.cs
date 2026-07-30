@@ -26,4 +26,10 @@ public sealed class GuildEntity
     public bool WeeklyQuestCompleted { get; set; }
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Voir GDD/demande utilisateur — "rendre les guildes publiques (tout le monde peut join) et privees (peut join avec code 5 chiffres)" : publique par defaut (comportement inchange pour les guildes existantes/deja creees).</summary>
+    public bool IsPublic { get; set; } = true;
+
+    /// <summary>Code a 5 chiffres genere a la creation d'une guilde privee (voir GuildService.CreateAsync), requis pour rejoindre (voir GuildService.JoinAsync). Null pour une guilde publique.</summary>
+    public string? JoinCode { get; set; }
 }

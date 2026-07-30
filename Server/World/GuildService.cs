@@ -28,6 +28,10 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
             Id = Guid.NewGuid(),
             Name = request.Name,
             LeaderCharacterId = character.Id,
+            IsPublic = request.IsPublic,
+            // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)" :
+            // généré une seule fois à la création, jamais régénéré ensuite.
+            JoinCode = request.IsPublic ? null : GenerateJoinCode(),
         };
 
         db.Guilds.Add(guild);
@@ -37,8 +41,11 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
 
         await new AchievementService(db).UnlockAsync(character.UserId, "fondateur_de_guilde", ct);
 
-        return await BuildSummaryAsync(guild.Id, ct);
+        return await BuildSummaryAsync(guild.Id, ct, includeJoinCode: true);
     }
+
+    /// <summary>Voir GDD/demande utilisateur — "peut join avec code 5 chiffres" : chaîne de 5 chiffres (avec zéros non significatifs), assez d'espace (100 000 combinaisons) pour cet usage — pas de vérification d'unicité entre guildes, un code n'a de sens que combiné au nom/à l'ID de la guilde qu'on essaie de rejoindre.</summary>
+    private static string GenerateJoinCode() => Random.Shared.Next(0, 100_000).ToString("D5");
 
     public async Task<GuildSummary> JoinAsync(Guid guildId, JoinGuildRequest request, CancellationToken ct = default)
     {
@@ -52,17 +59,23 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
         var guild = await db.Guilds.FirstOrDefaultAsync(g => g.Id == guildId, ct)
             ?? throw new AccountOperationException("Guilde introuvable.");
 
+        // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)".
+        if (!guild.IsPublic && !string.Equals(guild.JoinCode, request.JoinCode, StringComparison.Ordinal))
+        {
+            throw new AccountOperationException("Code d'invitation incorrect.");
+        }
+
         db.GuildMembers.Add(new GuildMemberEntity { Id = Guid.NewGuid(), GuildId = guild.Id, CharacterId = character.Id });
         await db.SaveChangesAsync(ct);
 
-        return await BuildSummaryAsync(guild.Id, ct);
+        return await BuildSummaryAsync(guild.Id, ct, includeJoinCode: true);
     }
 
     /// <summary>Guilde du personnage donné, ou <c>null</c> s'il n'en a pas (voir GDD — bouton Guilde en jeu).</summary>
     public async Task<GuildSummary?> GetForCharacterAsync(Guid characterId, CancellationToken ct = default)
     {
         var membership = await db.GuildMembers.FirstOrDefaultAsync(m => m.CharacterId == characterId, ct);
-        return membership is null ? null : await BuildSummaryAsync(membership.GuildId, ct);
+        return membership is null ? null : await BuildSummaryAsync(membership.GuildId, ct, includeJoinCode: true);
     }
 
     /// <summary>Recherche de guildes par nom (voir GDD — panneau Guilde : rejoindre/rechercher/créer). Toutes les guildes si <paramref name="search"/> est vide.</summary>
@@ -300,7 +313,14 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
         return character ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
     }
 
-    private async Task<GuildSummary> BuildSummaryAsync(Guid guildId, CancellationToken ct)
+    /// <summary>
+    /// <paramref name="includeJoinCode"/> ne doit être vrai que lorsque l'appelant consulte SA
+    /// PROPRE guilde (voir <see cref="GetForCharacterAsync"/>/<see cref="CreateAsync"/>/
+    /// <see cref="JoinAsync"/>) — jamais pour <see cref="SearchAsync"/>/<see cref="GetLeaderboardAsync"/>/
+    /// <see cref="GetWarStandingsAsync"/>, qui listent des guildes potentiellement étrangères au
+    /// personnage courant et ne doivent donc jamais exposer le code d'invitation privé.
+    /// </summary>
+    private async Task<GuildSummary> BuildSummaryAsync(Guid guildId, CancellationToken ct, bool includeJoinCode = false)
     {
         var guild = await db.Guilds.FirstAsync(g => g.Id == guildId, ct);
         var memberNames = await db.GuildMembers
@@ -322,6 +342,8 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
             WeeklyQuestItemsDeposited = guild.WeeklyQuestWeekBucket == CurrentWeekBucket() ? guild.WeeklyQuestItemsDeposited : 0,
             WeeklyQuestItemTarget = WeeklyQuestItemTarget,
             WeeklyQuestCompleted = guild.WeeklyQuestWeekBucket == CurrentWeekBucket() && guild.WeeklyQuestCompleted,
+            IsPublic = guild.IsPublic,
+            JoinCode = includeJoinCode ? guild.JoinCode : null,
         };
     }
 }

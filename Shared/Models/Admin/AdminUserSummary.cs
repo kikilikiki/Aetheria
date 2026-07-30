@@ -21,4 +21,7 @@ public sealed class AdminUserSummary
 
     /// <summary>Dernière IP connue (voir GDD/demande utilisateur — "ban ip") — <c>null</c> si le compte ne s'est jamais connecté depuis ce changement.</summary>
     public string? LastKnownIp { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "la couleur a gauche du pseudo [dans le Launcher] correspond a si la personne est en ligne ou pas" : vrai si AU MOINS un personnage de ce compte a une session active (voir Server.Networking.WorldSessionRegistry.IsOnline), pas une notion de compte connecté à la Boutique/API séparément.</summary>
+    public required bool IsOnline { get; init; }
 }

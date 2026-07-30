@@ -60,24 +60,26 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
-    public async Task<GuildSummary> CreateGuildAsync(string sessionToken, Guid characterId, string name, CancellationToken ct = default)
+    public async Task<GuildSummary> CreateGuildAsync(string sessionToken, Guid characterId, string name, bool isPublic = true, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/api/guilds", new CreateGuildRequest
         {
             SessionToken = sessionToken,
             CharacterId = characterId,
             Name = name,
+            IsPublic = isPublic,
         }, JsonOptions, ct);
 
         return await ReadGuildResultAsync(response, ct);
     }
 
-    public async Task<GuildSummary> JoinGuildAsync(string sessionToken, Guid characterId, Guid guildId, CancellationToken ct = default)
+    public async Task<GuildSummary> JoinGuildAsync(string sessionToken, Guid characterId, Guid guildId, string? joinCode = null, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync($"/api/guilds/{guildId}/join", new JoinGuildRequest
         {
             SessionToken = sessionToken,
             CharacterId = characterId,
+            JoinCode = joinCode,
         }, JsonOptions, ct);
 
         return await ReadGuildResultAsync(response, ct);

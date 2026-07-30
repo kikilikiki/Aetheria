@@ -21,4 +21,10 @@ public sealed class GuildSummary
     public int WeeklyQuestItemsDeposited { get; init; }
     public int WeeklyQuestItemTarget { get; init; }
     public bool WeeklyQuestCompleted { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "rendre les guildes publiques/privees".</summary>
+    public bool IsPublic { get; init; } = true;
+
+    /// <summary>Voir GDD/demande utilisateur — "peut join avec code 5 chiffres" : uniquement renseigné pour un membre consultant SA PROPRE guilde (voir GuildService.BuildSummaryAsync) — jamais exposé via la recherche/le classement d'une guilde à laquelle on n'appartient pas.</summary>
+    public string? JoinCode { get; init; }
 }

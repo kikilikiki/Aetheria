@@ -562,6 +562,12 @@ Task<List<GuildSummary>>? guildSearchTask = null;
 Task<GuildSummary?>? guildActionTask = null;
 string? guildActionMessage = null;
 
+// Voir GDD/demande utilisateur — "rendre les guildes publiques/privees (peut join avec code 5
+// chiffres)" : bascule Tab pendant la saisie du nom (Create), guilde ciblée en attente de code
+// (EnterJoinCode, déclenché depuis Search si GuildSummary.IsPublic est faux).
+var guildCreateIsPublic = true;
+Guid? guildPendingJoinGuildId = null;
+
 // Banque/coffre/classement de guilde (voir GDD/demande utilisateur — "Fonctionnalités de guilde avancées").
 List<GuildChestItemSummary> guildChest = [];
 var guildChestCursor = 0;
@@ -5690,7 +5696,10 @@ void UpdateGuildPanel(float deltaTime)
     {
         if (actionTask.IsFaulted)
         {
-            guildActionMessage = "Connexion au serveur impossible.";
+            // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)" :
+            // affiche le vrai message serveur (ex. "Code d'invitation incorrect.") plutôt qu'un
+            // message générique de connexion, qui induisait en erreur sur la cause réelle de l'échec.
+            guildActionMessage = actionTask.Exception?.InnerException?.Message ?? "Connexion au serveur impossible.";
         }
         else
         {
@@ -5969,6 +5978,11 @@ void UpdateGuildPanel(float deltaTime)
         {
             guildTextInput = guildTextInput[..^1];
         }
+        else if (keyboard.WasJustPressed(Key.Tab))
+        {
+            // Voir GDD/demande utilisateur — "rendre les guildes publiques/privees".
+            guildCreateIsPublic = !guildCreateIsPublic;
+        }
         else if (keyboard.WasJustPressed(Key.Escape))
         {
             guildMode = GuildPanelMode.None;
@@ -5978,7 +5992,7 @@ void UpdateGuildPanel(float deltaTime)
         else if (keyboard.WasJustPressed(Key.Enter) && guildTextInput.Trim().Length >= 3)
         {
             guildActionMessage = null;
-            guildActionTask = gameDataApi!.CreateGuildAsync(options.SessionToken!, chosenCharacterId!.Value, guildTextInput.Trim())!;
+            guildActionTask = gameDataApi!.CreateGuildAsync(options.SessionToken!, chosenCharacterId!.Value, guildTextInput.Trim(), guildCreateIsPublic)!;
         }
 
         return;
@@ -6027,8 +6041,51 @@ void UpdateGuildPanel(float deltaTime)
             else if (keyboard.WasJustPressed(Key.Enter))
             {
                 guildActionMessage = null;
-                guildActionTask = gameDataApi!.JoinGuildAsync(options.SessionToken!, chosenCharacterId!.Value, guildSearchResults[guildSearchCursor].Id)!;
+                var targetGuild = guildSearchResults[guildSearchCursor];
+                // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)"
+                // : demande le code avant de rejoindre plutôt que de laisser le serveur refuser.
+                if (targetGuild.IsPublic)
+                {
+                    guildActionTask = gameDataApi!.JoinGuildAsync(options.SessionToken!, chosenCharacterId!.Value, targetGuild.Id)!;
+                }
+                else
+                {
+                    guildPendingJoinGuildId = targetGuild.Id;
+                    guildTextInput = string.Empty;
+                    guildMode = GuildPanelMode.EnterJoinCode;
+                }
             }
+        }
+
+        return;
+    }
+
+    if (guildMode == GuildPanelMode.EnterJoinCode)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (guildTextInput.Length < 5 && char.IsDigit(typed))
+            {
+                guildTextInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && guildTextInput.Length > 0)
+        {
+            guildTextInput = guildTextInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            guildMode = GuildPanelMode.Search;
+            guildTextInput = string.Empty;
+            guildPendingJoinGuildId = null;
+            guildActionMessage = null;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && guildTextInput.Length == 5 && guildPendingJoinGuildId is { } pendingGuildId)
+        {
+            guildActionMessage = null;
+            guildActionTask = gameDataApi!.JoinGuildAsync(options.SessionToken!, chosenCharacterId!.Value, pendingGuildId, guildTextInput)!;
+            guildPendingJoinGuildId = null;
         }
 
         return;
@@ -6042,6 +6099,7 @@ void UpdateGuildPanel(float deltaTime)
     {
         guildMode = GuildPanelMode.Create;
         guildTextInput = string.Empty;
+        guildCreateIsPublic = true;
         guildActionMessage = null;
     }
     else if (keyboard.WasJustPressed(Key.R))
@@ -8274,16 +8332,26 @@ void DrawGuildPanel(int w, int h)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {myGuild.Level} - {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 88f), 2f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myGuild.GuildExperience} / {myGuild.ExperienceForNextLevel} XP DE GUILDE", new Vector2(w / 2f, topLeft.Y + 108f), 1.6f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
+
+        // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)" :
+        // affiché aux membres pour qu'ils puissent le partager, jamais aux non-membres (voir
+        // GuildService.BuildSummaryAsync côté serveur, qui ne remplit JoinCode que pour SA PROPRE
+        // guilde).
+        if (!myGuild.IsPublic && myGuild.JoinCode is { } joinCode)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"GUILDE PRIVEE - CODE D'INVITATION : {joinCode}", new Vector2(w / 2f, topLeft.Y + 106f), 1.5f, new Vector4(0.9f, 0.7f, 0.4f, 1f));
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myGuild.GuildExperience} / {myGuild.ExperienceForNextLevel} XP DE GUILDE", new Vector2(w / 2f, topLeft.Y + 124f), 1.6f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
 
         // Voir GDD/demande utilisateur — "Quêtes de guilde".
         var questColor = myGuild.WeeklyQuestCompleted ? new Vector4(0.6f, 0.95f, 0.6f, 1f) : new Vector4(0.8f, 0.8f, 0.85f, 1f);
         var questLabel = myGuild.WeeklyQuestCompleted
             ? "QUETE DE LA SEMAINE : TERMINEE (deposez des objets au coffre)"
             : $"QUETE : DEPOSER DES OBJETS AU COFFRE ({myGuild.WeeklyQuestItemsDeposited}/{myGuild.WeeklyQuestItemTarget})";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, questLabel, new Vector2(w / 2f, topLeft.Y + 126f), 1.3f, questColor);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, questLabel, new Vector2(w / 2f, topLeft.Y + 142f), 1.3f, questColor);
 
-        var y = topLeft.Y + 152f;
+        var y = topLeft.Y + 168f;
         TextRenderer.Draw(spriteBatch, whiteTexture, "MEMBRES :", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         y += 28f;
         foreach (var name in myGuild.MemberNames)
@@ -8327,7 +8395,13 @@ void DrawGuildJoinCreateUi(Vector2 topLeft, float boxWidth, float boxHeight)
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, "NOM DE LA NOUVELLE GUILDE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
             DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
             TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+            // Voir GDD/demande utilisateur — "rendre les guildes publiques/privees".
+            var visibilityLabel = guildCreateIsPublic ? "PUBLIQUE (tout le monde peut rejoindre)" : "PRIVEE (code a 5 chiffres requis)";
+            var visibilityColor = guildCreateIsPublic ? new Vector4(0.6f, 0.85f, 0.6f, 1f) : new Vector4(0.9f, 0.7f, 0.4f, 1f);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"TAB : {visibilityLabel}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 20f), 1.8f, visibilityColor);
+
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 52f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             break;
 
         case GuildPanelMode.Search when !guildSearchDone:
@@ -8351,12 +8425,22 @@ void DrawGuildJoinCreateUi(Vector2 topLeft, float boxWidth, float boxHeight)
                     var isSelected = i == guildSearchCursor;
                     var prefix = isSelected ? "> " : "  ";
                     var color = isSelected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
-                    TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{guild.Name.ToUpperInvariant()} (NIV. {guild.Level}, {guild.MemberNames.Count} MEMBRES)", new Vector2(topLeft.X + 24f, y), 1.9f, color);
+                    // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5
+                    // chiffres)" : indication visible avant même de tenter de rejoindre.
+                    var lockSuffix = guild.IsPublic ? "" : " [PRIVEE]";
+                    TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{guild.Name.ToUpperInvariant()}{lockSuffix} (NIV. {guild.Level}, {guild.MemberNames.Count} MEMBRES)", new Vector2(topLeft.X + 24f, y), 1.9f, color);
                     y += 26f;
                 }
             }
 
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : REJOINDRE - ECHAP : NOUVELLE RECHERCHE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            break;
+
+        case GuildPanelMode.EnterJoinCode:
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CODE D'INVITATION (5 CHIFFRES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
+            TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput, new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR REJOINDRE - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             break;
     }
 
@@ -10710,6 +10794,9 @@ enum GuildPanelMode
 
     /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes".</summary>
     War,
+
+    /// <summary>Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)" : saisie du code avant de rejoindre une guilde marquée privée (voir GuildSummary.IsPublic), déclenché depuis Search.</summary>
+    EnterJoinCode,
 }
 
 /// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe). Porte son grade pour la liste des joueurs en ligne.</summary>

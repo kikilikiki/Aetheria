@@ -43,3 +43,21 @@ public sealed class UsernameToInitialConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "dans le launcher la couleur a gauche du pseudo correspond a si
+/// la personne est en ligne ou pas" : remplace la pastille colorée par pseudo
+/// (<see cref="UsernameToAvatarColorConverter"/>) par un indicateur vert/rouge selon
+/// <c>AdminUserSummary.IsOnline</c> dans la liste Communauté du panel admin.
+/// </summary>
+public sealed class OnlineStatusToColorConverter : IValueConverter
+{
+    private static readonly SolidColorBrush OnlineBrush = new(Color.FromRgb(0x5A, 0xD9, 0x7E));
+    private static readonly SolidColorBrush OfflineBrush = new(Color.FromRgb(0xD9, 0x5A, 0x5A));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? OnlineBrush : OfflineBrush;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
