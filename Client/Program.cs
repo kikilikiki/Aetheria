@@ -564,6 +564,13 @@ var encyclopediaCursor = 0;
 EndGameStatus? endGameStatus = null;
 Task<EndGameStatus?>? endGameStatusTask = null;
 
+// Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec une UI dédiée.
+List<ChallengeStatus> challenges = [];
+Task<List<ChallengeStatus>>? challengesTask = null;
+var challengesCursor = 0;
+string? challengesMessage = null;
+Task<ChallengeStatus>? challengeClaimTask = null;
+
 /// <summary>Voir GDD/demande utilisateur — "ajoute un UI pour les montures" : deuxième onglet du panneau Encyclopédie (touche Tab).</summary>
 var encyclopediaShowMounts = false;
 var encyclopediaMountCursor = 0;
@@ -979,6 +986,8 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.Y)) OpenPanel(PanelKind.Duel);
     // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
     else if (keyboard.WasJustPressed(Key.R)) OpenPanel(PanelKind.Kingdom);
+    // Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec une UI dédiée.
+    else if (keyboard.WasJustPressed(Key.X)) OpenPanel(PanelKind.Challenges);
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -2738,6 +2747,138 @@ void DrawEncyclopediaPanel(int w, int h)
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - TAB : especes/montures - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>Voir GDD/demande utilisateur — "Défis hebdomadaires" (contenu end-game) + défis mensuels, avec une UI dédiée pour y accéder (touche X).</summary>
+void UpdateChallengesPanel()
+{
+    if (challengesTask is { IsCompleted: true } loadTask)
+    {
+        challenges = loadTask.IsFaulted ? [] : loadTask.Result;
+        challengesCursor = Math.Clamp(challengesCursor, 0, Math.Max(0, challenges.Count - 1));
+        challengesTask = null;
+        return;
+    }
+
+    if (challengeClaimTask is { IsCompleted: true } claimTask)
+    {
+        if (claimTask.IsFaulted)
+        {
+            challengesMessage = "Reclamation impossible.";
+        }
+        else
+        {
+            var updated = claimTask.Result;
+            var index = challenges.FindIndex(c => c.Key == updated.Key);
+            if (index >= 0)
+            {
+                challenges[index] = updated;
+            }
+
+            challengesMessage = $"+{updated.RewardGold} or recus !";
+        }
+
+        challengeClaimTask = null;
+        return;
+    }
+
+    if (challengesTask is not null || challengeClaimTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (challenges.Count == 0)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) challengesCursor = Math.Min(challengesCursor + 1, challenges.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) challengesCursor = Math.Max(challengesCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        var selected = challenges[challengesCursor];
+        if (selected is { IsCompleted: true, IsClaimed: false })
+        {
+            challengesMessage = null;
+            challengeClaimTask = gameDataApi!.ClaimChallengeAsync(options.SessionToken!, chosenCharacterId!.Value, selected.Key);
+        }
+    }
+}
+
+void DrawChallengesPanel(int w, int h)
+{
+    const float boxWidth = 560f;
+    const float boxHeight = 460f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.07f, 0.06f, 0.05f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.6f, 0.3f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "DEFIS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.7f, 0.4f, 1f));
+
+    if (challengesTask is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (challenges.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN DEFI DISPONIBLE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 58f;
+        TextRenderer.Draw(spriteBatch, whiteTexture, "HEBDOMADAIRES", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.8f, 0.95f, 1f));
+        y += 24f;
+
+        for (var i = 0; i < challenges.Count; i++)
+        {
+            var challenge = challenges[i];
+            if (challenge.Period == ChallengePeriod.Monthly && challenges.Take(i).All(c => c.Period != ChallengePeriod.Monthly))
+            {
+                y += 10f;
+                TextRenderer.Draw(spriteBatch, whiteTexture, "MENSUELS", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.95f, 0.75f, 0.5f, 1f));
+                y += 24f;
+            }
+
+            var isSelected = i == challengesCursor;
+            var prefix = isSelected ? "> " : "  ";
+            var statusTag = challenge switch
+            {
+                { IsClaimed: true } => " [RECLAME]",
+                { IsCompleted: true } => " [TERMINE - ENTREE POUR RECLAMER]",
+                _ => "",
+            };
+            var color = challenge.IsClaimed
+                ? new Vector4(0.5f, 0.5f, 0.55f, 1f)
+                : challenge.IsCompleted
+                    ? new Vector4(0.6f, 0.95f, 0.6f, 1f)
+                    : isSelected ? new Vector4(0.95f, 0.8f, 0.5f, 1f) : Vector4.One;
+
+            var rowText = $"{prefix}{challenge.Name.ToUpperInvariant()} - {challenge.Progress}/{challenge.TargetValue} - {challenge.RewardGold} OR{statusTag}";
+            if (DrawClickableRow(rowText, new Vector2(topLeft.X + 24f, y), boxWidth - 48f, 1.6f, color))
+            {
+                challengesCursor = i;
+            }
+
+            y += 24f;
+        }
+
+        var selectedChallenge = challenges[challengesCursor];
+        var descY = topLeft.Y + boxHeight - 90f;
+        TextRenderer.Draw(spriteBatch, whiteTexture, selectedChallenge.Description, new Vector2(topLeft.X + 20f, descY), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+    }
+
+    if (challengesMessage is { Length: > 0 })
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, challengesMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : reclamer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -4900,6 +5041,12 @@ void OpenPanel(PanelKind kind)
             endGameStatus = null;
             endGameStatusTask = chosenCharacterId is null ? null : gameDataApi?.GetEndGameStatusAsync(chosenCharacterId.Value);
             break;
+        case PanelKind.Challenges:
+            challengesCursor = 0;
+            challengesMessage = null;
+            challenges = [];
+            challengesTask = chosenCharacterId is null ? null : gameDataApi?.GetChallengesAsync(chosenCharacterId.Value);
+            break;
     }
 }
 
@@ -5988,6 +6135,12 @@ void UpdatePanel(float deltaTime)
         return;
     }
 
+    if (activePanel == PanelKind.Challenges)
+    {
+        UpdateChallengesPanel();
+        return;
+    }
+
     if (activePanel == PanelKind.Inventory)
     {
         UpdateInventoryPanel();
@@ -7066,6 +7219,7 @@ void DrawOutdoorHud()
             case PanelKind.Fusion: DrawFusionPanel(w, h); break;
             case PanelKind.Hatchery: DrawHatcheryPanel(w, h); break;
             case PanelKind.Encyclopedia: DrawEncyclopediaPanel(w, h); break;
+            case PanelKind.Challenges: DrawChallengesPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -7124,6 +7278,8 @@ void DrawOutdoorHud()
         ("BOSS MONDIAL (H)", PanelKind.WorldBoss),
         // Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections".
         ("ENCYCLOPEDIE (C)", PanelKind.Encyclopedia),
+        // Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec une UI dédiée.
+        ("DEFIS (X)", PanelKind.Challenges),
         // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
         // son pseudo".
         ("DUEL (Y)", PanelKind.Duel),
@@ -9646,6 +9802,9 @@ enum PanelKind
 
     /// <summary>Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections".</summary>
     Encyclopedia,
+
+    /// <summary>Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec une UI dédiée.</summary>
+    Challenges,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>

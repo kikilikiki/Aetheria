@@ -129,6 +129,14 @@ public sealed class ProfessionService(AetheriaDbContext db, SessionTokenStore to
         await AddToInventoryAsync(character.Id, recipe.ResultItemId, recipe.ResultQuantity, ct);
 
         var leveledUp = GrantExperience(profession, 25);
+
+        // Voir GDD/demande utilisateur — "Défis hebdomadaires" (progression dérivée de cette statistique).
+        var craftStats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == character.Id, ct);
+        if (craftStats is not null)
+        {
+            craftStats.Economy.ItemsCrafted++;
+        }
+
         await db.SaveChangesAsync(ct);
 
         await new AchievementService(db).UnlockAsync(character.UserId, "premier_craft", ct);
