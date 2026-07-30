@@ -81,6 +81,14 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
         };
 
         db.Monsters.Add(monster);
+
+        // Voir GDD/demande utilisateur — "Défis hebdomadaires" (progression dérivée de cette statistique).
+        var captureStats = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == character.Id, ct);
+        if (captureStats is not null)
+        {
+            captureStats.Monsters.MonstersCaptured++;
+        }
+
         await db.SaveChangesAsync(ct);
 
         await new AchievementService(db).UnlockAsync(character.UserId, "premiere_capture", ct);

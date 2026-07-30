@@ -539,6 +539,14 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var partyService = new PartyService(db, tokenStore);
         await partyService.GrantSharedExperienceAsync(winnerCharacterId, PveVictoryExperience, ct);
 
+        // Voir GDD/demande utilisateur — "Défis hebdomadaires" (progression dérivée de cette statistique).
+        var winnerStatsForChallenge = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == winnerCharacterId, ct);
+        if (winnerStatsForChallenge is not null)
+        {
+            winnerStatsForChallenge.Combat.FightsWon++;
+            await db.SaveChangesAsync(ct);
+        }
+
         // Les créatures alliées (tout combattant de l'équipe du joueur qui n'est pas le
         // personnage lui-même) gagnent aussi de l'XP — n'existait pas du tout avant (voir GDD,
         // "UI pour les montres : monter de niveau").

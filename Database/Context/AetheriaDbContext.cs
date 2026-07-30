@@ -42,6 +42,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<GuildChestItemEntity> GuildChestItems => Set<GuildChestItemEntity>();
     public DbSet<KingdomVoteEntity> KingdomVotes => Set<KingdomVoteEntity>();
     public DbSet<WeeklyChestEntity> WeeklyChests => Set<WeeklyChestEntity>();
+    public DbSet<ChallengeProgressEntity> ChallengeProgress => Set<ChallengeProgressEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -289,6 +290,16 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             chest.HasOne(c => c.Kingdom)
                 .WithMany()
                 .HasForeignKey(c => c.KingdomId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChallengeProgressEntity>(progress =>
+        {
+            progress.HasIndex(p => new { p.CharacterId, p.ChallengeKey, p.PeriodBucket }).IsUnique();
+
+            progress.HasOne(p => p.Character)
+                .WithMany()
+                .HasForeignKey(p => p.CharacterId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

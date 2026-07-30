@@ -485,6 +485,31 @@ public sealed class GameDataApiClient : IDisposable
         return await _http.GetFromJsonAsync<EndGameStatus>($"/api/endgame/status?characterId={characterId}", JsonOptions, ct);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels.</summary>
+    public async Task<List<ChallengeStatus>> GetChallengesAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<ChallengeStatus>>($"/api/challenges?characterId={characterId}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<ChallengeStatus> ClaimChallengeAsync(string sessionToken, Guid characterId, string challengeKey, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/challenges/claim", new ClaimChallengeRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ChallengeKey = challengeKey,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        return (await response.Content.ReadFromJsonAsync<ChallengeStatus>(JsonOptions, ct))!;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "Exploration : coffres cachés hebdomadaires par royaume".</summary>
     public async Task<WeeklyChestStatus?> GetWeeklyChestAsync(int kingdomId, CancellationToken ct = default)
     {

@@ -1713,6 +1713,29 @@ app.MapGet("/api/endgame/status", async (Guid characterId) =>
     }
 });
 
+// Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec UI dédiée.
+app.MapGet("/api/challenges", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var challengeService = new ChallengeService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await challengeService.GetStatusAsync(characterId));
+});
+
+app.MapPost("/api/challenges/claim", async (ClaimChallengeRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var challengeService = new ChallengeService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await challengeService.ClaimAsync(request.SessionToken, request.CharacterId, request.ChallengeKey));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Voir GDD/demande utilisateur — "Fonctionnalités de royaume avancées" (élections du roi, taxes, construction).
 app.MapGet("/api/kingdoms/politics", async (Guid characterId) =>
 {
