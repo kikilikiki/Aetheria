@@ -182,5 +182,37 @@ public static class BattlePassService
         HasPremium = character.BattlePassHasPremium,
         PremiumCostGems = character.BattlePassHasPremium ? null : PremiumCostGems,
         MaxRewardLevel = MaxRewardLevel,
+        Tiers = BuildTiers(character.BattlePassLevel),
     };
+
+    /// <summary>Voir GDD/demande utilisateur — "une route que l'on peut scroll" : mêmes formules que <see cref="GrantFreeRewardAsync"/>/<see cref="GrantPremiumRewardAsync"/>, purement descriptif (aucune remise de récompense, aucun accès DB).</summary>
+    private static List<BattlePassTier> BuildTiers(int reachedLevel)
+    {
+        var tiers = new List<BattlePassTier>(MaxRewardLevel);
+        for (var level = 1; level <= MaxRewardLevel; level++)
+        {
+            tiers.Add(new BattlePassTier
+            {
+                Level = level,
+                FreeReward = DescribeFreeReward(level),
+                PremiumReward = DescribePremiumReward(level),
+                IsReached = level <= reachedLevel,
+            });
+        }
+
+        return tiers;
+    }
+
+    private static string DescribeFreeReward(int level) => level % 5 == 0
+        ? $"{FreeMilestoneItems[(level / 5 - 1) % FreeMilestoneItems.Length]} + {10 * (level / 5)} gemmes"
+        : $"{level * 20} or";
+
+    private static string DescribePremiumReward(int level)
+    {
+        var baseline = level % 5 == 0
+            ? $"{PremiumMilestoneItems[(level / 5 - 1) % PremiumMilestoneItems.Length]} + {20 * (level / 5)} gemmes"
+            : $"{level * 40} or + 5 gemmes";
+
+        return level == PremiumTitleLevel ? $"{baseline} + titre \"{PremiumTitleKey}\"" : baseline;
+    }
 }

@@ -17,4 +17,7 @@ public sealed class BattlePassStatus
 
     /// <summary>Dernier palier offrant une récompense catalogué (au-delà, le niveau continue de monter sans nouvelle récompense).</summary>
     public required int MaxRewardLevel { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "une route que l'on peut scroll" : un palier par niveau de 1 à <see cref="MaxRewardLevel"/>.</summary>
+    public required IReadOnlyList<BattlePassTier> Tiers { get; init; }
 }

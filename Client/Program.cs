@@ -464,6 +464,7 @@ BattlePassStatus? battlePassStatus = null;
 Task<BattlePassStatus?>? battlePassLoadTask = null;
 Task<ShopPurchaseResponse>? battlePassPurchaseTask = null;
 string? battlePassMessage = null;
+var battlePassCursor = 0;
 
 // Voir GDD/demande utilisateur — "un boss monde... barre de vie... leaderboard du boss actuel et de toujours".
 WorldBossStatus? worldBossStatus = null;
@@ -2168,6 +2169,14 @@ void UpdateBattlePassPanel()
     {
         battlePassStatus = loadTask.IsFaulted ? null : loadTask.Result;
         battlePassLoadTask = null;
+
+        // Voir GDD/demande utilisateur — "une route que l'on peut scroll" : ouvre la route déjà
+        // centrée sur le palier courant plutôt qu'au tout début, sinon il faudrait scroller
+        // manuellement jusqu'à sa propre progression à chaque ouverture du panneau.
+        if (battlePassStatus is { } loaded)
+        {
+            battlePassCursor = Math.Clamp(loaded.Level - 1, 0, Math.Max(0, loaded.Tiers.Count - 1));
+        }
     }
 
     if (battlePassPurchaseTask is { IsCompleted: true } purchaseTask)
@@ -2188,13 +2197,20 @@ void UpdateBattlePassPanel()
     {
         battlePassMessage = null;
         battlePassPurchaseTask = gameDataApi.PurchaseBattlePassPremiumAsync(options.SessionToken!, chosenCharacterId.Value);
+        return;
+    }
+
+    if (battlePassStatus is { } status)
+    {
+        if (keyboard.WasJustPressed(Key.Down)) battlePassCursor = Math.Min(battlePassCursor + 1, Math.Max(0, status.Tiers.Count - 1));
+        else if (keyboard.WasJustPressed(Key.Up)) battlePassCursor = Math.Max(battlePassCursor - 1, 0);
     }
 }
 
 void DrawBattlePassPanel(int w, int h)
 {
-    const float boxWidth = 460f;
-    const float boxHeight = 300f;
+    const float boxWidth = 640f;
+    const float boxHeight = 540f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.07f, 0.04f, 0.95f));
@@ -2208,32 +2224,78 @@ void DrawBattlePassPanel(int w, int h)
     else
     {
         var status = battlePassStatus;
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {status.Level}", new Vector2(w / 2f, topLeft.Y + 70f), 2.2f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{status.Experience} / {status.ExperienceForNextLevel} XP", new Vector2(w / 2f, topLeft.Y + 104f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {status.Level} - {status.Experience} / {status.ExperienceForNextLevel} XP", new Vector2(w / 2f, topLeft.Y + 60f), 2f, Vector4.One);
 
         // Voir demande utilisateur — "renomme le pass gratuit et le pass premium : pass aventure =
         // pass gratuit, pass premium [inchangé]".
         var premiumLabel = status.HasPremium ? "PASS PREMIUM ACTIF" : "Pass Aventure — récompenses de base à chaque niveau.";
         var premiumColor = status.HasPremium ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.7f, 0.7f, 0.75f, 1f);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, premiumLabel, new Vector2(w / 2f, topLeft.Y + 140f), 1.7f, premiumColor);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, premiumLabel, new Vector2(w / 2f, topLeft.Y + 90f), 1.6f, premiumColor);
+
+        // Voir GDD/demande utilisateur — "une route que l'on peut scroll" : un palier par ligne,
+        // récompense gratuite/premium côte à côte, surligné une fois atteint. Fenêtre de lignes
+        // visibles centrée sur battlePassCursor (voir UpdateBattlePassPanel) + barre de scroll
+        // (voir DrawScrollbar, même motif que Panel admin/Métiers/Encyclopédie).
+        const float routeTop = 116f;
+        const float rowHeight = 30f;
+        const int visibleRows = 11;
+        var tiers = status.Tiers;
+        var scrollStart = Math.Clamp(battlePassCursor - visibleRows / 2, 0, Math.Max(0, tiers.Count - visibleRows));
+
+        TextRenderer.Draw(spriteBatch, whiteTexture, "PALIER", new Vector2(topLeft.X + 24f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, "GRATUIT", new Vector2(topLeft.X + 120f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, "PREMIUM", new Vector2(topLeft.X + 380f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.85f, 0.7f, 0.35f, 1f));
+
+        var y = topLeft.Y + routeTop;
+        for (var i = scrollStart; i < Math.Min(tiers.Count, scrollStart + visibleRows); i++)
+        {
+            var tier = tiers[i];
+            var isCurrent = i == battlePassCursor;
+            var rowColor = tier.IsReached ? Vector4.One : new Vector4(0.5f, 0.5f, 0.55f, 1f);
+            if (isCurrent)
+            {
+                DrawPanel(new Vector2(topLeft.X + 12f, y - 4f), new Vector2(boxWidth - 24f - 10f, rowHeight - 2f), new Vector4(1f, 1f, 1f, 0.06f));
+            }
+
+            var levelPrefix = tier.IsReached ? "✓" : " ";
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{levelPrefix} {tier.Level}", new Vector2(topLeft.X + 24f, y), 1.5f, rowColor);
+            TextRenderer.Draw(spriteBatch, whiteTexture, tier.FreeReward, new Vector2(topLeft.X + 120f, y), 1.4f, rowColor);
+            var premiumRowColor = !tier.IsReached ? new Vector4(0.5f, 0.5f, 0.55f, 1f) : status.HasPremium ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.55f, 0.5f, 0.35f, 1f);
+            TextRenderer.Draw(spriteBatch, whiteTexture, tier.PremiumReward, new Vector2(topLeft.X + 380f, y), 1.4f, premiumRowColor);
+
+            y += rowHeight;
+        }
+
+        DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + routeTop - 4f), visibleRows * rowHeight, tiers.Count, visibleRows, scrollStart);
 
         if (battlePassMessage is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, battlePassMessage, new Vector2(w / 2f, topLeft.Y + 168f), 1.5f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, battlePassMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.5f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
         }
 
+        // Voir GDD/demande utilisateur — "un bouton pour acheter le premium" : bouton bien
+        // visible dans un encart dédié plutôt qu'une simple ligne de texte cliquable, pour qu'il
+        // se distingue clairement de la route au-dessus.
         if (status.PremiumCostGems is { } cost && battlePassPurchaseTask is null)
         {
-            if (DrawClickableCentered($"DEBLOQUER LE PASS PREMIUM ({cost} GEMMES) - ENTREE", new Vector2(w / 2f, topLeft.Y + 204f), 1.7f, new Vector4(0.95f, 0.8f, 0.4f, 1f))
+            var buttonCenter = new Vector2(w / 2f, topLeft.Y + boxHeight - 46f);
+            var buttonLabel = $"ACHETER LE PASS PREMIUM ({cost} GEMMES)";
+            var buttonSize = new Vector2(TextRenderer.MeasureWidth(buttonLabel, 1.8f) + 32f, 34f);
+            DrawPanel(buttonCenter - new Vector2(buttonSize.X / 2f, buttonSize.Y / 2f), buttonSize, new Vector4(0.95f, 0.75f, 0.35f, 0.15f));
+            if (DrawClickableCentered(buttonLabel, buttonCenter, 1.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f))
                 && chosenCharacterId is not null && gameDataApi is not null)
             {
                 battlePassMessage = null;
                 battlePassPurchaseTask = gameDataApi.PurchaseBattlePassPremiumAsync(options.SessionToken!, chosenCharacterId.Value);
             }
         }
+        else if (status.HasPremium)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Pass Premium déjà actif — merci !", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+        }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir la route - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
