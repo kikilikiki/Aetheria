@@ -1450,8 +1450,7 @@ app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomI
 
     try
     {
-        var goldGained = await roomService.OpenChestAsync(dungeonId, floorNumber, roomIndex, request);
-        return Results.Ok(new { goldGained });
+        return Results.Ok(await roomService.OpenChestAsync(dungeonId, floorNumber, roomIndex, request));
     }
     catch (AccountOperationException ex)
     {

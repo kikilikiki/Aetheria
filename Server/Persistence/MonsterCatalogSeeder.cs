@@ -409,6 +409,31 @@ public static class MonsterCatalogSeeder
                 Name = "Parchemin de Compétence", Description = "Change aléatoirement la compétence passive d'une créature.",
                 ItemType = ItemType.Consommable, Rarity = Rarity.Epique, IsStackable = true, MaxStackSize = 20, Price = 400,
             },
+            // Voir retour utilisateur — "ajoute des items exclusifs que l'on peut avoir que en
+            // donjon" : ni en boutique (Price = 0) ni dans le butin de combat aléatoire normal
+            // (IsObtainable = false, voir LootService) - distribués uniquement par
+            // DungeonRoomService.OpenChestAsync, qui ignore volontairement ce champ (même
+            // exception que le panel admin "DONNER UN OBJET").
+            new()
+            {
+                Name = "Éclat de donjon", Description = "Un fragment de pierre luisant, trouvé uniquement dans les coffres de donjon.",
+                ItemType = ItemType.Ressource, Rarity = Rarity.Commun, IsStackable = true, MaxStackSize = 99, Price = 0, IsObtainable = false,
+            },
+            new()
+            {
+                Name = "Relique poussiéreuse", Description = "Un objet ancien d'origine oubliée, trouvé uniquement dans les coffres de donjon.",
+                ItemType = ItemType.Ressource, Rarity = Rarity.PeuCommun, IsStackable = true, MaxStackSize = 99, Price = 0, IsObtainable = false,
+            },
+            new()
+            {
+                Name = "Fragment d'ombre", Description = "Un éclat qui semble absorber la lumière, trouvé uniquement dans les coffres de donjon.",
+                ItemType = ItemType.Ressource, Rarity = Rarity.Rare, IsStackable = true, MaxStackSize = 99, Price = 0, IsObtainable = false,
+            },
+            new()
+            {
+                Name = "Cœur de labyrinthe", Description = "Le noyau pulsant d'un donjon particulièrement ancien, trouvé uniquement dans les coffres de donjon.",
+                ItemType = ItemType.Ressource, Rarity = Rarity.Epique, IsStackable = true, MaxStackSize = 99, Price = 0, IsObtainable = false,
+            },
         };
 
         var missingShopItems = wantedShopItems.Where(i => !existingItemNames.Contains(i.Name)).ToList();
