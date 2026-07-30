@@ -1,0 +1,172 @@
+using System.Collections.Concurrent;
+using Aetheria.Database.Context;
+using Aetheria.Database.Entities;
+using Aetheria.Server.Persistence;
+using Aetheria.Shared.Models.WorldBoss;
+using Microsoft.EntityFrameworkCore;
+
+namespace Aetheria.Server.World;
+
+/// <summary>
+/// Boss mondial (voir GDD/demande utilisateur — "un boss monde ou le but est de faire un max de
+/// degat, plus on fait de degat plus on a de point, ajoute un leaderboard... du boss actuel et de
+/// toujours, il a une barre de vie et peut etre tue"). Un seul boss actif à la fois (voir
+/// <see cref="SpawnAsync"/>, réservé aux admins — voir <c>/api/admin/game/spawn-world-boss</c> et
+/// GDD "boss geant mondial... que tout le monde doit combattre").
+///
+/// Volontairement PAS raccroché au moteur de combat tactique sur grille (<c>CombatService</c>) :
+/// celui-ci suppose des sessions isolées (un petit groupe contre un adversaire à PV propres), pas
+/// un très grand nombre de joueurs frappant en parallèle un même total de PV partagé. Ici, chaque
+/// joueur "attaque" directement (bouton + cooldown, comme <c>ProfessionService.GatherAsync</c>)
+/// avec des dégâts calculés à partir de son équipe active — plus simple, mais couvre exactement le
+/// besoin ("faire un max de dégâts").
+/// </summary>
+public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tokenStore)
+{
+    private static readonly ConcurrentDictionary<Guid, DateTime> LastAttackAtUtc = new();
+    private static readonly TimeSpan AttackCooldown = TimeSpan.FromSeconds(8);
+
+    public async Task<WorldBossEntity> SpawnAsync(string name, int maxHealth, CancellationToken ct = default)
+    {
+        var previouslyAlive = await db.WorldBosses.Where(b => b.IsAlive).ToListAsync(ct);
+        foreach (var previous in previouslyAlive)
+        {
+            previous.IsAlive = false;
+        }
+
+        var boss = new WorldBossEntity
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            MaxHealth = Math.Max(1, maxHealth),
+            CurrentHealth = Math.Max(1, maxHealth),
+        };
+
+        db.WorldBosses.Add(boss);
+        await db.SaveChangesAsync(ct);
+        return boss;
+    }
+
+    public async Task<WorldBossStatus?> GetStatusAsync(CancellationToken ct = default)
+    {
+        var boss = await db.WorldBosses.OrderByDescending(b => b.SpawnedAtUtc).FirstOrDefaultAsync(ct);
+        return boss is null ? null : ToStatus(boss);
+    }
+
+    public async Task<WorldBossAttackResponse> AttackAsync(WorldBossAttackRequest request, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
+
+        var boss = await db.WorldBosses.Where(b => b.IsAlive).OrderByDescending(b => b.SpawnedAtUtc).FirstOrDefaultAsync(ct);
+        if (boss is null)
+        {
+            throw new AccountOperationException("Aucun boss mondial actif pour le moment.");
+        }
+
+        if (LastAttackAtUtc.TryGetValue(character.Id, out var last) && DateTime.UtcNow - last < AttackCooldown)
+        {
+            var remaining = AttackCooldown - (DateTime.UtcNow - last);
+            throw new AccountOperationException($"Il faut encore attendre {Math.Ceiling(remaining.TotalSeconds)}s avant d'attaquer à nouveau.");
+        }
+
+        LastAttackAtUtc[character.Id] = DateTime.UtcNow;
+
+        var damage = await ComputeDamageAsync(character, ct);
+        boss.CurrentHealth = Math.Max(0, boss.CurrentHealth - damage);
+
+        var entry = await db.WorldBossDamageEntries
+            .FirstOrDefaultAsync(e => e.WorldBossId == boss.Id && e.CharacterId == character.Id, ct);
+        if (entry is null)
+        {
+            entry = new WorldBossDamageEntity { Id = Guid.NewGuid(), WorldBossId = boss.Id, CharacterId = character.Id, CharacterName = character.Name };
+            db.WorldBossDamageEntries.Add(entry);
+        }
+
+        entry.TotalDamage += damage;
+
+        var bossKilled = false;
+        if (boss.CurrentHealth <= 0 && boss.IsAlive)
+        {
+            boss.IsAlive = false;
+            boss.KilledAtUtc = DateTime.UtcNow;
+            boss.KillerCharacterName = character.Name;
+            bossKilled = true;
+
+            // Voir GDD/demande utilisateur — "plus on fait de degat plus on a de point" : la
+            // récompense (or) est proportionnelle aux dégâts infligés par CHAQUE participant à
+            // cette instance, pas seulement au coup de grâce.
+            var participants = await db.WorldBossDamageEntries.Where(e => e.WorldBossId == boss.Id).ToListAsync(ct);
+            var participantCharacterIds = participants.Select(p => p.CharacterId).ToList();
+            var participantCharacters = await db.Characters.Where(c => participantCharacterIds.Contains(c.Id)).ToListAsync(ct);
+            foreach (var participant in participants)
+            {
+                var participantCharacter = participantCharacters.FirstOrDefault(c => c.Id == participant.CharacterId);
+                if (participantCharacter is not null)
+                {
+                    participantCharacter.Gold += participant.TotalDamage * 2L;
+                }
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var message = bossKilled
+            ? $"{boss.Name} a été vaincu par {character.Name} ! Récompenses distribuées à tous les participants."
+            : $"{damage} dégâts infligés à {boss.Name} ({boss.CurrentHealth}/{boss.MaxHealth} PV restants).";
+
+        return new WorldBossAttackResponse(true, message, damage, entry.TotalDamage, bossKilled, boss.CurrentHealth);
+    }
+
+    /// <summary>Somme de l'Attaque effective (mise à l'échelle par niveau + variante, voir MonsterStatMath) des créatures actives, plus une base liée au niveau du personnage.</summary>
+    private async Task<int> ComputeDamageAsync(CharacterEntity character, CancellationToken ct)
+    {
+        var activeMonsters = await db.Monsters
+            .Where(m => m.OwnerCharacterId == character.Id && m.IsInActiveTeam)
+            .ToListAsync(ct);
+
+        var damage = 5 + character.Level;
+        foreach (var monster in activeMonsters)
+        {
+            var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == monster.SpeciesId, ct);
+            damage += MonsterStatMath.ScaledStat(species?.BaseAttack ?? 5, monster.Level, monster.Variant);
+        }
+
+        return Math.Max(1, damage);
+    }
+
+    public async Task<List<WorldBossLeaderboardRow>> GetCurrentLeaderboardAsync(int limit, CancellationToken ct = default)
+    {
+        var boss = await db.WorldBosses.OrderByDescending(b => b.SpawnedAtUtc).FirstOrDefaultAsync(ct);
+        if (boss is null)
+        {
+            return [];
+        }
+
+        return await db.WorldBossDamageEntries
+            .Where(e => e.WorldBossId == boss.Id)
+            .OrderByDescending(e => e.TotalDamage)
+            .Take(limit)
+            .Select(e => new WorldBossLeaderboardRow(e.CharacterName, e.TotalDamage))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "de toujours" : somme des dégâts d'un personnage sur TOUTES les instances de boss mondial, pas seulement l'actuelle.</summary>
+    public async Task<List<WorldBossLeaderboardRow>> GetAllTimeLeaderboardAsync(int limit, CancellationToken ct = default)
+    {
+        return await db.WorldBossDamageEntries
+            .GroupBy(e => e.CharacterName)
+            .Select(g => new WorldBossLeaderboardRow(g.Key, g.Sum(e => e.TotalDamage)))
+            .OrderByDescending(r => r.TotalDamage)
+            .Take(limit)
+            .ToListAsync(ct);
+    }
+
+    private static WorldBossStatus ToStatus(WorldBossEntity boss) => new(
+        boss.Id, boss.Name, boss.CurrentHealth, boss.MaxHealth, boss.IsAlive, boss.SpawnedAtUtc, boss.KilledAtUtc, boss.KillerCharacterName);
+}

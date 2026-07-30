@@ -15,6 +15,7 @@ using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Models.Premium;
+using Aetheria.Shared.Models.WorldBoss;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
 using Microsoft.AspNetCore.Builder;
@@ -1028,6 +1029,39 @@ app.MapGet("/api/leaderboard/{category}/kingdom", async (LeaderboardCategory cat
     var leaderboardService = new LeaderboardService(db);
     var top = await leaderboardService.GetTopByKingdomAsync(category, character.Kingdom, limit <= 0 ? 10 : limit);
     return Results.Ok(top);
+});
+
+// Boss mondial (voir GDD/demande utilisateur — "un boss monde... barre de vie... leaderboard du
+// boss actuel et de toujours"). Voir WorldBossService.
+app.MapGet("/api/worldboss/status", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var status = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).GetStatusAsync();
+    return status is null ? Results.NoContent() : Results.Ok(status);
+});
+
+app.MapPost("/api/worldboss/attack", async (WorldBossAttackRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var worldBossService = new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await worldBossService.AttackAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/worldboss/leaderboard", async (string scope, int limit) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var worldBossService = new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    var rows = scope == "alltime"
+        ? await worldBossService.GetAllTimeLeaderboardAsync(limit <= 0 ? 10 : limit)
+        : await worldBossService.GetCurrentLeaderboardAsync(limit <= 0 ? 10 : limit);
+    return Results.Ok(rows);
 });
 
 // Voir GDD/demande utilisateur — "un endroit pour modifier son profil".
@@ -2273,6 +2307,32 @@ app.MapPost("/api/admin/game/give-gems", async (AdminGiveGemsRequest request) =>
     target.User.Gems = Math.Max(0, target.User.Gems + request.Amount);
     await db.SaveChangesAsync();
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a maintenant {target.User.Gems} gemmes." });
+});
+
+// Voir GDD/demande utilisateur — "boss geant mondial (un pnj qui apparait a notre royaume ou tout
+// le monde doit le combattre)" : fait apparaître un nouveau boss mondial (voir WorldBossService),
+// annoncé à tous les joueurs connectés comme les autres effets admin globaux.
+app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.Name, request.MaxHealth);
+
+    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.Broadcast,
+        Message = $"Un boss mondial est apparu : {boss.Name} ({boss.MaxHealth} PV) !",
+    });
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{boss.Name} a été invoqué avec {boss.MaxHealth} PV." });
 });
 
 using var shutdownCts = new CancellationTokenSource();

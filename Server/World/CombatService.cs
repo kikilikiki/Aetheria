@@ -157,11 +157,10 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// <c>Docs/README.md</c>. Le chef de groupe sert de référence, pas la moyenne du groupe.
     /// </summary>
     /// <summary>Voir GDD/demande utilisateur — "quand notre monstre monte de niveau, ses stats augmentent (attaque, défense etc)" : croissance linéaire (pas de composition exponentielle, importante avec le plafond de niveau 1000 — voir MonsterProgressionService.MaxLevel) d'environ 10% de la stat de base par niveau au-delà du niveau 1.</summary>
-    private static int ScaledStat(int baseStat, int level) => Math.Max(1, baseStat + (level - 1) * Math.Max(1, baseStat / 10));
+    private static int ScaledStat(int baseStat, int level) => MonsterStatMath.ScaledStat(baseStat, level);
 
     /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) : bonus multiplicatif appliqué APRÈS la mise à l'échelle par niveau.</summary>
-    private static int ScaledStat(int baseStat, int level, MonsterVariant variant) =>
-        Math.Max(1, (int)Math.Round(ScaledStat(baseStat, level) * MonsterVariantCatalog.Get(variant).StatMultiplier));
+    private static int ScaledStat(int baseStat, int level, MonsterVariant variant) => MonsterStatMath.ScaledStat(baseStat, level, variant);
 
     /// <summary>Voir GDD/demande utilisateur — "l'archer doit pouvoir attaquer à distance" : portée de base plutôt que réservée à la capacité spéciale (qui garde son propre bonus de portée, voir CombatEngine.ResolveSpecialAbility).</summary>
     private static int BaseAttackRange(MonsterType type) => type == MonsterType.Archer ? 3 : 1;
