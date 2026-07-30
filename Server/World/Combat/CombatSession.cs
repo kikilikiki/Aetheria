@@ -70,4 +70,14 @@ public sealed class CombatSession
 
     /// <summary>PV restants d'une case Destructible (voir TileEffects) — retirée de TileEffects une fois à 0 (voir CombatEngine.ResolveAttack).</summary>
     public Dictionary<(int X, int Y), int> DestructibleHealth { get; init; } = [];
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "Combo entre monstres", "Combo entre joueurs", "Ultime
+    /// d'équipe" (voir CombatEngine.ApplyComboBonus) : cible de la chaîne de combo en cours et
+    /// combattants qui l'ont déjà frappée sans interruption — réinitialisée dès qu'une cible
+    /// différente est attaquée.
+    /// </summary>
+    public Guid? ComboTargetId { get; set; }
+
+    public HashSet<Guid> ComboAttackerIds { get; init; } = [];
 }
