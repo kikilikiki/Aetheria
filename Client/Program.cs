@@ -97,7 +97,7 @@ var dungeonFloorNumber = 1;
 DungeonFloor? dungeonFloor = null;
 var dungeonRoomIndex = 0;
 Task<DungeonFloor?>? dungeonFloorTask = null;
-Task<int?>? dungeonChestTask = null;
+Task<ChestLootResult?>? dungeonChestTask = null;
 string? dungeonRoomMessage = null;
 
 /// <summary>Position du joueur dans la salle courante (0..1 relatif, voir DrawDungeonRoom) — recentrée à chaque changement de salle.</summary>
@@ -939,6 +939,15 @@ host.Update += deltaTime =>
             return;
         }
 
+        // Voir retour utilisateur — "pouvoir afficher son inventaire dans les donjons" : un
+        // panneau ouvert (Inventaire, voir raccourci I dans UpdateDungeonCorridor) reste
+        // prioritaire sur le déplacement, comme en extérieur (voir plus bas dans cette fonction).
+        if (activePanel != PanelKind.None)
+        {
+            UpdatePanel(deltaTime);
+            return;
+        }
+
         if (interiorIsDungeon && worldMap.DungeonId >= 0 && gameDataApi is not null)
         {
             UpdateDungeonCorridor(deltaTime);
@@ -1184,7 +1193,14 @@ host.Update += deltaTime =>
             // fois qu'on interagit avec l'Apprenti forgeron (pas seulement à la première visite
             // via le dialogue) — même logique de raccourci que les bâtiments à accès direct
             // (Pension/Boutique/Hôtel des ventes) plus bas.
-            case InteractionKind.Npc when interaction.Npc!.Name == "Apprenti forgeron":
+            // Voir retour utilisateur — "a la quete du forgeron il donne la mauvaise quete" : bug
+            // reproduit - un PNJ extérieur nommé "Forgeron" (voir WorldMap, juste à côté du
+            // bâtiment Forge) ne déclenchait QUE le dialogue générique "Forgeron" (voir
+            // NpcDialogues), sans jamais ouvrir le Craft ni faire progresser la quête - un joueur
+            // qui lui parlait en premier (très probable, il est dehors) pensait avoir "parlé au
+            // forgeron" sans que rien ne se passe. Les deux PNJ (extérieur "Forgeron", intérieur
+            // "Apprenti forgeron") ouvrent maintenant le même panneau Craft.
+            case InteractionKind.Npc when interaction.Npc!.Name is "Apprenti forgeron" or "Forgeron":
                 OpenPanel(PanelKind.Craft);
                 break;
             case InteractionKind.Npc:
@@ -6805,10 +6821,16 @@ void UpdateDungeonCorridor(float deltaTime)
 
     if (dungeonChestTask is { IsCompleted: true } chestTask)
     {
-        var gold = chestTask.IsFaulted ? null : chestTask.Result;
+        var loot = chestTask.IsFaulted ? null : chestTask.Result;
         dungeonChestTask = null;
         dungeonClearedRooms.Add(dungeonRoomIndex);
-        dungeonRoomMessage = gold is { } g ? $"Vous trouvez {g} pieces d'or !" : "Le coffre est vide.";
+        // Voir retour utilisateur — "pouvoir obtenir d'autre chose que de l'or dans les donjons".
+        dungeonRoomMessage = loot switch
+        {
+            { ItemName: { } itemName } => $"Vous trouvez {loot.Gold} pieces d'or et un(e) {itemName} !",
+            { } l => $"Vous trouvez {l.Gold} pieces d'or !",
+            null => "Le coffre est vide.",
+        };
         return;
     }
 
@@ -6844,6 +6866,14 @@ void UpdateDungeonCorridor(float deltaTime)
     if (keyboard.WasJustPressed(Key.Escape))
     {
         dungeonExitConfirmOpen = true;
+        return;
+    }
+
+    // Voir retour utilisateur — "pouvoir afficher son inventaire dans les donjons" : même
+    // raccourci qu'en extérieur, indisponible jusqu'ici pendant l'exploration d'un donjon.
+    if (keyboard.WasJustPressed(Key.I))
+    {
+        OpenPanel(PanelKind.Inventory);
         return;
     }
 
@@ -9348,6 +9378,13 @@ void DrawInteriorScene()
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, interiorTitle.ToUpperInvariant(), new Vector2(w / 2f, h * 0.16f), 5f, Vector4.One);
 
+    // Voir retour utilisateur — "pouvoir afficher son inventaire dans les donjons".
+    if (activePanel == PanelKind.Inventory)
+    {
+        DrawInventoryPanel(w, h);
+        return;
+    }
+
     if (interiorIsDungeon && worldMap.DungeonId >= 0 && gameDataApi is not null)
     {
         DrawDungeonCorridor(w, h);
@@ -9397,7 +9434,12 @@ void DrawInteriorScene()
             }
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
+        // Voir retour utilisateur — "ajoute un bouton pour sortir des maisons" : jusqu'ici un
+        // simple rappel du raccourci Echap, pas cliquable.
+        if (DrawClickableCentered("APPUYEZ SUR ECHAP OU CLIQUEZ POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f)))
+        {
+            sceneMode = SceneMode.Outdoor;
+        }
     }
 }
 

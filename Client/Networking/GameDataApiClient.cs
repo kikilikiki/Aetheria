@@ -238,7 +238,7 @@ public sealed class GameDataApiClient : IDisposable
     }
 
     /// <summary>Ouvre une salle Coffre (voir GDD — "loot au fil du chemin") ; retourne l'or gagné, ou <c>null</c> en cas d'échec.</summary>
-    public async Task<int?> OpenChestAsync(string sessionToken, Guid characterId, int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
+    public async Task<ChestLootResult?> OpenChestAsync(string sessionToken, Guid characterId, int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}/rooms/{roomIndex}/loot-chest", new OpenChestRequest
         {
@@ -246,13 +246,7 @@ public sealed class GameDataApiClient : IDisposable
             CharacterId = characterId,
         }, JsonOptions, ct);
 
-        if (!response.IsSuccessStatusCode)
-        {
-            return null;
-        }
-
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        return body.GetProperty("goldGained").GetInt32();
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ChestLootResult>(JsonOptions, ct) : null;
     }
 
     public async Task<List<ShopItem>> GetShopCatalogAsync(CancellationToken ct = default)

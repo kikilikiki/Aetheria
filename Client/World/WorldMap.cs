@@ -148,7 +148,10 @@ public sealed class WorldMap
 
         Npcs =
         [
-            new Npc("Garde royal", capital.X - 2, capital.Y + 1, new Vector4(0.55f, 0.10f, 0.10f, 1f), new Vector4(0.85f, 0.70f, 0.55f, 1f), 0f),
+            // Voir retour utilisateur — "rapprocher le garde" : était à 2 cases de la capitale
+            // (le double de tous les autres PNJ, systématiquement à 1 case de leur bâtiment) -
+            // ramené à la même échelle, plus proche du point d'arrivée du joueur.
+            new Npc("Garde royal", capital.X - 1, capital.Y, new Vector4(0.55f, 0.10f, 0.10f, 1f), new Vector4(0.85f, 0.70f, 0.55f, 1f), 0f),
             new Npc("Marchande", auctionHouse.X + 1, auctionHouse.Y + 1, new Vector4(0.20f, 0.45f, 0.35f, 1f), new Vector4(0.90f, 0.75f, 0.60f, 1f), 1.3f),
             new Npc("Forgeron", forge.X + 1, forge.Y, new Vector4(0.30f, 0.30f, 0.32f, 1f), new Vector4(0.80f, 0.62f, 0.48f, 1f), 2.6f),
             new Npc("Villageois", village.X + 2, village.Y + 1, new Vector4(0.45f, 0.38f, 0.25f, 1f), new Vector4(0.88f, 0.72f, 0.58f, 1f), 4.0f),

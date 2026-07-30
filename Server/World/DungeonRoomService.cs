@@ -15,7 +15,10 @@ namespace Aetheria.Server.World;
 /// </summary>
 public sealed class DungeonRoomService(AetheriaDbContext db, SessionTokenStore tokenStore)
 {
-    public async Task<int> OpenChestAsync(int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request, CancellationToken ct = default)
+    /// <summary>Voir retour utilisateur — "ajoute des items exclusifs que l'on peut avoir que en donjon" : réservés aux coffres de donjon (voir MonsterCatalogSeeder, IsObtainable = false).</summary>
+    private static readonly string[] DungeonExclusiveItems = ["Éclat de donjon", "Relique poussiéreuse", "Fragment d'ombre", "Cœur de labyrinthe"];
+
+    public async Task<ChestLootResult> OpenChestAsync(int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request, CancellationToken ct = default)
     {
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
         {
@@ -49,8 +52,26 @@ public sealed class DungeonRoomService(AetheriaDbContext db, SessionTokenStore t
         var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, userId, ct) * TemporaryBoostService.GoldMultiplier(character);
         var boostedGold = (int)Math.Round(gold * multiplier);
         character.Gold += boostedGold;
+
+        // Voir retour utilisateur — "pouvoir obtenir d'autre chose que de l'or dans les donjons" :
+        // 40% de chances en plus de l'or, jamais à sa place (l'or reste garanti).
+        string? itemName = null;
+        if (random.Next(100) < 40)
+        {
+            itemName = DungeonExclusiveItems[random.Next(DungeonExclusiveItems.Length)];
+            var item = await db.Items.FirstOrDefaultAsync(i => i.Name == itemName, ct);
+            if (item is not null)
+            {
+                await InventoryStackingService.AddQuantityAsync(db, character.Id, item.Id, 1, item.MaxStackSize <= 0 ? 99 : item.MaxStackSize, ct);
+            }
+            else
+            {
+                itemName = null;
+            }
+        }
+
         await db.SaveChangesAsync(ct);
 
-        return boostedGold;
+        return new ChestLootResult { Gold = boostedGold, ItemName = itemName };
     }
 }
