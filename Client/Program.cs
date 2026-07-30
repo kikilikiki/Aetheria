@@ -457,6 +457,7 @@ LeaderboardCategory[] leaderboardCategories =
 // Voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier".
 List<ProfessionSummary> professionRows = [];
 Task<List<ProfessionSummary>>? professionLoadTask = null;
+var professionCursor = 0;
 
 // Voir GDD/demande utilisateur — "un pass de niveaux de joueur ... si il paie le pass premium alors il auront accès à des trucs plus exclusif".
 BattlePassStatus? battlePassStatus = null;
@@ -2103,13 +2104,18 @@ void UpdateProfessionsPanel()
     if (professionLoadTask is { IsCompleted: true } loadTask)
     {
         professionRows = loadTask.IsFaulted ? [] : loadTask.Result;
+        professionCursor = Math.Clamp(professionCursor, 0, Math.Max(0, professionRows.Count - 1));
         professionLoadTask = null;
     }
 
     if (keyboard.WasJustPressed(Key.Escape))
     {
         activePanel = PanelKind.None;
+        return;
     }
+
+    if (keyboard.WasJustPressed(Key.Down)) professionCursor = Math.Min(professionCursor + 1, Math.Max(0, professionRows.Count - 1));
+    else if (keyboard.WasJustPressed(Key.Up)) professionCursor = Math.Max(professionCursor - 1, 0);
 }
 
 void DrawProfessionsPanel(int w, int h)
@@ -2129,17 +2135,23 @@ void DrawProfessionsPanel(int w, int h)
     }
     else
     {
-        foreach (var row in professionRows)
+        const int visibleRows = 6;
+        const float rowHeight = 56f;
+        var scrollStart = Math.Clamp(professionCursor - visibleRows / 2, 0, Math.Max(0, professionRows.Count - visibleRows));
+        for (var i = scrollStart; i < Math.Min(professionRows.Count, scrollStart + visibleRows); i++)
         {
+            var row = professionRows[i];
             TextRenderer.Draw(spriteBatch, whiteTexture, row.Profession.ToString().ToUpperInvariant(), new Vector2(topLeft.X + 24f, y), 1.8f, Vector4.One);
             TextRenderer.Draw(spriteBatch, whiteTexture, $"Niveau {row.Level}", new Vector2(topLeft.X + 240f, y), 1.6f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
             y += 26f;
             TextRenderer.Draw(spriteBatch, whiteTexture, $"{row.Experience} / {row.ExperienceForNextLevel} XP", new Vector2(topLeft.X + 24f, y), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             y += 30f;
         }
+
+        DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 64f), visibleRows * rowHeight, professionRows.Count, visibleRows, scrollStart);
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -2689,7 +2701,11 @@ void DrawEncyclopediaPanel(int w, int h)
             var mountDetailText = ownedMountKeys.Contains(selectedMount.Key)
                 ? $"Monture de type {selectedMount.Kind}. Equipez-la depuis le Profil (touche U)."
                 : $"Debloquee via le succes \"{AchievementCatalog.Find(selectedMount.UnlockedByAchievementKey)?.Name ?? selectedMount.UnlockedByAchievementKey}\".";
-            TextRenderer.Draw(spriteBatch, whiteTexture, mountDetailText, new Vector2(topLeft.X + 26f, mountDetailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            foreach (var line in WrapTextToLines(mountDetailText, boxWidth - 52f, 1.3f))
+            {
+                TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 26f, mountDetailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+                mountDetailY += 18f;
+            }
         }
     }
     else
@@ -2727,15 +2743,18 @@ void DrawEncyclopediaPanel(int w, int h)
                 y += 28f;
             }
 
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 88f), visibleRows * 28f, speciesList.Count, visibleRows, scrollStart);
+
             var selectedSpecies = speciesList[encyclopediaCursor];
             var detailY = topLeft.Y + boxHeight - 96f;
-            if (ownedSpeciesIds.Contains(selectedSpecies.Id))
+            var detailText = ownedSpeciesIds.Contains(selectedSpecies.Id)
+                ? selectedSpecies.Lore
+                : "Capturez cette espèce pour révéler sa fiche.";
+            var detailColor = ownedSpeciesIds.Contains(selectedSpecies.Id) ? new Vector4(0.75f, 0.75f, 0.8f, 1f) : new Vector4(0.55f, 0.55f, 0.6f, 1f);
+            foreach (var line in WrapTextToLines(detailText, boxWidth - 52f, 1.3f))
             {
-                TextRenderer.Draw(spriteBatch, whiteTexture, selectedSpecies.Lore, new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
-            }
-            else
-            {
-                TextRenderer.Draw(spriteBatch, whiteTexture, "Capturez cette espèce pour révéler sa fiche.", new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+                TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 26f, detailY), 1.3f, detailColor);
+                detailY += 18f;
             }
         }
     }
@@ -7002,6 +7021,28 @@ void UpdateStarterSelection(float deltaTime)
 void DrawPanel(Vector2 topLeft, Vector2 size, Vector4 color) => spriteBatch.Draw(whiteTexture, topLeft, size, color);
 
 /// <summary>
+/// Barre de scroll verticale minimale (piste + curseur), voir retour utilisateur — "il y a du
+/// texte qui dépasse et il n'y a pas de barre de scroll" (Encyclopédie, Panel admin, Métiers).
+/// N'affiche rien si tout le contenu tient déjà dans la fenêtre visible.
+/// </summary>
+void DrawScrollbar(Vector2 trackTopRight, float trackHeight, int totalCount, int visibleCount, int scrollStart)
+{
+    if (totalCount <= visibleCount)
+    {
+        return;
+    }
+
+    const float width = 5f;
+    var trackTopLeft = trackTopRight - new Vector2(width, 0f);
+    DrawPanel(trackTopLeft, new Vector2(width, trackHeight), new Vector4(1f, 1f, 1f, 0.08f));
+
+    var maxScroll = totalCount - visibleCount;
+    var thumbHeight = Math.Max(24f, trackHeight * visibleCount / totalCount);
+    var thumbY = trackTopLeft.Y + (trackHeight - thumbHeight) * scrollStart / maxScroll;
+    DrawPanel(new Vector2(trackTopLeft.X, thumbY), new Vector2(width, thumbHeight), new Vector4(1f, 1f, 1f, 0.4f));
+}
+
+/// <summary>
 /// Comme <see cref="TextRenderer.DrawCentered"/> mais cliquable : surligne le texte au survol de
 /// la souris et retourne vrai s'il vient d'être cliqué (bouton gauche). Voir retour utilisateur —
 /// "on doit pouvoir cliquer pour faire les actions et pas seulement au clavier". Les raccourcis
@@ -8098,7 +8139,7 @@ void DrawQuestPanel(int w, int h)
 void DrawAdminGamePanel(int w, int h)
 {
     const float boxWidth = 600f;
-    const float boxHeight = 480f;
+    const float boxHeight = 560f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
@@ -8115,8 +8156,10 @@ void DrawAdminGamePanel(int w, int h)
     }
     else
     {
+        const int visibleRows = 14;
+        var scrollStart = Math.Clamp(adminPanelCursor - visibleRows / 2, 0, Math.Max(0, commands.Length - visibleRows));
         var y = topLeft.Y + 60f;
-        for (var i = 0; i < commands.Length; i++)
+        for (var i = scrollStart; i < Math.Min(commands.Length, scrollStart + visibleRows); i++)
         {
             var selected = i == adminPanelCursor;
             var color = selected ? new Vector4(0.95f, 0.6f, 0.55f, 1f) : Vector4.One;
@@ -8139,6 +8182,8 @@ void DrawAdminGamePanel(int w, int h)
 
             y += 30f;
         }
+
+        DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 60f), visibleRows * 30f, commands.Length, visibleRows, scrollStart);
 
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : VALIDER - ECHAP : FERMER (F2)", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
