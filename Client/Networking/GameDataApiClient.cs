@@ -83,6 +83,68 @@ public sealed class GameDataApiClient : IDisposable
         return await ReadGuildResultAsync(response, ct);
     }
 
+    public async Task<GuildSummary> DepositGuildGoldAsync(string sessionToken, Guid characterId, Guid guildId, long amount, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/guilds/{guildId}/deposit-gold", new GuildDepositGoldRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            Amount = amount,
+        }, JsonOptions, ct);
+
+        return await ReadGuildResultAsync(response, ct);
+    }
+
+    public async Task<List<GuildChestItemSummary>> GetGuildChestAsync(Guid guildId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<GuildChestItemSummary>>($"/api/guilds/{guildId}/chest", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<List<GuildChestItemSummary>> DepositGuildItemAsync(string sessionToken, Guid characterId, Guid guildId, int itemId, int quantity, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/guilds/{guildId}/chest/deposit", new GuildChestActionRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ItemId = itemId,
+            Quantity = quantity,
+        }, JsonOptions, ct);
+
+        return await ReadGuildChestResultAsync(response, ct);
+    }
+
+    public async Task<List<GuildChestItemSummary>> WithdrawGuildItemAsync(string sessionToken, Guid characterId, Guid guildId, int itemId, int quantity, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/guilds/{guildId}/chest/withdraw", new GuildChestActionRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ItemId = itemId,
+            Quantity = quantity,
+        }, JsonOptions, ct);
+
+        return await ReadGuildChestResultAsync(response, ct);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Classement" (des guildes).</summary>
+    public async Task<List<GuildSummary>> GetGuildLeaderboardAsync(int limit = 10, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<GuildSummary>>($"/api/guilds/leaderboard?limit={limit}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    private static async Task<List<GuildChestItemSummary>> ReadGuildChestResultAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        return (await response.Content.ReadFromJsonAsync<List<GuildChestItemSummary>>(JsonOptions, ct))!;
+    }
+
     private static async Task<GuildSummary> ReadGuildResultAsync(HttpResponseMessage response, CancellationToken ct)
     {
         if (!response.IsSuccessStatusCode)

@@ -473,6 +473,15 @@ var guildSearchDone = false;
 Task<List<GuildSummary>>? guildSearchTask = null;
 Task<GuildSummary?>? guildActionTask = null;
 string? guildActionMessage = null;
+
+// Banque/coffre/classement de guilde (voir GDD/demande utilisateur — "Fonctionnalités de guilde avancées").
+List<GuildChestItemSummary> guildChest = [];
+var guildChestCursor = 0;
+var guildChestLoaded = false;
+Task<List<GuildChestItemSummary>>? guildChestTask = null;
+List<GuildSummary> guildLeaderboard = [];
+var guildLeaderboardLoaded = false;
+Task<List<GuildSummary>>? guildLeaderboardTask = null;
 List<ShopItem> shopCatalog = [];
 var shopCursor = 0;
 string? shopMessage = null;
@@ -4497,11 +4506,135 @@ void UpdateGuildPanel()
         return;
     }
 
+    if (guildChestTask is { IsCompleted: true } chestTask)
+    {
+        if (chestTask.IsFaulted)
+        {
+            guildActionMessage = "Action impossible.";
+        }
+        else
+        {
+            guildChest = chestTask.Result;
+            guildActionMessage = null;
+        }
+
+        guildChestCursor = Math.Clamp(guildChestCursor, 0, Math.Max(0, guildChest.Count - 1));
+        guildChestLoaded = true;
+        guildChestTask = null;
+        return;
+    }
+
+    if (guildChestTask is not null)
+    {
+        return;
+    }
+
+    if (guildLeaderboardTask is { IsCompleted: true } leaderboardTask)
+    {
+        guildLeaderboard = leaderboardTask.IsFaulted ? [] : leaderboardTask.Result;
+        guildLeaderboardLoaded = true;
+        guildLeaderboardTask = null;
+        return;
+    }
+
+    if (guildLeaderboardTask is not null)
+    {
+        return;
+    }
+
     if (myGuild is not null)
     {
+        if (guildMode == GuildPanelMode.DepositGold)
+        {
+            foreach (var typed in keyboard.DrainTypedChars())
+            {
+                if (guildTextInput.Length < 9 && char.IsDigit(typed))
+                {
+                    guildTextInput += typed;
+                }
+            }
+
+            if (keyboard.WasJustPressed(Key.Backspace) && guildTextInput.Length > 0)
+            {
+                guildTextInput = guildTextInput[..^1];
+            }
+            else if (keyboard.WasJustPressed(Key.Escape))
+            {
+                guildMode = GuildPanelMode.None;
+                guildTextInput = string.Empty;
+                guildActionMessage = null;
+            }
+            else if (keyboard.WasJustPressed(Key.Enter) && long.TryParse(guildTextInput, out var amount) && amount > 0)
+            {
+                guildActionMessage = null;
+                guildActionTask = gameDataApi!.DepositGuildGoldAsync(options.SessionToken!, chosenCharacterId!.Value, myGuild.Id, amount)!;
+                guildMode = GuildPanelMode.None;
+                guildTextInput = string.Empty;
+            }
+
+            return;
+        }
+
+        if (guildMode == GuildPanelMode.Chest)
+        {
+            if (keyboard.WasJustPressed(Key.Escape))
+            {
+                guildMode = GuildPanelMode.None;
+                guildActionMessage = null;
+            }
+            else if (keyboard.WasJustPressed(Key.I) && inventoryItems.Count > 0)
+            {
+                guildActionMessage = null;
+                var entry = inventoryItems[0];
+                guildChestTask = gameDataApi!.DepositGuildItemAsync(options.SessionToken!, chosenCharacterId!.Value, myGuild.Id, entry.ItemId, 1);
+            }
+            else if (guildChest.Count > 0)
+            {
+                if (keyboard.WasJustPressed(Key.Down)) guildChestCursor = Math.Min(guildChestCursor + 1, guildChest.Count - 1);
+                else if (keyboard.WasJustPressed(Key.Up)) guildChestCursor = Math.Max(guildChestCursor - 1, 0);
+                else if (keyboard.WasJustPressed(Key.O))
+                {
+                    guildActionMessage = null;
+                    var entry = guildChest[guildChestCursor];
+                    guildChestTask = gameDataApi!.WithdrawGuildItemAsync(options.SessionToken!, chosenCharacterId!.Value, myGuild.Id, entry.ItemId, 1);
+                }
+            }
+
+            return;
+        }
+
+        if (guildMode == GuildPanelMode.Leaderboard)
+        {
+            if (keyboard.WasJustPressed(Key.Escape))
+            {
+                guildMode = GuildPanelMode.None;
+            }
+
+            return;
+        }
+
         if (keyboard.WasJustPressed(Key.Escape))
         {
             activePanel = PanelKind.None;
+        }
+        else if (keyboard.WasJustPressed(Key.D))
+        {
+            guildMode = GuildPanelMode.DepositGold;
+            guildTextInput = string.Empty;
+            guildActionMessage = null;
+        }
+        else if (keyboard.WasJustPressed(Key.K))
+        {
+            guildMode = GuildPanelMode.Chest;
+            guildChestLoaded = false;
+            guildActionMessage = null;
+            guildChestTask = gameDataApi!.GetGuildChestAsync(myGuild.Id);
+        }
+        else if (keyboard.WasJustPressed(Key.L))
+        {
+            guildMode = GuildPanelMode.Leaderboard;
+            guildLeaderboardLoaded = false;
+            guildLeaderboardTask = gameDataApi!.GetGuildLeaderboardAsync();
         }
 
         return;
@@ -6549,12 +6682,68 @@ void DrawGuildPanel(int w, int h)
     {
         DrawGuildJoinCreateUi(topLeft, boxWidth, boxHeight);
     }
+    else if (guildMode == GuildPanelMode.DepositGold)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONTANT A DEPOSER A LA BANQUE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput, new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (guildMode == GuildPanelMode.Chest)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "COFFRE PARTAGE", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+
+        if (!guildChestLoaded)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else if (guildChest.Count == 0)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "LE COFFRE EST VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            var y = topLeft.Y + 90f;
+            for (var i = 0; i < guildChest.Count; i++)
+            {
+                var entry = guildChest[i];
+                var isSelected = i == guildChestCursor;
+                var prefix = isSelected ? "> " : "  ";
+                var color = isSelected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
+                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{entry.ItemName.ToUpperInvariant()} x{entry.Quantity}", new Vector2(topLeft.X + 24f, y), 1.9f, color);
+                y += 26f;
+            }
+        }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "I : DEPOSER 1ER OBJET DE L'INVENTAIRE - O : RETIRER LA SELECTION", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (guildMode == GuildPanelMode.Leaderboard)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSEMENT DES GUILDES", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+
+        if (!guildLeaderboardLoaded)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            var y = topLeft.Y + 90f;
+            for (var i = 0; i < guildLeaderboard.Count; i++)
+            {
+                var entry = guildLeaderboard[i];
+                var color = entry.Id == myGuild.Id ? new Vector4(0.6f, 0.95f, 0.6f, 1f) : Vector4.One;
+                TextRenderer.Draw(spriteBatch, whiteTexture, $"{i + 1}. {entry.Name.ToUpperInvariant()} - NIV. {entry.Level}", new Vector2(topLeft.X + 24f, y), 1.9f, color);
+                y += 26f;
+            }
+        }
+    }
     else
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {myGuild.Level} - {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 88f), 2f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myGuild.GuildExperience} / {myGuild.ExperienceForNextLevel} XP DE GUILDE", new Vector2(w / 2f, topLeft.Y + 108f), 1.6f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
 
-        var y = topLeft.Y + 122f;
+        var y = topLeft.Y + 138f;
         TextRenderer.Draw(spriteBatch, whiteTexture, "MEMBRES :", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         y += 28f;
         foreach (var name in myGuild.MemberNames)
@@ -6562,11 +6751,22 @@ void DrawGuildPanel(int w, int h)
             TextRenderer.Draw(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(topLeft.X + 30f, y), 2f, Vector4.One);
             y += 24f;
         }
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : BANQUE   K : COFFRE   L : CLASSEMENT", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
     }
 
-    if (myGuild is not null || guildMode == GuildPanelMode.None)
+    if (myGuild is not null && guildActionMessage is { Length: > 0 })
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, guildActionMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+    }
+
+    if (myGuild is null || guildMode == GuildPanelMode.None)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR REVENIR", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 }
 
@@ -8769,6 +8969,15 @@ enum GuildPanelMode
     None,
     Create,
     Search,
+
+    /// <summary>Voir GDD/demande utilisateur — "Banque de guilde" : saisie du montant à déposer.</summary>
+    DepositGold,
+
+    /// <summary>Voir GDD/demande utilisateur — "Coffre partagé" : déposer/retirer des objets.</summary>
+    Chest,
+
+    /// <summary>Voir GDD/demande utilisateur — "Classement" (des guildes).</summary>
+    Leaderboard,
 }
 
 /// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe). Porte son grade pour la liste des joueurs en ligne.</summary>

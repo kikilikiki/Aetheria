@@ -732,6 +732,68 @@ app.MapGet("/api/guilds", async (string? search) =>
     return Results.Ok(await guildService.SearchAsync(search));
 });
 
+// Banque de guilde (voir GDD/demande utilisateur — dépôt d'or, fait aussi monter le niveau de guilde).
+app.MapPost("/api/guilds/{guildId:guid}/deposit-gold", async (Guid guildId, GuildDepositGoldRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await guildService.DepositGoldAsync(guildId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Coffre partagé de guilde (voir GDD/demande utilisateur).
+app.MapGet("/api/guilds/{guildId:guid}/chest", async (Guid guildId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await guildService.GetChestAsync(guildId));
+});
+
+app.MapPost("/api/guilds/{guildId:guid}/chest/deposit", async (Guid guildId, GuildChestActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await guildService.DepositItemAsync(guildId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/guilds/{guildId:guid}/chest/withdraw", async (Guid guildId, GuildChestActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await guildService.WithdrawItemAsync(guildId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Classement des guildes (voir GDD/demande utilisateur).
+app.MapGet("/api/guilds/leaderboard", async (int? limit) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await guildService.GetLeaderboardAsync(limit ?? 10));
+});
+
 // Groupes (voir GDD — visibilité globale des joueurs, XP partagée en groupe).
 app.MapPost("/api/parties", async (CreatePartyRequest request) =>
 {

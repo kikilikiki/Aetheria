@@ -85,6 +85,120 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
         return summaries;
     }
 
+    private const long ExperiencePerLevel = 1000;
+
+    /// <summary>Voir GDD/demande utilisateur — "Banque de guilde" et "Niveau de guilde" : chaque pièce déposée par un membre est aussi de l'XP de guilde, même formule que les autres systèmes de niveau (XP requise au niveau N = N × 1000).</summary>
+    public async Task<GuildSummary> DepositGoldAsync(Guid guildId, GuildDepositGoldRequest request, CancellationToken ct = default)
+    {
+        var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
+        await RequireMembershipAsync(character.Id, guildId, ct);
+
+        if (request.Amount <= 0 || character.Gold < request.Amount)
+        {
+            throw new AccountOperationException("Montant invalide ou pièces insuffisantes.");
+        }
+
+        var guild = await db.Guilds.FirstAsync(g => g.Id == guildId, ct);
+        character.Gold -= request.Amount;
+        guild.TreasuryGold += request.Amount;
+        guild.GuildExperience += request.Amount;
+
+        while (guild.GuildExperience >= guild.Level * ExperiencePerLevel)
+        {
+            guild.GuildExperience -= guild.Level * ExperiencePerLevel;
+            guild.Level++;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return await BuildSummaryAsync(guild.Id, ct);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Coffre partagé".</summary>
+    public async Task<List<GuildChestItemSummary>> GetChestAsync(Guid guildId, CancellationToken ct = default)
+    {
+        return await db.GuildChestItems
+            .Where(i => i.GuildId == guildId)
+            .Join(db.Items, i => i.ItemId, item => item.Id, (i, item) => new GuildChestItemSummary(i.ItemId, item.Name, i.Quantity))
+            .ToListAsync(ct);
+    }
+
+    public async Task<List<GuildChestItemSummary>> DepositItemAsync(Guid guildId, GuildChestActionRequest request, CancellationToken ct = default)
+    {
+        var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
+        await RequireMembershipAsync(character.Id, guildId, ct);
+
+        var inventoryItem = await db.InventoryItems.FirstOrDefaultAsync(
+            i => i.CharacterId == character.Id && i.ItemId == request.ItemId && i.Quantity >= request.Quantity, ct)
+            ?? throw new AccountOperationException("Vous ne possédez pas assez de cet objet.");
+
+        inventoryItem.Quantity -= request.Quantity;
+        if (inventoryItem.Quantity <= 0)
+        {
+            db.InventoryItems.Remove(inventoryItem);
+        }
+
+        var chestEntry = await db.GuildChestItems.FirstOrDefaultAsync(i => i.GuildId == guildId && i.ItemId == request.ItemId, ct);
+        if (chestEntry is null)
+        {
+            chestEntry = new GuildChestItemEntity { Id = Guid.NewGuid(), GuildId = guildId, ItemId = request.ItemId };
+            db.GuildChestItems.Add(chestEntry);
+        }
+
+        chestEntry.Quantity += request.Quantity;
+        await db.SaveChangesAsync(ct);
+        return await GetChestAsync(guildId, ct);
+    }
+
+    public async Task<List<GuildChestItemSummary>> WithdrawItemAsync(Guid guildId, GuildChestActionRequest request, CancellationToken ct = default)
+    {
+        var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
+        await RequireMembershipAsync(character.Id, guildId, ct);
+
+        var chestEntry = await db.GuildChestItems.FirstOrDefaultAsync(i => i.GuildId == guildId && i.ItemId == request.ItemId && i.Quantity >= request.Quantity, ct)
+            ?? throw new AccountOperationException("Le coffre ne contient pas assez de cet objet.");
+
+        var item = await db.Items.FirstOrDefaultAsync(i => i.Id == request.ItemId, ct)
+            ?? throw new AccountOperationException("Objet introuvable.");
+
+        chestEntry.Quantity -= request.Quantity;
+        if (chestEntry.Quantity <= 0)
+        {
+            db.GuildChestItems.Remove(chestEntry);
+        }
+
+        await InventoryStackingService.AddQuantityAsync(db, character.Id, request.ItemId, request.Quantity, item.MaxStackSize <= 0 ? 99 : item.MaxStackSize, ct);
+        await db.SaveChangesAsync(ct);
+        return await GetChestAsync(guildId, ct);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Classement" (des guildes) : niveau puis XP de guilde en départage.</summary>
+    public async Task<List<GuildSummary>> GetLeaderboardAsync(int limit, CancellationToken ct = default)
+    {
+        var guildIds = await db.Guilds
+            .OrderByDescending(g => g.Level)
+            .ThenByDescending(g => g.GuildExperience)
+            .Take(limit)
+            .Select(g => g.Id)
+            .ToListAsync(ct);
+
+        var summaries = new List<GuildSummary>();
+        foreach (var id in guildIds)
+        {
+            summaries.Add(await BuildSummaryAsync(id, ct));
+        }
+
+        return summaries;
+    }
+
+    private async Task RequireMembershipAsync(Guid characterId, Guid guildId, CancellationToken ct)
+    {
+        var isMember = await db.GuildMembers.AnyAsync(m => m.CharacterId == characterId && m.GuildId == guildId, ct);
+        if (!isMember)
+        {
+            throw new AccountOperationException("Ce personnage n'appartient pas à cette guilde.");
+        }
+    }
+
     private async Task<CharacterEntity> ResolveOwnedCharacterAsync(string sessionToken, Guid characterId, CancellationToken ct)
     {
         if (!tokenStore.TryValidate(sessionToken, out var userId))
@@ -112,6 +226,8 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
             TreasuryGold = guild.TreasuryGold,
             LeaderCharacterId = guild.LeaderCharacterId,
             MemberNames = memberNames,
+            GuildExperience = guild.GuildExperience,
+            ExperienceForNextLevel = guild.Level * ExperiencePerLevel,
         };
     }
 }

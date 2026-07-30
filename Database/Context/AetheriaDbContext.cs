@@ -39,6 +39,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<FriendshipEntity> Friendships => Set<FriendshipEntity>();
     public DbSet<WorldBossEntity> WorldBosses => Set<WorldBossEntity>();
     public DbSet<WorldBossDamageEntity> WorldBossDamageEntries => Set<WorldBossDamageEntity>();
+    public DbSet<GuildChestItemEntity> GuildChestItems => Set<GuildChestItemEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
