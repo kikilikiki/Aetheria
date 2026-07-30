@@ -16,7 +16,10 @@ namespace Aetheria.Server.World;
 /// </summary>
 public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbContextFactory, ILogger<KingdomWarScheduler> logger, SessionTokenStore tokenStore)
 {
-    private static readonly string StatePath = RepoPath.Resolve(".kingdom-war-last-week");
+    private static readonly string WarStatePath = RepoPath.Resolve(".kingdom-war-last-week");
+
+    /// <summary>Voir GDD/demande utilisateur — "le roi tous les semaines (dimanche)" : fichier témoin séparé de celui de la guerre (samedi), pour un jour de résolution indépendant.</summary>
+    private static readonly string ElectionStatePath = RepoPath.Resolve(".kingdom-election-last-week");
 
     public async Task RunAsync(CancellationToken ct)
     {
@@ -24,11 +27,12 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
         {
             try
             {
-                await ResolveIfDueAsync(ct);
+                await ResolveWarIfDueAsync(ct);
+                await ResolveElectionIfDueAsync(ct);
             }
             catch (IOException ex)
             {
-                logger.LogWarning(ex, "Erreur de fichier lors de la vérification de la guerre de royaumes hebdomadaire.");
+                logger.LogWarning(ex, "Erreur de fichier lors de la vérification hebdomadaire des royaumes.");
             }
 
             try
@@ -42,7 +46,13 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
         }
     }
 
-    private async Task ResolveIfDueAsync(CancellationToken ct)
+    private static string CurrentWeekBucket(DateTime now)
+    {
+        var calendar = System.Globalization.CultureInfo.InvariantCulture.Calendar;
+        return $"{now.Year}-W{calendar.GetWeekOfYear(now, System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Monday):00}";
+    }
+
+    private async Task ResolveWarIfDueAsync(CancellationToken ct)
     {
         var now = DateTime.UtcNow;
         if (now.DayOfWeek != DayOfWeek.Saturday)
@@ -50,10 +60,8 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
             return;
         }
 
-        var calendar = System.Globalization.CultureInfo.InvariantCulture.Calendar;
-        var currentWeekBucket = $"{now.Year}-W{calendar.GetWeekOfYear(now, System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Monday):00}";
-        var lastResolvedWeekBucket = File.Exists(StatePath) ? (await File.ReadAllTextAsync(StatePath, ct)).Trim() : null;
-
+        var currentWeekBucket = CurrentWeekBucket(now);
+        var lastResolvedWeekBucket = File.Exists(WarStatePath) ? (await File.ReadAllTextAsync(WarStatePath, ct)).Trim() : null;
         if (lastResolvedWeekBucket == currentWeekBucket)
         {
             return;
@@ -63,10 +71,29 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
         var message = await new KingdomWarService(db).ResolveWeeklyWarAsync(ct);
         logger.LogInformation("Guerre de royaumes résolue automatiquement (samedi) : {Message}", message);
 
-        // Voir GDD/demande utilisateur — "élections du roi" : même cadence hebdomadaire que la guerre de royaumes.
-        var electionMessage = await new KingdomPoliticsService(db, tokenStore).ResolveElectionsAsync(ct);
-        logger.LogInformation("Élections de royaume résolues automatiquement (samedi) : {Message}", electionMessage);
+        await File.WriteAllTextAsync(WarStatePath, currentWeekBucket, ct);
+    }
 
-        await File.WriteAllTextAsync(StatePath, currentWeekBucket, ct);
+    /// <summary>Voir GDD/demande utilisateur — "élections du roi tous les dimanches".</summary>
+    private async Task ResolveElectionIfDueAsync(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        if (now.DayOfWeek != DayOfWeek.Sunday)
+        {
+            return;
+        }
+
+        var currentWeekBucket = CurrentWeekBucket(now);
+        var lastResolvedWeekBucket = File.Exists(ElectionStatePath) ? (await File.ReadAllTextAsync(ElectionStatePath, ct)).Trim() : null;
+        if (lastResolvedWeekBucket == currentWeekBucket)
+        {
+            return;
+        }
+
+        await using var db = await dbContextFactory.CreateDbContextAsync(ct);
+        var electionMessage = await new KingdomPoliticsService(db, tokenStore).ResolveElectionsAsync(ct);
+        logger.LogInformation("Élections de royaume résolues automatiquement (dimanche) : {Message}", electionMessage);
+
+        await File.WriteAllTextAsync(ElectionStatePath, currentWeekBucket, ct);
     }
 }

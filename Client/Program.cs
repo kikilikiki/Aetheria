@@ -3559,7 +3559,7 @@ void UpdateKingdomPanel()
         if (!constructTask.IsFaulted && constructTask.Result is { } updated)
         {
             kingdomPolitics = updated;
-            kingdomPoliticsMessage = "Batiment construit.";
+            kingdomPoliticsMessage = "Mine construite.";
         }
         else
         {
@@ -3697,7 +3697,7 @@ void DrawKingdomPanel(int w, int h)
         }
     }
 
-    var kingdomFooter = kingdomVoteMode ? "ENTREE : VOTER - ECHAP : ANNULER" : "V : VOTER   B : CONSTRUIRE (ROI)   H : COFFRE CACHE   -   ECHAP : FERMER";
+    var kingdomFooter = kingdomVoteMode ? "ENTREE : VOTER - ECHAP : ANNULER" : "V : VOTER   B : CONSTRUIRE UNE MINE (ROI)   H : COFFRE CACHE   -   ECHAP : FERMER";
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, kingdomFooter, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 

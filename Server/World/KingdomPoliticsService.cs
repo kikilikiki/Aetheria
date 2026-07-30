@@ -19,8 +19,11 @@ public sealed class KingdomPoliticsService(AetheriaDbContext db, SessionTokenSto
     /// <summary>Voir GDD/demande utilisateur — "taxes".</summary>
     public const int TaxPercent = 5;
 
-    /// <summary>Voir GDD/demande utilisateur — "construction de bâtiments".</summary>
+    /// <summary>Voir GDD/demande utilisateur — "construction de bâtiments" (ex. "le roi peut construire des mines").</summary>
     public const long BuildingCostGold = 5000;
+
+    /// <summary>Voir GDD/demande utilisateur — "plafond de 10 000 000 dans le coffre [du royaume]".</summary>
+    public const long MaxTreasuryGold = 10_000_000;
 
     /// <summary>
     /// Prélève <see cref="TaxPercent"/>% d'un gain d'or au profit du trésor du royaume du
@@ -49,7 +52,7 @@ public sealed class KingdomPoliticsService(AetheriaDbContext db, SessionTokenSto
         var kingdom = await db.Kingdoms.FirstOrDefaultAsync(k => k.Type == character.Kingdom, ct);
         if (kingdom is not null)
         {
-            kingdom.TreasuryGold += tax;
+            kingdom.TreasuryGold = Math.Min(MaxTreasuryGold, kingdom.TreasuryGold + tax);
         }
 
         return grossGoldGain - tax;
@@ -111,7 +114,7 @@ public sealed class KingdomPoliticsService(AetheriaDbContext db, SessionTokenSto
         return summary.Count == 0 ? "Aucun vote enregistré." : $"Élections de royaume résolues — {string.Join(", ", summary)}.";
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "construction de bâtiments" : réservé au roi élu, dépense le trésor pour agrandir durablement le bonus de rendement du royaume.</summary>
+    /// <summary>Voir GDD/demande utilisateur — "le roi peut construire des mines par exemple" : réservé au roi élu, dépense le trésor pour agrandir durablement le rendement de récolte du royaume (voir <see cref="KingdomEntity.BonusTerritoryCount"/> pour pourquoi ceci ne fait pas apparaître de mine à des coordonnées précises sur la carte).</summary>
     public async Task<KingdomPoliticsStatus> ConstructBuildingAsync(ConstructKingdomBuildingRequest request, CancellationToken ct = default)
     {
         var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
@@ -119,7 +122,7 @@ public sealed class KingdomPoliticsService(AetheriaDbContext db, SessionTokenSto
 
         if (kingdom.KingCharacterId != character.Id)
         {
-            throw new AccountOperationException("Seul le roi élu de votre royaume peut faire construire un bâtiment.");
+            throw new AccountOperationException("Seul le roi élu de votre royaume peut faire construire une mine.");
         }
 
         if (kingdom.TreasuryGold < BuildingCostGold)
