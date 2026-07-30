@@ -25,4 +25,6 @@ public sealed record CombatSessionState(
     /// affiche un compte à rebours à partir de cette valeur ; le serveur fait foi et passe le
     /// tour automatiquement au-delà de ce délai (voir <c>CombatTimeoutScheduler</c>).
     /// </summary>
-    DateTime TurnStartedAtUtc = default);
+    DateTime TurnStartedAtUtc = default,
+    /// <summary>Voir GDD/demande utilisateur — "pièges, cases destructibles, cases de lave, cases glacées" (voir CombatEngine.ScatterTileEffects) : vide en PvP/Arène.</summary>
+    IReadOnlyList<TileEffectEntry>? TileEffects = null);
