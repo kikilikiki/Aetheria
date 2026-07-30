@@ -15,4 +15,13 @@ public enum CombatActionType
 
     /// <summary>Fuite (voir GDD/demande utilisateur — "un bouton pour fuir les combats, impossible en donjon") : termine le combat sans vainqueur, refusé si <c>CombatSession.IsDungeonCombat</c>.</summary>
     Flee,
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "il doit y avoir l'attaque spéciale ... en plus de
+    /// l'attaque ultime si le monstre est lvl max" : action distincte de <see cref="SpecialAbility"/>
+    /// (pas un simple remplacement/relabel) — disponible uniquement au niveau max (voir
+    /// <c>CombatEngine.ResolveUltimateAbility</c>), avec son propre cooldown, en plus de la
+    /// capacité spéciale normale qui reste utilisable comme avant.
+    /// </summary>
+    UltimateAbility,
 }

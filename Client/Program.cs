@@ -3863,7 +3863,11 @@ void UpdateKingdomPanel()
 void DrawKingdomPanel(int w, int h)
 {
     const float boxWidth = 560f;
-    const float boxHeight = 420f;
+    // Voir retour utilisateur — "la zone des royaume est ecrase on ne comprend pas grand chose a
+    // la fin" : 4 royaumes fixes (voir KingdomType), celui du joueur affiche 2-3 lignes de plus
+    // (roi/tresor + coffre cache) que les 3 autres - le contenu total (jusqu'a ~380px) depassait
+    // largement les 420px d'origine et chevauchait le pied de page/la saisie de vote.
+    const float boxHeight = 580f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.07f, 0.06f, 0.95f));
@@ -6869,6 +6873,22 @@ void UpdateCombat(float deltaTime)
                 combatCursorY = current.PositionY;
             }
         }
+        else if (keyboard.WasJustPressed(Key.U) && current.Level >= MonsterMaxLevel)
+        {
+            // Voir GDD/demande utilisateur — "l'attaque ultime ... en plus de l'attaque
+            // spéciale" : action séparée (touche U, voir DrawCombat pour le bouton), même
+            // logique immédiat/ciblé que la capacité spéciale ci-dessus.
+            if (isImmediateAbility)
+            {
+                SendCombatAction(CombatActionType.UltimateAbility, 0, 0);
+            }
+            else
+            {
+                combatSelectedAction = CombatActionType.UltimateAbility;
+                combatCursorX = current.PositionX;
+                combatCursorY = current.PositionY;
+            }
+        }
         else if (keyboard.WasJustPressed(Key.Number5) && captureSphereItemId is not null)
         {
             combatSelectedAction = CombatActionType.Capture;
@@ -9183,10 +9203,18 @@ static string DungeonRoomFlavor(DungeonEncounterType type, bool chestOpened) => 
 /// <summary>Cases atteignables par l'action en cours (Déplacement/Attaque) — voir retour utilisateur ("on doit pouvoir voir jusqu'où on peut se déplacer/attaquer").</summary>
 IEnumerable<(int X, int Y)> CombatReachableCells(CombatantState actor, CombatActionType action)
 {
-    var targetsEnemy = action is CombatActionType.Attack or CombatActionType.Capture or CombatActionType.SpecialAbility;
-    var range = targetsEnemy
-        ? (action == CombatActionType.SpecialAbility && actor.Type == MonsterType.Archer ? actor.AttackRange + 1 : actor.AttackRange)
-        : actor.MovementRange;
+    // Voir GDD/demande utilisateur — "poser des bloques" (Contrôleur) : cible une case VIDE
+    // comme un Déplacement, contrairement aux autres capacités spéciales qui ciblent un ennemi -
+    // voir CombatEngine.ResolveBlockPlacement/PlacedBlockRange (même valeur ici, purement pour
+    // le surlignage, le serveur reste seul juge).
+    const int blockPlacementRange = 3;
+    var isBlockPlacement = action == CombatActionType.SpecialAbility && actor.Type == MonsterType.Controleur;
+    var targetsEnemy = !isBlockPlacement && action is CombatActionType.Attack or CombatActionType.Capture or CombatActionType.SpecialAbility or CombatActionType.UltimateAbility;
+    var range = isBlockPlacement
+        ? blockPlacementRange
+        : targetsEnemy
+            ? (action is CombatActionType.SpecialAbility or CombatActionType.UltimateAbility && actor.Type == MonsterType.Archer ? actor.AttackRange + 1 : actor.AttackRange)
+            : actor.MovementRange;
 
     for (var y = 0; y < combatState!.GridHeight; y++)
     {
@@ -9380,23 +9408,33 @@ void DrawCombat()
             if (combatSelectedAction is null)
             {
                 var current = combatState.Combatants.First(c => c.Id == combatState.CurrentTurnCombatantId);
+                // Voir GDD/demande utilisateur — "il doit y avoir l'attaque spéciale (poser des
+                // bloques, soigner un allié, une grosse attaque etc) en plus de l'attaque ultime
+                // si le monstre est lvl max" : Soigneur = capacité immédiate (cible auto l'allié
+                // le plus affaibli, pas de visée), les deux SAUF Contrôleur dont la capacité
+                // spéciale (pose de bloc) cible une case vide comme un Déplacement — jamais
+                // immédiate. L'Ultime reste "immédiat" pour le Soigneur pour la même raison.
                 var isImmediateAbility = current.Type == MonsterType.Soigneur;
 
                 // Voir GDD/demande utilisateur — "cooldown pour le spécial" : affiché sur le
                 // bouton lui-même plutôt qu'à part, le serveur reste seul juge (rejette l'action
                 // si on clique quand même, message affiché normalement via combatMessage).
-                // Voir GDD/demande utilisateur — "un bouton pour la capacité ultime... affiché
-                // seulement quand c'est le tour d'un monstre au niveau max" : même action
-                // (CombatActionType.SpecialAbility) que la capacité normale — le serveur applique
-                // déjà le bonus "ultime" x1.6 dès que l'attaquant est au niveau max (voir
-                // CombatEngine.ResolveSpecialAbility) — juste réétiqueté pour le rendre visible.
-                var isUltimateReady = current.Level >= MonsterMaxLevel;
                 var abilityLabel = current.SpecialAbilityCooldownRemaining > 0
-                    ? $"4:{(isUltimateReady ? "ULTIME" : "CAPACITE")} ({current.SpecialAbilityCooldownRemaining})"
-                    : $"4:{(isUltimateReady ? "ULTIME" : "CAPACITE")}";
+                    ? $"4:CAPACITE ({current.SpecialAbilityCooldownRemaining})"
+                    : "4:CAPACITE";
+
+                // Voir GDD/demande utilisateur — "un bouton pour la capacité ultime... affiché
+                // seulement quand c'est le tour d'un monstre au niveau max" + "en plus de
+                // l'attaque ultime" : action DISTINCTE de la capacité spéciale ci-dessus (son
+                // propre cooldown, voir CombatEngine.ResolveUltimateAbility) — les deux boutons
+                // coexistent au niveau max plutôt que l'un remplaçant l'autre.
+                var isUltimateReady = current.Level >= MonsterMaxLevel;
+                var ultimateLabel = current.UltimateAbilityCooldownRemaining > 0
+                    ? $"U:ULTIME ({current.UltimateAbilityCooldownRemaining})"
+                    : "U:ULTIME";
 
                 // Boutons cliquables (voir retour utilisateur — "on doit pouvoir cliquer pour
-                // faire les actions") en plus des raccourcis clavier 1-6, toujours actifs.
+                // faire les actions") en plus des raccourcis clavier, toujours actifs.
                 List<(string Label, CombatActionType Action)> actionButtons =
                 [
                     ("1:DEPLACER", CombatActionType.Move),
@@ -9404,6 +9442,11 @@ void DrawCombat()
                     ("3:PASSER", CombatActionType.Pass),
                     (abilityLabel, CombatActionType.SpecialAbility),
                 ];
+
+                if (isUltimateReady)
+                {
+                    actionButtons.Add((ultimateLabel, CombatActionType.UltimateAbility));
+                }
 
                 if (captureSphereItemId is not null)
                 {
@@ -9428,13 +9471,13 @@ void DrawCombat()
                 for (var i = 0; i < actionButtons.Count; i++)
                 {
                     var center = new Vector2(buttonX + widths[i] / 2f, h - 70f);
-                    var isUltimateButton = actionButtons[i].Action == CombatActionType.SpecialAbility && isUltimateReady && current.SpecialAbilityCooldownRemaining <= 0;
+                    var isUltimateButton = actionButtons[i].Action == CombatActionType.UltimateAbility;
                     var buttonColor = isUltimateButton ? new Vector4(0.95f, 0.4f, 0.35f, 1f) : new Vector4(0.9f, 0.75f, 0.35f, 1f);
                     if (DrawClickableCentered(actionButtons[i].Label, center, buttonPixelSize, buttonColor))
                     {
                         var isImmediateAction = actionButtons[i].Action == CombatActionType.Pass
                             || actionButtons[i].Action == CombatActionType.Flee
-                            || (actionButtons[i].Action == CombatActionType.SpecialAbility && isImmediateAbility);
+                            || (actionButtons[i].Action is CombatActionType.SpecialAbility or CombatActionType.UltimateAbility && isImmediateAbility);
 
                         if (isImmediateAction)
                         {

@@ -62,4 +62,13 @@ public sealed class Combatant
     /// à chaque fois que c'est de nouveau son tour (<see cref="CombatEngine.AdvanceTurn"/>).
     /// </summary>
     public int SpecialAbilityCooldownRemaining { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "il doit y avoir l'attaque spéciale ... en plus de
+    /// l'attaque ultime si le monstre est lvl max" : cooldown séparé de
+    /// <see cref="SpecialAbilityCooldownRemaining"/>, pour que l'Ultime (voir
+    /// <c>CombatEngine.ResolveUltimateAbility</c>) reste une action à part entière plutôt qu'un
+    /// simple remplacement de la capacité spéciale normale au niveau max.
+    /// </summary>
+    public int UltimateAbilityCooldownRemaining { get; set; }
 }

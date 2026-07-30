@@ -445,6 +445,15 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
                 break;
 
+            case CombatActionType.UltimateAbility:
+                CombatEngine.ResolveUltimateAbility(session, actor, request.TargetX, request.TargetY);
+                if (!session.IsFinished)
+                {
+                    CombatEngine.AdvanceTurn(session);
+                }
+
+                break;
+
             case CombatActionType.Flee:
                 if (session.IsDungeonCombat)
                 {
@@ -925,7 +934,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         CombatSession.GridWidth,
         CombatSession.GridHeight,
         session.Combatants
-            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining, c.Variant, c.PassiveTalent, c.Level))
+            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining, c.Variant, c.PassiveTalent, c.Level, c.UltimateAbilityCooldownRemaining))
             .ToList(),
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,

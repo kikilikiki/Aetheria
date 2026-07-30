@@ -14,7 +14,13 @@ internal static class CombatEngine
     /// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown pour le spécial" : nombre de tours du combattant avant de pouvoir la réutiliser.</summary>
     private const int SpecialAbilityCooldownTurns = 3;
 
+    /// <summary>Voir GDD/demande utilisateur — "l'attaque ultime en plus de l'attaque spéciale" : cooldown propre à <c>ResolveUltimateAbility</c>, séparé de <see cref="SpecialAbilityCooldownTurns"/>.</summary>
+    private const int UltimateAbilityCooldownTurns = 3;
+
     private const int DestructibleTileHealth = 15;
+
+    /// <summary>Voir GDD/demande utilisateur — "poser des bloques" (capacité du Contrôleur) : portée depuis laquelle une case vide peut recevoir un nouvel obstacle.</summary>
+    private const int PlacedBlockRange = 3;
 
     public static void Initialize(CombatSession session)
     {
@@ -288,10 +294,14 @@ internal static class CombatEngine
 
     /// <summary>
     /// Capacité spéciale selon le type du combattant (voir GDD/demande utilisateur — "ajoute des
-    /// capacités spéciales") : Soigneur soigne l'allié le plus affaibli (aucune cible à viser),
-    /// Archer transperce en ignorant la défense (portée +1), Guerrier (et tout autre type)
-    /// déclenche un coup puissant à dégâts majorés. Un seul palier de capacités par type pour
-    /// cette première version — pas d'arbre de compétences ni de coût de ressource dédié.
+    /// capacités spéciales" et "il doit y avoir l'attaque spéciale (poser des bloques, soigner un
+    /// allié, une grosse attaque etc) en plus de l'attaque ultime") : Soigneur soigne l'allié le
+    /// plus affaibli (aucune cible à viser), Contrôleur pose un bloc sur une case vide (voir
+    /// <see cref="ResolveBlockPlacement"/>), Archer transperce en ignorant la défense (portée +1),
+    /// Guerrier (et tout autre type) déclenche un coup puissant à dégâts majorés. Toujours
+    /// utilisable quel que soit le niveau — voir <see cref="ResolveUltimateAbility"/> pour
+    /// l'attaque ultime, une action SÉPARÉE (cooldown propre) débloquée au niveau max, en plus de
+    /// celle-ci et non à sa place.
     /// </summary>
     public static void ResolveSpecialAbility(CombatSession session, Combatant actor, int targetX, int targetY)
     {
@@ -322,6 +332,12 @@ internal static class CombatEngine
             return;
         }
 
+        if (actor.Type == MonsterType.Controleur)
+        {
+            ResolveBlockPlacement(session, actor, targetX, targetY);
+            return;
+        }
+
         var target = session.Combatants.FirstOrDefault(c => c.IsAlive && c.X == targetX && c.Y == targetY)
             ?? throw new InvalidOperationException("Aucune cible sur cette case.");
 
@@ -338,26 +354,166 @@ internal static class CombatEngine
 
         actor.SpecialAbilityCooldownRemaining = SpecialAbilityCooldownTurns;
 
-        // Voir GDD/demande utilisateur — "Competences ultimes debloquees au niveau max" : la
-        // capacité spéciale devient son "ultime" une fois MonsterProgressionService.MaxLevel
-        // atteint — pas de nouvelle action séparée (garde la même UI côté client), juste un
-        // multiplicateur nettement plus généreux.
-        var isUltimate = actor.Level >= MonsterProgressionService.MaxLevel;
-        var ultimateMultiplier = isUltimate ? 1.6 : 1.0;
-
         var multiplier = ElementalMultiplier(actor.Element, target.Element);
         int damage;
         string verb;
         if (actor.Type == MonsterType.Archer)
         {
             // Tir perçant : ignore entièrement la Défense (contrepartie de la portée +1).
+            damage = Math.Max(2, (int)(actor.Attack * multiplier));
+            verb = "transperce";
+        }
+        else
+        {
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
+            verb = "frappe (coup puissant)";
+        }
+
+        damage = ApplyAffinityBonus(session, actor, damage);
+        damage = ApplyComboBonus(session, actor, target, damage, out var comboSuffix);
+        damage = ApplyPassiveDamageModifiers(actor, target, damage);
+        target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
+        var suffix = ElementalSuffix(multiplier);
+        session.LastMessage = target.IsAlive
+            ? $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix}.{comboSuffix}"
+            : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !{comboSuffix}";
+        ApplyPostDamagePassives(session, actor, target, damage);
+
+        CheckEndCondition(session);
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "poser des bloques" (capacité du Contrôleur) : place un
+    /// obstacle Destructible (même mécanique que les cases générées en PvE, voir
+    /// <see cref="ScatterTileEffects"/>) sur une case vide à portée, infranchissable tant qu'il
+    /// n'est pas détruit (voir <see cref="ResolveMove"/>/<see cref="ResolveAttack"/>).
+    /// </summary>
+    private static void ResolveBlockPlacement(CombatSession session, Combatant actor, int targetX, int targetY)
+    {
+        if (!IsWithinGrid(targetX, targetY))
+        {
+            throw new InvalidOperationException("Case hors de la grille.");
+        }
+
+        if (Distance(actor.X, actor.Y, targetX, targetY) > PlacedBlockRange)
+        {
+            throw new InvalidOperationException("Case hors de portée.");
+        }
+
+        if (session.Combatants.Any(c => c.IsAlive && c.X == targetX && c.Y == targetY))
+        {
+            throw new InvalidOperationException("Impossible de poser un bloc sur une case occupée.");
+        }
+
+        if (session.TileEffects.ContainsKey((targetX, targetY)))
+        {
+            throw new InvalidOperationException("Cette case porte déjà un effet.");
+        }
+
+        session.TileEffects[(targetX, targetY)] = TileEffect.Destructible;
+        session.DestructibleHealth[(targetX, targetY)] = DestructibleTileHealth;
+        session.LastMessage = $"{actor.Name} pose un bloc en ({targetX}, {targetY}).";
+        actor.SpecialAbilityCooldownRemaining = SpecialAbilityCooldownTurns;
+    }
+
+    /// <summary>Cherche une case valide pour <see cref="ResolveBlockPlacement"/> autour de <paramref name="actor"/> — utilisé par l'IA (voir <see cref="RunAiTurn"/>), qui ne peut pas cibler la case de l'ennemi comme pour les autres capacités.</summary>
+    private static (int X, int Y)? FindBlockPlacementTile(CombatSession session, Combatant actor)
+    {
+        var candidates = new List<(int X, int Y)>();
+        for (var x = Math.Max(0, actor.X - PlacedBlockRange); x <= Math.Min(CombatSession.GridWidth - 1, actor.X + PlacedBlockRange); x++)
+        {
+            for (var y = Math.Max(0, actor.Y - PlacedBlockRange); y <= Math.Min(CombatSession.GridHeight - 1, actor.Y + PlacedBlockRange); y++)
+            {
+                if (Distance(actor.X, actor.Y, x, y) > PlacedBlockRange)
+                {
+                    continue;
+                }
+
+                if (session.Combatants.Any(c => c.IsAlive && c.X == x && c.Y == y) || session.TileEffects.ContainsKey((x, y)))
+                {
+                    continue;
+                }
+
+                candidates.Add((x, y));
+            }
+        }
+
+        return candidates.Count == 0 ? null : candidates[Random.Shared.Next(candidates.Count)];
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "il doit y avoir l'attaque spéciale ... en plus de
+    /// l'attaque ultime si le monstre est lvl max" : action séparée de
+    /// <see cref="ResolveSpecialAbility"/> (pas un remplacement/relabel — les deux restent
+    /// utilisables), débloquée uniquement à <c>MonsterProgressionService.MaxLevel</c>, avec son
+    /// propre cooldown (<see cref="Combatant.UltimateAbilityCooldownRemaining"/>). Même
+    /// flaveur par type que la capacité spéciale (Soigneur soigne, Archer transperce, le reste
+    /// frappe fort) mais nettement amplifiée — y compris pour le Contrôleur, dont la capacité
+    /// spéciale (pose de bloc) n'inflige elle-même aucun dégât.
+    /// </summary>
+    public static void ResolveUltimateAbility(CombatSession session, Combatant actor, int targetX, int targetY)
+    {
+        if (actor.Level < MonsterProgressionService.MaxLevel)
+        {
+            throw new InvalidOperationException("L'attaque ultime n'est débloquée qu'au niveau max.");
+        }
+
+        if (actor.UltimateAbilityCooldownRemaining > 0)
+        {
+            throw new InvalidOperationException(
+                $"Attaque ultime en recharge ({actor.UltimateAbilityCooldownRemaining} tour(s) restant(s)).");
+        }
+
+        if (actor.Type == MonsterType.Soigneur)
+        {
+            var lowest = session.Combatants
+                .Where(c => c.IsAlive && c.Team == actor.Team)
+                .OrderBy(c => (float)c.CurrentHealth / c.MaxHealth)
+                .FirstOrDefault();
+
+            actor.UltimateAbilityCooldownRemaining = UltimateAbilityCooldownTurns;
+
+            if (lowest is null || lowest.CurrentHealth >= lowest.MaxHealth)
+            {
+                session.LastMessage = $"{actor.Name} ne trouve personne à soigner (ultime).";
+                return;
+            }
+
+            var healAmount = lowest.MaxHealth - lowest.CurrentHealth;
+            lowest.CurrentHealth = lowest.MaxHealth;
+            session.LastMessage = $"{actor.Name} soigne entièrement {lowest.Name} ({healAmount} PV, ultime) !";
+            return;
+        }
+
+        var target = session.Combatants.FirstOrDefault(c => c.IsAlive && c.X == targetX && c.Y == targetY)
+            ?? throw new InvalidOperationException("Aucune cible sur cette case.");
+
+        if (target.Team == actor.Team)
+        {
+            throw new InvalidOperationException("Impossible d'attaquer un allié.");
+        }
+
+        var range = actor.Type == MonsterType.Archer ? actor.AttackRange + 1 : actor.AttackRange;
+        if (Distance(actor.X, actor.Y, targetX, targetY) > range)
+        {
+            throw new InvalidOperationException("Cible hors de portée.");
+        }
+
+        actor.UltimateAbilityCooldownRemaining = UltimateAbilityCooldownTurns;
+
+        const double ultimateMultiplier = 1.6;
+        var multiplier = ElementalMultiplier(actor.Element, target.Element);
+        int damage;
+        string verb;
+        if (actor.Type == MonsterType.Archer)
+        {
             damage = Math.Max(2, (int)(actor.Attack * multiplier * ultimateMultiplier));
-            verb = isUltimate ? "transperce (ultime)" : "transperce";
+            verb = "transperce (ultime)";
         }
         else
         {
             damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
-            verb = isUltimate ? "frappe (ultime)" : "frappe (coup puissant)";
+            verb = "frappe (ultime)";
         }
 
         damage = ApplyAffinityBonus(session, actor, damage);
@@ -448,6 +604,11 @@ internal static class CombatEngine
                     next.SpecialAbilityCooldownRemaining--;
                 }
 
+                if (next.UltimateAbilityCooldownRemaining > 0)
+                {
+                    next.UltimateAbilityCooldownRemaining--;
+                }
+
                 // Voir GDD/demande utilisateur — "Compétences passives" : Régénération, déclenchée
                 // en tout début de tour plutôt que sur une action précise.
                 if (next.PassiveTalent == PassiveTalentCatalog.Regeneration && next.CurrentHealth < next.MaxHealth)
@@ -502,6 +663,17 @@ internal static class CombatEngine
             return;
         }
 
+        // IA Contrôleur : pose un bloc sur une case vide de temps en temps plutôt qu'à chaque
+        // tour disponible (voir wantsSpecial plus bas pour les autres types) — cible une case
+        // vide autour de lui (voir FindBlockPlacementTile), PAS la case de l'ennemi comme les
+        // autres capacités spéciales (ResolveBlockPlacement refuserait une case occupée).
+        if (actor.Type == MonsterType.Controleur && canUseSpecial && Random.Shared.NextDouble() < 0.4
+            && FindBlockPlacementTile(session, actor) is { } blockTile)
+        {
+            ResolveSpecialAbility(session, actor, blockTile.X, blockTile.Y);
+            return;
+        }
+
         var target = session.Combatants.Where(c => c.IsAlive && c.Team != actor.Team)
             .OrderBy(c => Distance(actor.X, actor.Y, c.X, c.Y))
             .FirstOrDefault();
@@ -521,7 +693,9 @@ internal static class CombatEngine
             // distance). Sinon, l'IA l'utilise aussi environ un tour sur trois pour ne pas rendre
             // l'attaque de base totalement obsolète. Dans les deux cas, seulement si disponible.
             var mustUseSpecial = distance > actor.AttackRange;
-            var wantsSpecial = actor.Type != MonsterType.Soigneur && Random.Shared.NextDouble() < 0.35;
+            // Contrôleur exclu ici aussi (voir plus haut) : sa capacité spéciale cible une case
+            // vide, pas l'ennemi — l'appeler avec target.X/target.Y planterait (case occupée).
+            var wantsSpecial = actor.Type is not (MonsterType.Soigneur or MonsterType.Controleur) && Random.Shared.NextDouble() < 0.35;
 
             if (canUseSpecial && (mustUseSpecial || wantsSpecial))
             {
