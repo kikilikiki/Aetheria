@@ -749,12 +749,12 @@
                              déjà réservée à IsAdminAccount) est masqué pour les comptes non-staff. -->
                         <StackPanel Visibility="{Binding IsStaffAccount, Converter={StaticResource BoolToVis}}">
                             <TextBlock Text="ADRESSE DU SERVEUR" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
-                            <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding IsAdminAccount}" Margin="0,0,0,6" />
+                            <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding IsFondateurAccount}" Margin="0,0,0,6" />
                             <TextBlock Text="IP publique ou nom de domaine du serveur — fonctionne en local comme depuis un autre réseau."
                                        Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" />
                             <!-- Voir GDD/demande utilisateur — "seul le compte admin (grade fondateur) peut modifier l'adresse du serveur". -->
                             <TextBlock Text="Réservé au compte Fondateur." Foreground="{StaticResource TextMutedBrush}" FontSize="11"
-                                       Visibility="{Binding IsAdminAccount, Converter={StaticResource InverseBoolToVis}}" Margin="0,0,0,22" />
+                                       Visibility="{Binding IsFondateurAccount, Converter={StaticResource InverseBoolToVis}}" Margin="0,0,0,22" />
                         </StackPanel>
 
                         <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
