@@ -27,6 +27,20 @@ Sites/downloads/Aetheria.Shared.dll
 Sites/downloads/Aetheria.Shared.pdb
 Sites/downloads/CommunityToolkit.Mvvm.dll
 
+# Voir Sites/README.md — section "Paquet Linux" : binaires regenerables via
+# `dotnet publish -r linux-x64`, pas commites (scaffolding/scripts commites, pas les artefacts).
+Sites/downloads/linux/aetheria-client-deb/opt/aetheria/Aetheria.Client
+Sites/downloads/linux/aetheria-client-deb/opt/aetheria/libglfw.so.3
+Sites/downloads/linux/Aetheria.AppDir/usr/bin/Aetheria.Client
+Sites/downloads/linux/Aetheria.AppDir/usr/bin/libglfw.so.3
+Sites/downloads/linux/*.deb
+Sites/downloads/linux/*.AppImage
+
+# La règle globale "bin/" ci-dessus attrape aussi le usr/bin/ du paquet Linux (FHS) : on garde
+# le petit script wrapper (le vrai binaire reste ignoré via les règles explicites ci-dessus).
+!Sites/downloads/linux/aetheria-client-deb/usr/bin/
+!Sites/downloads/linux/aetheria-client-deb/usr/bin/aetheria
+
 # Base de données locale / secrets
 *.db
 *.db-shm

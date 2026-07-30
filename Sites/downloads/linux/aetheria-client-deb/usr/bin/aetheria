@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /opt/aetheria/Aetheria.Client "$@"

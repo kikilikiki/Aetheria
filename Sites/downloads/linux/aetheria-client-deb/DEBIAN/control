@@ -1,0 +1,11 @@
+Package: aetheria-client
+Version: 0.2.0
+Section: games
+Priority: optional
+Architecture: amd64
+Maintainer: feelsman
+Description: Aetheria - Client de jeu (MMORPG tactique de créatures et de royaumes)
+ Client autonome (self-contained, aucune dépendance .NET requise) se connectant
+ directement à un serveur Aetheria via --host=<adresse>. Le Launcher (compte,
+ connexion, mise à jour automatique) est actuellement Windows uniquement (WPF) ;
+ voir /opt/aetheria/README-linux.txt pour se connecter sans Launcher.
