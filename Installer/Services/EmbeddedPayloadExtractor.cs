@@ -31,7 +31,12 @@ public static class EmbeddedPayloadExtractor
         Directory.CreateDirectory(targetDirectory);
 
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-        archive.ExtractToDirectory(targetDirectory);
+        // Le zip contient les sorties de publication du Launcher ET du Client fusionnées à plat
+        // (voir Sites/README.md — Compress-Archive avec deux sources) : les dépendances partagées
+        // (Aetheria.Shared.dll, etc.) apparaissent deux fois au même chemin. overwriteFiles: true
+        // est donc correct ici (pas juste un contournement) — les deux copies sont identiques et
+        // doivent de toute façon fusionner dans le même dossier d'installation final.
+        archive.ExtractToDirectory(targetDirectory, overwriteFiles: true);
 
         return targetDirectory;
     }
