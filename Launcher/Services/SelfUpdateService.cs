@@ -7,8 +7,9 @@ namespace Aetheria.Launcher.Services;
 
 /// <summary>
 /// Voir GDD/demande utilisateur — "mise à jour obligatoire du Launcher" : télécharge le paquet
-/// servi par <c>GET /api/updates/launcher-package</c> (voir Server/Program.cs, même zip que le
-/// site — <c>Sites/downloads/AetheriaSetup.zip</c>), l'extrait, puis délègue la copie par-dessus
+/// servi par <c>GET /api/updates/launcher-package</c> (voir Server/Program.cs — Payload.zip,
+/// même contenu que celui embarqué dans AetheriaSetup.exe, fichiers directement à la racine du
+/// zip, PAS de sous-dossier "Payload/"), l'extrait, puis délègue la copie par-dessus
 /// l'installation actuelle à un script PowerShell détaché : impossible d'écraser
 /// Aetheria.Launcher.exe/.dll pendant qu'ils sont chargés par CE processus (fichier verrouillé
 /// par Windows), il faut donc que ce soit fait par un AUTRE processus, une fois celui-ci terminé.
@@ -18,7 +19,7 @@ public static class SelfUpdateService
     public static async Task<string?> DownloadAndApplyAsync(string serverHost, int port, IProgress<int> progress, CancellationToken ct = default)
     {
         var stagingRoot = Path.Combine(Path.GetTempPath(), "AetheriaUpdate_" + Guid.NewGuid().ToString("N"));
-        var zipPath = Path.Combine(stagingRoot, "AetheriaSetup.zip");
+        var zipPath = Path.Combine(stagingRoot, "AetheriaPayload.zip");
         var extractDir = Path.Combine(stagingRoot, "extracted");
         Directory.CreateDirectory(stagingRoot);
 
@@ -57,12 +58,15 @@ public static class SelfUpdateService
             }
 
             progress.Report(92);
-            ZipFile.ExtractToDirectory(zipPath, extractDir);
+            // Voir EmbeddedPayloadExtractor (même Payload.zip, même problème) : les sorties
+            // Launcher+Client fusionnées à plat contiennent des dépendances partagées en double
+            // au même chemin (Aetheria.Shared.dll, etc.) - overwriteFiles: true nécessaire, sinon
+            // ZipFile.ExtractToDirectory lève une IOException "already exists" sur la deuxième copie.
+            ZipFile.ExtractToDirectory(zipPath, extractDir, overwriteFiles: true);
 
-            var payloadDir = Path.Combine(extractDir, "Payload");
-            if (!Directory.Exists(payloadDir))
+            if (!File.Exists(Path.Combine(extractDir, "Aetheria.Launcher.exe")))
             {
-                return "Paquet de mise à jour invalide (dossier Payload introuvable).";
+                return "Paquet de mise à jour invalide (Aetheria.Launcher.exe introuvable).";
             }
 
             progress.Report(96);
@@ -82,7 +86,7 @@ public static class SelfUpdateService
                     Start-Sleep -Milliseconds 250
                 }
                 Start-Sleep -Milliseconds 500
-                robocopy "{{payloadDir}}" "{{installDir}}" /E /NFL /NDL /NJH /NJS /NC /NS
+                robocopy "{{extractDir}}" "{{installDir}}" /E /NFL /NDL /NJH /NJS /NC /NS
                 Start-Process -FilePath "{{launcherExePath}}"
                 Remove-Item -Recurse -Force "{{stagingRoot}}"
                 """;

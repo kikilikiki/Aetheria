@@ -135,14 +135,18 @@ _ = GitChangelogAnnouncer.LogNewCommitsAsync(app.Logger);
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
 
-// Voir GDD/demande utilisateur — "mise à jour obligatoire du Launcher" : sert le même paquet que
-// le site (Payload Launcher+Client en Release) pour que le Launcher puisse se mettre à jour tout
-// seul au lieu de se contenter de bloquer JOUER en renvoyant vers un téléchargement manuel.
+// Voir GDD/demande utilisateur — "mise à jour obligatoire du Launcher" : sert le Payload
+// Launcher+Client (voir Installer/Resources/Payload.zip, même contenu que celui embarqué dans
+// AetheriaSetup.exe) pour que le Launcher puisse se mettre à jour tout seul au lieu de se
+// contenter de bloquer JOUER en renvoyant vers un téléchargement manuel. Corrige un 404 : cette
+// route pointait encore vers Sites/downloads/AetheriaSetup.zip, qui n'existe plus depuis le
+// passage à l'installateur en exécutable unique (voir Sites/README.md) — Payload.zip n'a pas de
+// sous-dossier "Payload/" (fichiers directement à la racine), voir SelfUpdateService côté Launcher.
 app.MapGet("/api/updates/launcher-package", (IWebHostEnvironment env) =>
 {
-    var path = Path.Combine(env.ContentRootPath, "Sites", "downloads", "AetheriaSetup.zip");
+    var path = Path.Combine(env.ContentRootPath, "Installer", "Resources", "Payload.zip");
     return File.Exists(path)
-        ? Results.File(path, "application/zip", "AetheriaSetup.zip")
+        ? Results.File(path, "application/zip", "AetheriaPayload.zip")
         : Results.NotFound();
 });
 
