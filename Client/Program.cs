@@ -9874,7 +9874,11 @@ void DrawCombat()
 
         if (combatant.Id == combatState.CurrentTurnCombatantId)
         {
-            DrawPanel(center - new Vector2(cellSize / 2f - 2, cellSize / 2f - 2), new Vector2(cellSize - 4, cellSize - 4), new Vector4(1f, 1f, 1f, 0.15f));
+            // Voir retour utilisateur — "ameliore la surbrillance pour dire a qui le tour" :
+            // carre dore pulsant (voir animationClock) au lieu d'un blanc translucide statique
+            // a peine visible.
+            var turnPulse = 0.5f + 0.5f * MathF.Sin(animationClock * 5f);
+            DrawPanel(center - new Vector2(cellSize / 2f - 2, cellSize / 2f - 2), new Vector2(cellSize - 4, cellSize - 4), new Vector4(0.95f, 0.85f, 0.35f, 0.18f + 0.24f * turnPulse));
         }
 
         // Couleur selon le type (voir GDD/demande utilisateur — "les couleurs des personnages
@@ -9884,8 +9888,11 @@ void DrawCombat()
         // du starter, où aucun contour n'est voulu).
         var typeColor = CombatTypeColor(combatant.Type);
         var outlineColor = combatant.Team == 0 ? new Vector4(0.3f, 0.55f, 0.95f, 1f) : new Vector4(0.95f, 0.25f, 0.25f, 1f);
-        DrawStarterPortrait(center, cellSize * 0.32f + 4f, outlineColor);
-        DrawStarterPortrait(center, cellSize * 0.32f, typeColor);
+        // Voir retour utilisateur — "reduire les ennemis (beaucoup)" : portrait nettement plus
+        // petit côté ennemi (0.32 -> 0.20), la taille des alliés reste inchangée.
+        var portraitScale = combatant.Team == 0 ? 0.32f : 0.20f;
+        DrawStarterPortrait(center, cellSize * portraitScale + 4f, outlineColor);
+        DrawStarterPortrait(center, cellSize * portraitScale, typeColor);
 
         var hpRatio = Math.Clamp((float)combatant.CurrentHealth / combatant.MaxHealth, 0f, 1f);
         var barWidth = cellSize * 0.8f;
@@ -9903,25 +9910,42 @@ void DrawCombat()
     {
         var resultText = combatState.WinningTeam == 0 ? "VICTOIRE !" : "DEFAITE...";
         var resultColor = combatState.WinningTeam == 0 ? new Vector4(0.4f, 0.9f, 0.4f, 1f) : new Vector4(0.9f, 0.4f, 0.4f, 1f);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, h - 120f), 4f, resultColor);
 
         if (activeLoot is { IsResolved: false })
         {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, h - 120f), 4f, resultColor);
             DrawLootClaim(w, h);
         }
         else
         {
+            // Voir retour utilisateur — "texte de fin de combat superposé" : bug reproduit - le
+            // message de fin de combat, la liste du butin remporté (jusqu'à plusieurs lignes) et
+            // "ENTREE POUR CONTINUER" étaient tous en position fixe et pouvaient se chevaucher
+            // (et, avec beaucoup de butin, déborder sous le bas de l'écran). Le bloc est maintenant
+            // ancré depuis le bas (ENTREE POUR CONTINUER toujours à h-24) et grandit vers le haut
+            // selon le contenu réel, la bannière VICTOIRE/DEFAITE se plaçant juste au-dessus.
+            var lootLineCount = activeLoot is { IsResolved: true } resolvedForCount
+                ? (resolvedForCount.Winners is { Count: > 0 } winnersForCount ? winnersForCount.Count : 1)
+                : 0;
+            var messagePresent = combatState.LastMessage is not null;
+            var promptY = h - 24f;
+            var firstY = promptY - (messagePresent ? 28f : 0f) - lootLineCount * 24f - 16f;
+            var bannerY = firstY - 8f - TextRenderer.LineHeight(4f);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, bannerY), 4f, resultColor);
+
+            var y = firstY;
             if (combatState.LastMessage is not null)
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 80f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+                TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, y), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+                y += 28f;
             }
 
             if (activeLoot is { IsResolved: true } resolved)
             {
-                DrawLootResult(resolved, w, h);
+                y = DrawLootResult(resolved, w, h, y);
             }
 
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR CONTINUER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR CONTINUER", new Vector2(w / 2f, promptY), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         }
     }
     else
@@ -10139,16 +10163,17 @@ void DrawLootClaim(int w, int h)
 }
 
 /// <summary>Résultat du tirage de butin, une fois tous les joueurs éligibles passés (voir <see cref="LootRoll"/> côté serveur).</summary>
-void DrawLootResult(LootSessionState resolved, int w, int h)
+/// <summary>Retourne la position Y juste après la dernière ligne dessinée, pour que l'appelant puisse y empiler le prochain élément sans le chevaucher (voir retour utilisateur — "texte de fin de combat superposé").</summary>
+float DrawLootResult(LootSessionState resolved, int w, int h, float startY)
 {
     if (resolved.Winners is not { } winners || winners.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN OBJET RECLAME", new Vector2(w / 2f, h - 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-        return;
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN OBJET RECLAME", new Vector2(w / 2f, startY), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        return startY + 24f;
     }
 
     var mine = chosenCharacterId;
-    var y = h - 110f;
+    var y = startY;
     foreach (var (itemIndex, winnerCharacterId) in winners)
     {
         var item = resolved.Items[itemIndex];
@@ -10158,6 +10183,8 @@ void DrawLootResult(LootSessionState resolved, int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, label, new Vector2(w / 2f, y), 1.9f, RarityColor(item.Rarity));
         y += 24f;
     }
+
+    return y;
 }
 
 /// <summary>
