@@ -505,14 +505,27 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         if (allyMonsterIds.Count > 0)
         {
             var allyMonsters = await db.Monsters.Where(m => allyMonsterIds.Contains(m.Id)).ToListAsync(ct);
+            var evolvedNames = new List<string>();
             foreach (var monster in allyMonsters)
             {
                 MonsterProgressionService.GrantExperience(monster, (int)PveVictoryExperience);
+                var evolvedInto = await MonsterEvolutionService.CheckAndApplyAsync(db, monster, ct);
+                if (evolvedInto is not null)
+                {
+                    evolvedNames.Add(evolvedInto.Name);
+                }
             }
 
             if (allyMonsters.Count > 0)
             {
                 await db.SaveChangesAsync(ct);
+            }
+
+            // Voir GDD/demande utilisateur — "Évolution des monstres" : notifié en plus du message
+            // de victoire déjà posé par CombatEngine, pas à sa place.
+            if (evolvedNames.Count > 0)
+            {
+                session.LastMessage = $"{session.LastMessage} Évolution : {string.Join(", ", evolvedNames)} !".Trim();
             }
         }
 
