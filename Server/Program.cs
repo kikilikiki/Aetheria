@@ -2749,7 +2749,15 @@ app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest req
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.Name, request.MaxHealth, request.TargetKingdom);
+    WorldBossEntity boss;
+    try
+    {
+        boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.SpeciesId, request.MaxHealth, request.TargetKingdom);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+    }
 
     var kingdomSuffix = request.TargetKingdom is { } kingdom ? $" au royaume {kingdom}" : "";
     app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket

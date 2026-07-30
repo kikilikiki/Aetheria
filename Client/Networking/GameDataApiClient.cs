@@ -920,9 +920,9 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "boss geant mondial [invoque] a un royaume", réservé aux admins/fondateur (le serveur revérifie de toute façon).</summary>
-    public async Task<AdminGameActionResponse> SpawnWorldBossAsync(string sessionToken, string name, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
-        => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, Name = name, MaxHealth = maxHealth, TargetKingdom = targetKingdom }, ct);
+    /// <summary>Voir GDD/demande utilisateur — "refonte du spawn de boss mondial par ID", réservé aux admins/fondateur (le serveur revérifie de toute façon).</summary>
+    public async Task<AdminGameActionResponse> SpawnWorldBossAsync(string sessionToken, int speciesId, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, SpeciesId = speciesId, MaxHealth = maxHealth, TargetKingdom = targetKingdom }, ct);
 
     // Voir GDD/demande utilisateur — "commandes admin abuse : double XP, double butin, invasion de monstres".
     public async Task<AdminGameActionResponse> ActivateDoubleXpAsync(string sessionToken, int durationMinutes, CancellationToken ct = default)
