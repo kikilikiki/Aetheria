@@ -533,6 +533,8 @@ app.MapPost("/api/dungeons", async (DungeonData dungeon) =>
         KingdomId = dungeon.KingdomId,
         Description = dungeon.Description,
         Seed = dungeon.Seed,
+        MinLevel = Math.Max(1, dungeon.MinLevel),
+        IsHardcore = dungeon.IsHardcore,
     };
 
     db.Dungeons.Add(entity);
@@ -553,6 +555,8 @@ app.MapPut("/api/dungeons/{id:int}", async (int id, DungeonData updated) =>
     existing.KingdomId = updated.KingdomId;
     existing.Description = updated.Description;
     existing.Seed = updated.Seed;
+    existing.MinLevel = Math.Max(1, updated.MinLevel);
+    existing.IsHardcore = updated.IsHardcore;
 
     await db.SaveChangesAsync();
     return Results.Ok(ToDungeonData(existing));
@@ -2457,4 +2461,6 @@ static DungeonData ToDungeonData(DungeonEntity entity) => new()
     Seed = entity.Seed,
     WorldX = entity.WorldX,
     WorldY = entity.WorldY,
+    MinLevel = entity.MinLevel,
+    IsHardcore = entity.IsHardcore,
 };

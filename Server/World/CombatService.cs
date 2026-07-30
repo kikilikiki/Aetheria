@@ -20,7 +20,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 {
     /// <summary>XP de base accordée à la victoire PvE (voir GDD — partagée en groupe via <see cref="PartyService"/>). Simplification assumée : montant fixe plutôt que calculé sur le niveau/rareté exacte de la créature vaincue.</summary>
     private const long PveVictoryExperience = 30;
-    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false)
+    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false)
     {
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
         {
@@ -78,17 +78,22 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // plusieurs ennemis peut mélanger les variantes).
             var variant = MonsterVariantCatalog.RollWeighted(Random.Shared);
             var variantDefinition = MonsterVariantCatalog.Get(variant);
-            var wildMaxHealth = Math.Max(1, (int)Math.Round(wildSpecies.BaseHealth * variantDefinition.StatMultiplier));
+            // Voir GDD/demande utilisateur — "donjon hardcore (niv 15+)" : statistiques des
+            // monstres majorées de 50%, en contrepartie de récompenses plus généreuses (voir
+            // LootService, non modifié ici — la rareté de butin dépend déjà du niveau du
+            // personnage, or/xp de victoire eux montent avec des monstres plus costauds via le
+            // même calcul que d'habitude).
+            var hardcoreMultiplier = isHardcore ? 1.5 : 1.0;
+            var namePrefix = (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + (isHardcore ? "[HARDCORE] " : "");
+            var wildMaxHealth = Math.Max(1, (int)Math.Round(wildSpecies.BaseHealth * variantDefinition.StatMultiplier * hardcoreMultiplier));
             combatants.Add(new Combatant
             {
                 Id = Guid.NewGuid(),
-                Name = enemyCount > 1
-                    ? $"{(variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ")}{wildSpecies.Name} {i + 1}"
-                    : (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + wildSpecies.Name,
+                Name = enemyCount > 1 ? $"{namePrefix}{wildSpecies.Name} {i + 1}" : $"{namePrefix}{wildSpecies.Name}",
                 Team = 1, X = x, Y = y,
                 MaxHealth = wildMaxHealth, CurrentHealth = wildMaxHealth,
-                Attack = Math.Max(1, (int)Math.Round(wildSpecies.BaseAttack * variantDefinition.StatMultiplier)),
-                Defense = Math.Max(1, (int)Math.Round(wildSpecies.BaseDefense * variantDefinition.StatMultiplier)),
+                Attack = Math.Max(1, (int)Math.Round(wildSpecies.BaseAttack * variantDefinition.StatMultiplier * hardcoreMultiplier)),
+                Defense = Math.Max(1, (int)Math.Round(wildSpecies.BaseDefense * variantDefinition.StatMultiplier * hardcoreMultiplier)),
                 Speed = Math.Max(1, (int)Math.Round(wildSpecies.BaseSpeed * variantDefinition.StatMultiplier)),
                 MovementRange = 2, AttackRange = BaseAttackRange(wildSpecies.Type), IsPlayerControlled = false,
                 Type = wildSpecies.Type, Element = wildSpecies.Element, SpeciesId = wildSpecies.Id,
@@ -265,6 +270,21 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     public async Task<CombatSessionState> StartFromDungeonAsync(
         int dungeonId, int floorNumber, int roomIndex, StartDungeonCombatRequest request, CancellationToken ct = default)
     {
+        // Voir GDD/demande utilisateur — "donjons hardcore (niv 15+) et en dessous il n'y aura pas
+        // de hardcore" : bloqué avant même de tirer l'espèce rencontrée.
+        var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId, ct)
+            ?? throw new AccountOperationException("Donjon introuvable.");
+
+        if (dungeon.MinLevel > 1)
+        {
+            var enteringCharacter = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId, ct)
+                ?? throw new AccountOperationException("Personnage introuvable.");
+            if (enteringCharacter.Level < dungeon.MinLevel)
+            {
+                throw new AccountOperationException($"Ce donjon requiert le niveau {dungeon.MinLevel} (vous êtes niveau {enteringCharacter.Level}).");
+            }
+        }
+
         var species = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
 
         // Voir GDD/demande utilisateur — "ajoute un leaderboard pour la personne qui est arrivée
@@ -284,7 +304,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             CharacterId = request.CharacterId,
             MonsterIds = request.MonsterIds,
             WildSpeciesId = species.Id,
-        }, ct, isDungeonCombat: true);
+        }, ct, isDungeonCombat: true, isHardcore: dungeon.IsHardcore);
     }
 
     /// <summary>

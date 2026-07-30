@@ -19,4 +19,10 @@ public sealed class DungeonData
     /// </summary>
     public int WorldX { get; init; }
     public int WorldY { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "niveau min pour rentrer" : 1 = accessible à tout le monde.</summary>
+    public int MinLevel { get; init; } = 1;
+
+    /// <summary>Voir GDD/demande utilisateur — "donjons hardcore (niv 15+)".</summary>
+    public bool IsHardcore { get; init; }
 }
