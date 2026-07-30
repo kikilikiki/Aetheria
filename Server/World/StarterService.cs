@@ -53,6 +53,9 @@ public sealed class StarterService(AetheriaDbContext db, SessionTokenStore token
             Nickname = species.Name,
             Level = StarterLevel,
             IsInActiveTeam = true,
+            // Voir GDD/demande utilisateur — "Compétences passives" : tirée une fois pour toutes,
+            // comme pour une capture (voir CaptureService.AttemptCaptureAsync).
+            PassiveTalent = PassiveTalentCatalog.RollRandom(Random.Shared),
         };
 
         db.Monsters.Add(monster);

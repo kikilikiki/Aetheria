@@ -1,4 +1,5 @@
 using Aetheria.Shared.Enums;
+using Aetheria.Shared.Models;
 
 namespace Aetheria.Server.World.Combat;
 
@@ -65,13 +66,53 @@ internal static class CombatEngine
         // suite à un retour utilisateur ("les monstres ont beaucoup trop de vie").
         var multiplier = ElementalMultiplier(actor.Element, target.Element);
         var damage = Math.Max(2, (int)((actor.Attack - target.Defense / 2) * multiplier));
+        damage = ApplyPassiveDamageModifiers(actor, target, damage);
         target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
         var suffix = ElementalSuffix(multiplier);
         session.LastMessage = target.IsAlive
             ? $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix}."
             : $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix} et le met K.O. !";
+        ApplyPostDamagePassives(session, actor, target, damage);
 
         CheckEndCondition(session);
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "Compétences passives" (voir PassiveTalentCatalog) :
+    /// modificateurs appliqués AVANT que les dégâts ne touchent la cible — Acharnement côté
+    /// attaquant (PV bas), Bouclier côté défenseur.
+    /// </summary>
+    private static int ApplyPassiveDamageModifiers(Combatant actor, Combatant target, int rawDamage)
+    {
+        var damage = rawDamage;
+        if (actor.PassiveTalent == PassiveTalentCatalog.Acharnement && actor.CurrentHealth < actor.MaxHealth * 0.3)
+        {
+            damage = (int)(damage * 1.3);
+        }
+
+        if (target.PassiveTalent == PassiveTalentCatalog.Bouclier)
+        {
+            damage = (int)(damage * 0.85);
+        }
+
+        return Math.Max(1, damage);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Compétences passives" : effets déclenchés APRÈS l'application des dégâts — Vol de vie côté attaquant, Contre-attaque côté défenseur (s'il a survécu).</summary>
+    private static void ApplyPostDamagePassives(CombatSession session, Combatant actor, Combatant target, int damageDealt)
+    {
+        if (actor.PassiveTalent == PassiveTalentCatalog.VolDeVie)
+        {
+            var heal = Math.Max(1, damageDealt / 5);
+            actor.CurrentHealth = Math.Min(actor.MaxHealth, actor.CurrentHealth + heal);
+        }
+
+        if (target.IsAlive && target.PassiveTalent == PassiveTalentCatalog.ContreAttaque && Random.Shared.NextDouble() < 0.2)
+        {
+            var counterDamage = Math.Max(1, damageDealt / 2);
+            actor.CurrentHealth = Math.Max(0, actor.CurrentHealth - counterDamage);
+            session.LastMessage = $"{session.LastMessage} {target.Name} contre-attaque pour {counterDamage} dégâts !";
+        }
     }
 
     /// <summary>
@@ -126,26 +167,35 @@ internal static class CombatEngine
 
         actor.SpecialAbilityCooldownRemaining = SpecialAbilityCooldownTurns;
 
+        // Voir GDD/demande utilisateur — "Competences ultimes debloquees au niveau max" : la
+        // capacité spéciale devient son "ultime" une fois MonsterProgressionService.MaxLevel
+        // atteint — pas de nouvelle action séparée (garde la même UI côté client), juste un
+        // multiplicateur nettement plus généreux.
+        var isUltimate = actor.Level >= MonsterProgressionService.MaxLevel;
+        var ultimateMultiplier = isUltimate ? 1.6 : 1.0;
+
         var multiplier = ElementalMultiplier(actor.Element, target.Element);
         int damage;
         string verb;
         if (actor.Type == MonsterType.Archer)
         {
             // Tir perçant : ignore entièrement la Défense (contrepartie de la portée +1).
-            damage = Math.Max(2, (int)(actor.Attack * multiplier));
-            verb = "transperce";
+            damage = Math.Max(2, (int)(actor.Attack * multiplier * ultimateMultiplier));
+            verb = isUltimate ? "transperce (ultime)" : "transperce";
         }
         else
         {
-            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
-            verb = "frappe (coup puissant)";
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
+            verb = isUltimate ? "frappe (ultime)" : "frappe (coup puissant)";
         }
 
+        damage = ApplyPassiveDamageModifiers(actor, target, damage);
         target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
         var suffix = ElementalSuffix(multiplier);
         session.LastMessage = target.IsAlive
             ? $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix}."
             : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !";
+        ApplyPostDamagePassives(session, actor, target, damage);
 
         CheckEndCondition(session);
     }
@@ -223,6 +273,14 @@ internal static class CombatEngine
                 if (next.SpecialAbilityCooldownRemaining > 0)
                 {
                     next.SpecialAbilityCooldownRemaining--;
+                }
+
+                // Voir GDD/demande utilisateur — "Compétences passives" : Régénération, déclenchée
+                // en tout début de tour plutôt que sur une action précise.
+                if (next.PassiveTalent == PassiveTalentCatalog.Regeneration && next.CurrentHealth < next.MaxHealth)
+                {
+                    var regen = Math.Max(1, next.MaxHealth / 20);
+                    next.CurrentHealth = Math.Min(next.MaxHealth, next.CurrentHealth + regen);
                 }
 
                 return;
