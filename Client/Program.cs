@@ -555,8 +555,8 @@ Task<MonsterInstanceData?>? monsterEquipTask = null;
 /// <summary>Voir GDD/demande utilisateur — "une touche pour avoir les details de son monstre (atq, def, passif etc)".</summary>
 var monsterDetailOpen = false;
 
-/// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : voir MonsterProgressionService.MaxLevel côté serveur (1000, dupliqué ici — champ de service, pas exposé au Client).</summary>
-const int MonsterMaxLevel = 1000;
+/// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : voir MonsterProgressionService.MaxLevel côté serveur (150, dupliqué ici — champ de service, pas exposé au Client).</summary>
+const int MonsterMaxLevel = 150;
 Task<MonsterInstanceData?>? monsterPrestigeTask = null;
 
 /// <summary>Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections" : parcourt <see cref="speciesById"/> (déjà chargé), "connue" si le personnage possède/a possédé au moins une créature de cette espèce (voir ownedMonsters — approximation "actuellement possédée", pas un historique permanent).</summary>
@@ -8842,9 +8842,15 @@ void DrawCombat()
                 // Voir GDD/demande utilisateur — "cooldown pour le spécial" : affiché sur le
                 // bouton lui-même plutôt qu'à part, le serveur reste seul juge (rejette l'action
                 // si on clique quand même, message affiché normalement via combatMessage).
+                // Voir GDD/demande utilisateur — "un bouton pour la capacité ultime... affiché
+                // seulement quand c'est le tour d'un monstre au niveau max" : même action
+                // (CombatActionType.SpecialAbility) que la capacité normale — le serveur applique
+                // déjà le bonus "ultime" x1.6 dès que l'attaquant est au niveau max (voir
+                // CombatEngine.ResolveSpecialAbility) — juste réétiqueté pour le rendre visible.
+                var isUltimateReady = current.Level >= MonsterMaxLevel;
                 var abilityLabel = current.SpecialAbilityCooldownRemaining > 0
-                    ? $"4:CAPACITE ({current.SpecialAbilityCooldownRemaining})"
-                    : "4:CAPACITE";
+                    ? $"4:{(isUltimateReady ? "ULTIME" : "CAPACITE")} ({current.SpecialAbilityCooldownRemaining})"
+                    : $"4:{(isUltimateReady ? "ULTIME" : "CAPACITE")}";
 
                 // Boutons cliquables (voir retour utilisateur — "on doit pouvoir cliquer pour
                 // faire les actions") en plus des raccourcis clavier 1-6, toujours actifs.
@@ -8879,7 +8885,9 @@ void DrawCombat()
                 for (var i = 0; i < actionButtons.Count; i++)
                 {
                     var center = new Vector2(buttonX + widths[i] / 2f, h - 70f);
-                    if (DrawClickableCentered(actionButtons[i].Label, center, buttonPixelSize, new Vector4(0.9f, 0.75f, 0.35f, 1f)))
+                    var isUltimateButton = actionButtons[i].Action == CombatActionType.SpecialAbility && isUltimateReady && current.SpecialAbilityCooldownRemaining <= 0;
+                    var buttonColor = isUltimateButton ? new Vector4(0.95f, 0.4f, 0.35f, 1f) : new Vector4(0.9f, 0.75f, 0.35f, 1f);
+                    if (DrawClickableCentered(actionButtons[i].Label, center, buttonPixelSize, buttonColor))
                     {
                         var isImmediateAction = actionButtons[i].Action == CombatActionType.Pass
                             || actionButtons[i].Action == CombatActionType.Flee
