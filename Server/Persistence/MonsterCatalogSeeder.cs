@@ -227,6 +227,29 @@ public static class MonsterCatalogSeeder
             {
                 species.DungeonOnly = true;
             }
+
+            // Voir GDD/demande utilisateur — "Évolution des monstres" : quelques chaînes
+            // d'évolution entre espèces déjà existantes (même élément, palier de rareté suivant),
+            // à titre de démonstration du mécanisme (voir MonsterEvolutionService) — le reste du
+            // bestiaire peut être configuré de la même façon depuis Aetheria.MonsterEditor.
+            // Idempotent, revérifié à chaque démarrage comme le marquage DungeonOnly ci-dessus.
+            (string From, string To, int Level)[] evolutionChains =
+            [
+                ("Braisillon", "Salamandre", 10),
+                ("Racinelle", "Dryade", 10),
+                ("Aquapouss", "Serpent Marin", 10),
+            ];
+
+            foreach (var (fromName, toName, level) in evolutionChains)
+            {
+                var from = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Name == fromName, ct);
+                var to = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Name == toName, ct);
+                if (from is not null && to is not null && (from.EvolvesIntoSpeciesId != to.Id || from.EvolutionLevel != level))
+                {
+                    from.EvolvesIntoSpeciesId = to.Id;
+                    from.EvolutionLevel = level;
+                }
+            }
         }
 
         if (!await db.Items.AnyAsync(i => i.ItemType == ItemType.ObjetDeCapture, ct))

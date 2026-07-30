@@ -39,6 +39,7 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         }
 
         MonsterProgressionService.GrantExperience(monster, GiveItemExperience);
+        await MonsterEvolutionService.CheckAndApplyAsync(db, monster, ct);
         await db.SaveChangesAsync(ct);
 
         return ToMonsterInstanceData(monster);

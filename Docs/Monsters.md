@@ -107,3 +107,23 @@ largement toutes les rencontres.
 Une créature capturée conserve pour toujours la variante qu'elle avait à l'état sauvage (voir
 `CombatService.ResolveCaptureAsync`, qui transmet la variante réellement rencontrée au moment de
 la capture). Affichée entre crochets à côté du nom dans le panneau Monstres (sauf pour Normal).
+
+## Évolution
+
+Généré depuis `Server/Persistence/MonsterCatalogSeeder.cs` (backfill idempotent) — voir GDD/demande
+utilisateur "Évolution des monstres". Le mécanisme (`Server/World/MonsterEvolutionService.cs`) est
+générique : n'importe quelle espèce peut évoluer en n'importe quelle autre à partir d'un niveau
+donné, configurable espèce par espèce depuis `Aetheria.MonsterEditor` (champs déjà présents dans
+l'éditeur mais jusqu'ici sans aucun effet en jeu). Les chaînes ci-dessous ne sont que des exemples
+posés sur les 3 starters où une espèce déjà existante formait une suite thématique cohérente (même
+élément, palier de rareté supérieur) — le reste du bestiaire peut être relié de la même façon.
+
+| Espèce de départ | Évolue en | Niveau requis |
+|---|---|---|
+| Braisillon | Salamandre | 10 |
+| Racinelle | Dryade | 10 |
+| Aquapouss | Serpent Marin | 10 |
+
+Vérifiée après chaque victoire de combat PvE (créatures alliées) et après chaque objet donné à une
+créature (voir `MonsterCareService.GiveItemAsync`) — le surnom par défaut (jamais renommé par le
+joueur) suit l'évolution, un surnom personnalisé est conservé.
