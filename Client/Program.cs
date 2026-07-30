@@ -9597,6 +9597,8 @@ void DrawDungeonCorridor(int w, int h)
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"SALLES NETTOYEES : {dungeonClearedRooms.Count}/{dungeonFloor.Rooms.Count}",
         new Vector2(w / 2f, h * 0.26f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
+    DrawDungeonMinimap(w, dungeonFloor, room);
+
     // La pièce elle-même : un rectangle avec des ouvertures (portes) là où une salle voisine
     // existe sur la grille (voir DungeonRoom.North/South/East/West).
     const float doorGap = 0.16f;
@@ -9689,6 +9691,62 @@ void DrawDungeonCorridor(int w, int h)
         DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0f, 0f, 0f, 0.6f));
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "QUITTER LE DONJON ?", new Vector2(w / 2f, h * 0.44f), 3f, Vector4.One);
         DrawPromptBanner("ENTREE : CONFIRMER - ECHAP : ANNULER", new Vector2(w / 2f, h * 0.56f));
+    }
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "mini-carte de donjon (coin superieur droit)" : plan des
+/// salles de l'etage courant, positionnees selon DungeonRoom.GridX/GridY (aucun brouillard de
+/// guerre a masquer — le serveur transmet déjà tout l'étage généré au client, voir
+/// GetDungeonFloorAsync), avec les couloirs (portes) entre salles voisines, la salle courante en
+/// surbrillance et les salles nettoyées grisées comme dans le corps de l'écran.
+/// </summary>
+void DrawDungeonMinimap(int w, DungeonFloor floor, DungeonRoom currentRoom)
+{
+    const float cellSize = 16f;
+    const float margin = 20f;
+
+    var minGridX = floor.Rooms.Min(r => r.GridX);
+    var maxGridX = floor.Rooms.Max(r => r.GridX);
+    var minGridY = floor.Rooms.Min(r => r.GridY);
+    var maxGridY = floor.Rooms.Max(r => r.GridY);
+    var mapSize = new Vector2((maxGridX - minGridX + 1) * cellSize, (maxGridY - minGridY + 1) * cellSize);
+    var mapTopLeft = new Vector2(w - margin - mapSize.X, margin);
+
+    DrawPanel(mapTopLeft - new Vector2(6f, 6f), mapSize + new Vector2(12f, 12f), new Vector4(0.05f, 0.05f, 0.08f, 0.75f));
+
+    Vector2 CellCenter(DungeonRoom r) => mapTopLeft + new Vector2((r.GridX - minGridX + 0.5f) * cellSize, (r.GridY - minGridY + 0.5f) * cellSize);
+
+    var corridorColor = new Vector4(0.5f, 0.5f, 0.55f, 0.8f);
+    foreach (var r in floor.Rooms)
+    {
+        var center = CellCenter(r);
+        if (r.East)
+        {
+            DrawPanel(center + new Vector2(0f, -1.5f), new Vector2(cellSize, 3f), corridorColor);
+        }
+
+        if (r.South)
+        {
+            DrawPanel(center + new Vector2(-1.5f, 0f), new Vector2(3f, cellSize), corridorColor);
+        }
+    }
+
+    foreach (var r in floor.Rooms)
+    {
+        var center = CellCenter(r);
+        var isCurrent = r.Index == currentRoom.Index;
+        var isCleared = dungeonClearedRooms.Contains(r.Index);
+        var dotSize = isCurrent ? cellSize * 0.7f : cellSize * 0.5f;
+
+        if (isCurrent)
+        {
+            var glowSize = dotSize + 6f;
+            DrawPanel(center - new Vector2(glowSize / 2f, glowSize / 2f), new Vector2(glowSize, glowSize), new Vector4(0.95f, 0.85f, 0.35f, 0.5f));
+        }
+
+        var dotColor = isCleared ? new Vector4(0.35f, 0.35f, 0.4f, 1f) : DungeonRoomColor(r.EncounterType);
+        DrawPanel(center - new Vector2(dotSize / 2f, dotSize / 2f), new Vector2(dotSize, dotSize), dotColor);
     }
 }
 
