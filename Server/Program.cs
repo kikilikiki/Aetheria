@@ -1953,6 +1953,7 @@ app.MapGet("/api/admin/users", async (string? search) =>
     }
 
     var users = await query.Include(u => u.Characters).ToListAsync();
+    var registry = app.Services.GetRequiredService<WorldSessionRegistry>();
 
     return Results.Ok(users.Select(u => new AdminUserSummary
     {
@@ -1968,6 +1969,10 @@ app.MapGet("/api/admin/users", async (string? search) =>
         Rank = u.Rank,
         IsMuted = u.IsMuted,
         LastKnownIp = u.LastKnownIp,
+        // Voir GDD/demande utilisateur — "la couleur a gauche du pseudo dans le Launcher
+        // correspond a si la personne est en ligne ou pas" : en ligne si AU MOINS un de ses
+        // personnages a une session de jeu active (voir WorldSessionRegistry.IsOnline).
+        IsOnline = u.Characters.Any(c => registry.IsOnline(c.Id)),
     }));
 });
 

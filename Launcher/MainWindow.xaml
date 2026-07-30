@@ -30,6 +30,7 @@
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
         <local:UsernameToAvatarColorConverter x:Key="AvatarColorConverter" />
         <local:UsernameToInitialConverter x:Key="AvatarInitialConverter" />
+        <local:OnlineStatusToColorConverter x:Key="OnlineStatusColorConverter" />
 
         <SolidColorBrush x:Key="PanelBrush" Color="#18181B" />
         <SolidColorBrush x:Key="PanelBorderBrush" Color="#37383D" />
@@ -887,9 +888,9 @@
                                     <DataGridTemplateColumn Header="" Width="36">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
-                                                <Ellipse Width="24" Height="24" Fill="{Binding Username, Converter={StaticResource AvatarColorConverter}}">
+                                                <Ellipse Width="12" Height="12" Fill="{Binding IsOnline, Converter={StaticResource OnlineStatusColorConverter}}">
                                                     <Ellipse.ToolTip>
-                                                        <TextBlock Text="{Binding Username}" />
+                                                        <TextBlock Text="{Binding IsOnline, StringFormat='En ligne : {0}'}" />
                                                     </Ellipse.ToolTip>
                                                 </Ellipse>
                                             </DataTemplate>
