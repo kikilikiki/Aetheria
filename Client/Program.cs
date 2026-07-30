@@ -5745,7 +5745,8 @@ void UpdateMonstersPanel()
         {
             if (keyboard.WasJustPressed(Key.Down)) monsterGiveItemCursor = Math.Min(monsterGiveItemCursor + 1, inventoryItems.Count - 1);
             else if (keyboard.WasJustPressed(Key.Up)) monsterGiveItemCursor = Math.Max(monsterGiveItemCursor - 1, 0);
-            else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
+            monsterGiveItemCursor = ApplyScrollWheel(monsterGiveItemCursor, inventoryItems.Count);
+            if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
             {
                 var item = inventoryItems[monsterGiveItemCursor];
                 var monster = ownedMonsters[monsterCursor];
@@ -5772,7 +5773,8 @@ void UpdateMonstersPanel()
             monsterEquipCursor = Math.Clamp(monsterEquipCursor, 0, equipableItems.Count - 1);
             if (keyboard.WasJustPressed(Key.Down)) monsterEquipCursor = Math.Min(monsterEquipCursor + 1, equipableItems.Count - 1);
             else if (keyboard.WasJustPressed(Key.Up)) monsterEquipCursor = Math.Max(monsterEquipCursor - 1, 0);
-            else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
+            monsterEquipCursor = ApplyScrollWheel(monsterEquipCursor, equipableItems.Count);
+            if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
             {
                 var item = equipableItems[monsterEquipCursor];
                 var monster = ownedMonsters[monsterCursor];
@@ -5840,7 +5842,8 @@ void UpdateMonstersPanel()
 
     if (keyboard.WasJustPressed(Key.Down)) monsterCursor = Math.Min(monsterCursor + 1, ownedMonsters.Count - 1);
     else if (keyboard.WasJustPressed(Key.Up)) monsterCursor = Math.Max(monsterCursor - 1, 0);
-    else if (keyboard.WasJustPressed(Key.I))
+    monsterCursor = ApplyScrollWheel(monsterCursor, ownedMonsters.Count);
+    if (keyboard.WasJustPressed(Key.I))
     {
         monsterDetailOpen = true;
     }
@@ -7665,6 +7668,9 @@ void UpdateInventoryPanel()
     {
         inventoryScrollOffset = Math.Max(inventoryScrollOffset - 1, 0);
     }
+
+    if (mouse.ScrollDelta > 0) inventoryScrollOffset = Math.Max(inventoryScrollOffset - 1, 0);
+    else if (mouse.ScrollDelta < 0) inventoryScrollOffset = Math.Min(inventoryScrollOffset + 1, maxOffset);
 }
 
 void DrawInventoryPanel(int w, int h)
@@ -7942,8 +7948,11 @@ void DrawMonstersPanel(int w, int h)
         }
         else
         {
+            const int visibleRows = 9;
+            const float rowHeight = 26f;
+            var scrollStart = Math.Clamp(monsterGiveItemCursor - visibleRows / 2, 0, Math.Max(0, inventoryItems.Count - visibleRows));
             var y = topLeft.Y + 100f;
-            for (var i = 0; i < inventoryItems.Count; i++)
+            for (var i = scrollStart; i < Math.Min(inventoryItems.Count, scrollStart + visibleRows); i++)
             {
                 var isSelected = i == monsterGiveItemCursor;
                 var prefix = isSelected ? "> " : "  ";
@@ -7956,8 +7965,10 @@ void DrawMonstersPanel(int w, int h)
                     monsterGiveItemTask = gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, ownedMonsters[monsterCursor].Id, inventoryItems[i].ItemId);
                 }
 
-                y += 26f;
+                y += rowHeight;
             }
+
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 100f), visibleRows * rowHeight, inventoryItems.Count, visibleRows, scrollStart);
         }
 
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -7976,8 +7987,11 @@ void DrawMonstersPanel(int w, int h)
         }
         else
         {
+            const int visibleRows = 9;
+            const float rowHeight = 26f;
+            var scrollStart = Math.Clamp(monsterEquipCursor - visibleRows / 2, 0, Math.Max(0, equipableItems.Count - visibleRows));
             var y = topLeft.Y + 100f;
-            for (var i = 0; i < equipableItems.Count; i++)
+            for (var i = scrollStart; i < Math.Min(equipableItems.Count, scrollStart + visibleRows); i++)
             {
                 var isSelected = i == monsterEquipCursor;
                 var prefix = isSelected ? "> " : "  ";
@@ -7990,8 +8004,10 @@ void DrawMonstersPanel(int w, int h)
                     monsterEquipTask = gameDataApi!.EquipItemAsync(options.SessionToken!, monster.Id, equipableItems[i].ItemId);
                 }
 
-                y += 26f;
+                y += rowHeight;
             }
+
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 100f), visibleRows * rowHeight, equipableItems.Count, visibleRows, scrollStart);
         }
 
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -7999,8 +8015,19 @@ void DrawMonstersPanel(int w, int h)
     }
     else
     {
-        var y = topLeft.Y + 70f;
-        for (var i = 0; i < ownedMonsters.Count; i++)
+        // Voir retour utilisateur — "ajouter une barre de scroll dans la pension" (le bâtiment
+        // Pension ouvre ce même panneau Monstres, voir InteractionKind.Building) : la liste
+        // complète des créatures s'affichait sans fenêtrage ni scrollbar. Hauteur de ligne
+        // variable (48px normal, 62px pour la ligne sélectionnée qui affiche l'équipement) -
+        // fenêtrage basé sur la hauteur normale (légère imprécision visuelle possible sur la
+        // toute dernière ligne visible si c'est elle qui est sélectionnée, largement préférable
+        // à l'absence totale de limite).
+        const float listTop = 70f;
+        const float rowHeight = 48f;
+        const int visibleRows = 6;
+        var scrollStart = Math.Clamp(monsterCursor - visibleRows / 2, 0, Math.Max(0, ownedMonsters.Count - visibleRows));
+        var y = topLeft.Y + listTop;
+        for (var i = scrollStart; i < Math.Min(ownedMonsters.Count, scrollStart + visibleRows); i++)
         {
             var monster = ownedMonsters[i];
             var isSelected = i == monsterCursor;
@@ -8063,6 +8090,8 @@ void DrawMonstersPanel(int w, int h)
 
             y += isSelected ? 62f : 48f;
         }
+
+        DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + listTop), visibleRows * rowHeight, ownedMonsters.Count, visibleRows, scrollStart);
 
         // Voir GDD/demande utilisateur — "pour les indications de touche, fais comme Amis/Profil"
         // : bannière pulsante en bas (DrawPromptBanner) plutôt qu'un texte simple dans la boîte,
