@@ -71,6 +71,10 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
         var message = await new KingdomWarService(db).ResolveWeeklyWarAsync(ct);
         logger.LogInformation("Guerre de royaumes résolue automatiquement (samedi) : {Message}", message);
 
+        // Voir GDD/demande utilisateur — "Guerres de guildes" : même cadence hebdomadaire (samedi).
+        var guildWarMessage = await new GuildService(db, tokenStore).ResolveWeeklyWarAsync(ct);
+        logger.LogInformation("Guerre de guildes résolue automatiquement (samedi) : {Message}", guildWarMessage);
+
         await File.WriteAllTextAsync(WarStatePath, currentWeekBucket, ct);
     }
 

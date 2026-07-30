@@ -619,6 +619,14 @@ WeeklyChestStatus? weeklyChest = null;
 Task<WeeklyChestStatus?>? weeklyChestTask = null;
 Task<WeeklyChestStatus?>? weeklyChestClaimTask = null;
 
+// Voir GDD/demande utilisateur — "Guerres de guildes".
+var guildWarReady = false;
+var guildWarPollClock = 0f;
+string? guildWarMessage = null;
+Task<bool>? guildWarQueueTask = null;
+Task<ArenaQueueStatus?>? guildWarPollTask = null;
+Task<CombatSessionState?>? guildWarMatchStateTask = null;
+
 // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp", puis "propose un
 // pvp, si la personne est en team tout les membres doivent accepter" : invitation reçue (bouton
 // DUEL ou "/duel <pseudo>" dans le tchat pour en envoyer une), avec une limite de temps miroir de
@@ -5013,7 +5021,7 @@ void UpdatePartyPanel()
 /// jusqu'ici en lecture seule, se contentant d'afficher la guilde déjà rejointe). Pas de
 /// fonctionnalité "quitter" côté serveur pour cette version (non demandée).
 /// </summary>
-void UpdateGuildPanel()
+void UpdateGuildPanel(float deltaTime)
 {
     if (guildActionTask is { IsCompleted: true } actionTask)
     {
@@ -5085,6 +5093,97 @@ void UpdateGuildPanel()
 
     if (guildLeaderboardTask is not null)
     {
+        return;
+    }
+
+    if (guildWarMatchStateTask is { IsCompleted: true } warStateTask)
+    {
+        var state = warStateTask.IsFaulted ? null : warStateTask.Result;
+        guildWarMatchStateTask = null;
+
+        if (state is not null)
+        {
+            combatState = state;
+            combatSelectedAction = null;
+            combatMessage = null;
+            combatReturnScene = SceneMode.Outdoor;
+            combatVictoryQuestFired = false;
+            activePanel = PanelKind.None;
+            guildWarReady = false;
+            guildMode = GuildPanelMode.None;
+            sceneMode = SceneMode.Combat;
+        }
+        else
+        {
+            guildWarMessage = "Impossible de récupérer le combat appairé.";
+        }
+
+        return;
+    }
+
+    if (guildWarQueueTask is { IsCompleted: true } warQueueTask)
+    {
+        guildWarReady = !warQueueTask.IsFaulted && warQueueTask.Result;
+        guildWarMessage = guildWarReady ? null : "Connexion au serveur impossible.";
+        guildWarQueueTask = null;
+        return;
+    }
+
+    if (guildWarPollTask is { IsCompleted: true } warPollTask)
+    {
+        var status = warPollTask.IsFaulted ? null : warPollTask.Result;
+        guildWarPollTask = null;
+
+        if (status is { IsMatched: true, CombatId: { } combatId })
+        {
+            guildWarMatchStateTask = combatApi!.GetStateAsync(combatId);
+        }
+
+        return;
+    }
+
+    if (guildMode == GuildPanelMode.War)
+    {
+        if (guildWarQueueTask is not null || guildWarPollTask is not null || guildWarMatchStateTask is not null)
+        {
+            return;
+        }
+
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            if (guildWarReady)
+            {
+                guildWarReady = false;
+                guildWarMessage = null;
+                _ = combatApi!.CancelGuildWarQueueAsync(chosenCharacterId!.Value);
+            }
+            else
+            {
+                guildMode = GuildPanelMode.None;
+            }
+
+            return;
+        }
+
+        if (guildWarReady)
+        {
+            guildWarPollClock += deltaTime;
+            if (guildWarPollClock >= 1.5f)
+            {
+                guildWarPollClock = 0f;
+                guildWarPollTask = combatApi!.GetGuildWarQueueStatusAsync(chosenCharacterId!.Value);
+            }
+
+            return;
+        }
+
+        if (keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && options.SessionToken is not null && combatApi is not null)
+        {
+            guildWarMessage = null;
+            guildWarPollClock = 0f;
+            guildWarQueueTask = combatApi.QueueForGuildWarAsync(options.SessionToken, chosenCharacterId.Value);
+        }
+
         return;
     }
 
@@ -5181,6 +5280,11 @@ void UpdateGuildPanel()
             guildMode = GuildPanelMode.Leaderboard;
             guildLeaderboardLoaded = false;
             guildLeaderboardTask = gameDataApi!.GetGuildLeaderboardAsync();
+        }
+        else if (keyboard.WasJustPressed(Key.W))
+        {
+            guildMode = GuildPanelMode.War;
+            guildWarMessage = null;
         }
 
         return;
@@ -5784,7 +5888,7 @@ void UpdatePanel(float deltaTime)
 
     if (activePanel == PanelKind.Guild)
     {
-        UpdateGuildPanel();
+        UpdateGuildPanel(deltaTime);
         return;
     }
 
@@ -7212,7 +7316,7 @@ void DrawInventoryPanel(int w, int h)
 void DrawGuildPanel(int w, int h)
 {
     const float boxWidth = 480f;
-    const float boxHeight = 360f;
+    const float boxHeight = 380f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
@@ -7283,13 +7387,40 @@ void DrawGuildPanel(int w, int h)
             }
         }
     }
+    else if (guildMode == GuildPanelMode.War)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GUERRE DE GUILDES", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myGuild.WarPoints} POINTS DE GUERRE CETTE SEMAINE", new Vector2(w / 2f, topLeft.Y + 96f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        if (guildWarReady)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PRET - RECHERCHE D'UNE GUILDE ADVERSE...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        }
+        else
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Affrontez un membre d'une autre guilde en duel amical.", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 10f), 1.6f, Vector4.One);
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Une victoire rapporte des points de guerre a votre guilde.", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 14f), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        }
+
+        if (guildWarMessage is { Length: > 0 })
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, guildWarMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+        }
+    }
     else
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {myGuild.Level} - {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 88f), 2f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myGuild.GuildExperience} / {myGuild.ExperienceForNextLevel} XP DE GUILDE", new Vector2(w / 2f, topLeft.Y + 108f), 1.6f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
 
-        var y = topLeft.Y + 138f;
+        // Voir GDD/demande utilisateur — "Quêtes de guilde".
+        var questColor = myGuild.WeeklyQuestCompleted ? new Vector4(0.6f, 0.95f, 0.6f, 1f) : new Vector4(0.8f, 0.8f, 0.85f, 1f);
+        var questLabel = myGuild.WeeklyQuestCompleted
+            ? "QUETE DE LA SEMAINE : TERMINEE (deposez des objets au coffre)"
+            : $"QUETE : DEPOSER DES OBJETS AU COFFRE ({myGuild.WeeklyQuestItemsDeposited}/{myGuild.WeeklyQuestItemTarget})";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, questLabel, new Vector2(w / 2f, topLeft.Y + 126f), 1.3f, questColor);
+
+        var y = topLeft.Y + 152f;
         TextRenderer.Draw(spriteBatch, whiteTexture, "MEMBRES :", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         y += 28f;
         foreach (var name in myGuild.MemberNames)
@@ -7298,7 +7429,7 @@ void DrawGuildPanel(int w, int h)
             y += 24f;
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : BANQUE   K : COFFRE   L : CLASSEMENT", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : BANQUE   K : COFFRE   L : CLASSEMENT   W : GUERRE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
     }
 
     if (myGuild is not null && guildActionMessage is { Length: > 0 })
@@ -9532,6 +9663,9 @@ enum GuildPanelMode
 
     /// <summary>Voir GDD/demande utilisateur — "Classement" (des guildes).</summary>
     Leaderboard,
+
+    /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes".</summary>
+    War,
 }
 
 /// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe). Porte son grade pour la liste des joueurs en ligne.</summary>

@@ -80,6 +80,7 @@ builder.Services.AddSingleton<DuelInviteService>();
 builder.Services.AddSingleton<LootSessionStore>();
 builder.Services.AddSingleton<ArenaQueueService>();
 builder.Services.AddSingleton<KingdomWarQueueService>();
+builder.Services.AddSingleton<GuildWarQueueService>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
 // Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le serveur de
 // dev" : les deux ne peuvent pas partager les mêmes ports sur la même machine, d'où ces
@@ -1611,6 +1612,72 @@ app.MapPost("/api/kingdoms/wars/resolve", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var message = await new KingdomWarService(db).ResolveWeeklyWarAsync();
+    return Results.Ok(new { message });
+});
+
+// Voir GDD/demande utilisateur — "Guerres de guildes" : même mécanique que les guerres de
+// royaumes ci-dessus (voir GuildWarQueueService), matchmaking entre deux guildes différentes.
+app.MapPost("/api/guilds/wars/queue", async (QueueForWarRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    var membership = await db.GuildMembers.FirstOrDefaultAsync(m => m.CharacterId == character.Id);
+    if (membership is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Vous devez appartenir à une guilde pour participer à une guerre de guildes." });
+    }
+
+    var warQueue = app.Services.GetRequiredService<GuildWarQueueService>();
+    var ticket = new GuildWarQueueService.WarTicket(character.Id, userId, membership.GuildId);
+    var matched = warQueue.EnqueueAndTryMatch(ticket);
+
+    if (matched is not null)
+    {
+        var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+        var state = await combatService.StartFriendlyTeamDuelAsync([matched[0].CharacterId], [matched[1].CharacterId]);
+        warQueue.RecordMatch(matched.Select(t => t.CharacterId), state.CombatId);
+    }
+
+    return Results.Ok(new { queued = true });
+});
+
+app.MapGet("/api/guilds/wars/queue/status", (Guid characterId) =>
+{
+    var warQueue = app.Services.GetRequiredService<GuildWarQueueService>();
+    return warQueue.TryConsumeMatch(characterId, out var combatId)
+        ? Results.Ok(new ArenaQueueStatus { IsMatched = true, CombatId = combatId })
+        : Results.Ok(new ArenaQueueStatus { IsMatched = false, CombatId = null });
+});
+
+app.MapPost("/api/guilds/wars/queue/cancel", (Guid characterId) =>
+{
+    app.Services.GetRequiredService<GuildWarQueueService>().Cancel(characterId);
+    return Results.Ok();
+});
+
+app.MapGet("/api/guilds/wars/standings", async (int? limit) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await guildService.GetWarStandingsAsync(limit ?? 10));
+});
+
+app.MapPost("/api/guilds/wars/resolve", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    var message = await guildService.ResolveWeeklyWarAsync();
     return Results.Ok(new { message });
 });
 

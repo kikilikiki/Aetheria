@@ -87,6 +87,72 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
 
     private const long ExperiencePerLevel = 1000;
 
+    /// <summary>Voir GDD/demande utilisateur — "Quêtes de guilde".</summary>
+    private const int WeeklyQuestItemTarget = 20;
+    private const long WeeklyQuestRewardExperience = 2000;
+
+    /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes".</summary>
+    private const long GuildWarWinnerRewardGold = 5000;
+
+    private static string CurrentWeekBucket()
+    {
+        var now = DateTime.UtcNow;
+        var calendar = System.Globalization.CultureInfo.InvariantCulture.Calendar;
+        return $"{now.Year}-W{calendar.GetWeekOfYear(now, System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Monday):00}";
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes" : appelé après chaque victoire en duel amical (voir CombatService.ApplyPvpResultAsync/ApplyArenaResultAsync), sans effet si le personnage n'a pas de guilde.</summary>
+    public async Task AwardWarPointsAsync(Guid characterId, long points, CancellationToken ct = default)
+    {
+        var membership = await db.GuildMembers.FirstOrDefaultAsync(m => m.CharacterId == characterId, ct);
+        if (membership is null)
+        {
+            return;
+        }
+
+        var guild = await db.Guilds.FirstOrDefaultAsync(g => g.Id == membership.GuildId, ct);
+        if (guild is null)
+        {
+            return;
+        }
+
+        guild.WarPoints += points;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<List<GuildSummary>> GetWarStandingsAsync(int limit, CancellationToken ct = default)
+    {
+        var guildIds = await db.Guilds.OrderByDescending(g => g.WarPoints).Take(limit).Select(g => g.Id).ToListAsync(ct);
+        var summaries = new List<GuildSummary>();
+        foreach (var id in guildIds)
+        {
+            summaries.Add(await BuildSummaryAsync(id, ct));
+        }
+
+        return summaries;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes" : la guilde en tête reçoit un bonus de trésor, resolu chaque semaine (voir KingdomWarScheduler).</summary>
+    public async Task<string> ResolveWeeklyWarAsync(CancellationToken ct = default)
+    {
+        var guilds = await db.Guilds.Where(g => g.WarPoints > 0).OrderByDescending(g => g.WarPoints).ToListAsync(ct);
+        if (guilds.Count == 0)
+        {
+            return "Aucune guilde n'a marqué de points de guerre cette semaine.";
+        }
+
+        var winner = guilds[0];
+        winner.TreasuryGold += GuildWarWinnerRewardGold;
+
+        foreach (var guild in guilds)
+        {
+            guild.WarPoints = 0;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return $"Guerre de guildes résolue — {winner.Name} l'emporte et reçoit {GuildWarWinnerRewardGold} or.";
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "Banque de guilde" et "Niveau de guilde" : chaque pièce déposée par un membre est aussi de l'XP de guilde, même formule que les autres systèmes de niveau (XP requise au niveau N = N × 1000).</summary>
     public async Task<GuildSummary> DepositGoldAsync(Guid guildId, GuildDepositGoldRequest request, CancellationToken ct = default)
     {
@@ -145,6 +211,30 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
         }
 
         chestEntry.Quantity += request.Quantity;
+
+        // Voir GDD/demande utilisateur — "Quêtes de guilde" : objectif hebdomadaire "déposer des
+        // objets au coffre partagé", même mécanique de semaine ISO que KingdomWarScheduler.
+        var guild = await db.Guilds.FirstAsync(g => g.Id == guildId, ct);
+        var currentWeekBucket = CurrentWeekBucket();
+        if (guild.WeeklyQuestWeekBucket != currentWeekBucket)
+        {
+            guild.WeeklyQuestWeekBucket = currentWeekBucket;
+            guild.WeeklyQuestItemsDeposited = 0;
+            guild.WeeklyQuestCompleted = false;
+        }
+
+        guild.WeeklyQuestItemsDeposited += request.Quantity;
+        if (!guild.WeeklyQuestCompleted && guild.WeeklyQuestItemsDeposited >= WeeklyQuestItemTarget)
+        {
+            guild.WeeklyQuestCompleted = true;
+            guild.GuildExperience += WeeklyQuestRewardExperience;
+            while (guild.GuildExperience >= guild.Level * ExperiencePerLevel)
+            {
+                guild.GuildExperience -= guild.Level * ExperiencePerLevel;
+                guild.Level++;
+            }
+        }
+
         await db.SaveChangesAsync(ct);
         return await GetChestAsync(guildId, ct);
     }
@@ -228,6 +318,10 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
             MemberNames = memberNames,
             GuildExperience = guild.GuildExperience,
             ExperienceForNextLevel = guild.Level * ExperiencePerLevel,
+            WarPoints = guild.WarPoints,
+            WeeklyQuestItemsDeposited = guild.WeeklyQuestWeekBucket == CurrentWeekBucket() ? guild.WeeklyQuestItemsDeposited : 0,
+            WeeklyQuestItemTarget = WeeklyQuestItemTarget,
+            WeeklyQuestCompleted = guild.WeeklyQuestWeekBucket == CurrentWeekBucket() && guild.WeeklyQuestCompleted,
         };
     }
 }
