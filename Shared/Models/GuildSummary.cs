@@ -9,4 +9,8 @@ public sealed class GuildSummary
     public required long TreasuryGold { get; init; }
     public required Guid LeaderCharacterId { get; init; }
     public required IReadOnlyList<string> MemberNames { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Niveau de guilde".</summary>
+    public long GuildExperience { get; init; }
+    public long ExperienceForNextLevel { get; init; }
 }
