@@ -29,3 +29,9 @@ public sealed record DungeonRoom(
 /// quel par le Client et le MapEditor.
 /// </summary>
 public sealed record DungeonFloor(int FloorNumber, IReadOnlyList<DungeonRoom> Rooms);
+
+/// <summary>Voir retour utilisateur — "plafonne à 10 étages, mini boss à 3, boss à 5 et boss légendaire à 10" : borne partagée entre <c>Server/World/DungeonFloorGenerator</c> (génération) et le Client (boucle de parcours, voir UpdateDungeonCorridor).</summary>
+public static class DungeonProgression
+{
+    public const int MaxFloor = 10;
+}
