@@ -203,7 +203,7 @@ public static class MonsterCatalogSeeder
                 new MonsterSpeciesEntity
                 {
                     Name = "Chimèrion", Element = Element.Arcane, Type = MonsterType.Support, BaseRarity = Rarity.Epique,
-                    Habitat = "Né en Couvée uniquement", Lore = "Un mélange improbable de deux lignées, jamais vu à l'état sauvage.",
+                    Habitat = "Né en Reproduction uniquement", Lore = "Un mélange improbable de deux lignées, jamais vu à l'état sauvage.",
                     BaseStats = epicStats, BreedingOnly = true,
                 },
 

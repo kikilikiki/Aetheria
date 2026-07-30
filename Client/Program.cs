@@ -245,7 +245,6 @@ StarterApiClient? starterApi = null;
 // l'aperçu — voir DrawCharacterPreview et Docs/README.md pour cette limite assumée.
 var createStage = CreateStage.Name;
 var createName = string.Empty;
-var createClassIndex = 0;
 var createKingdomIndex = 0;
 var createSkinIndex = 0;
 var createHairStyleIndex = 0;
@@ -1223,7 +1222,7 @@ host.Update += deltaTime =>
                 // niveau sera leur 2 niveaux additionnes puis divise par 2)".
                 OpenPanel(PanelKind.Fusion);
                 break;
-            case InteractionKind.Building when interaction.Building!.Name == "Couvée":
+            case InteractionKind.Building when interaction.Building!.Name == "Reproduction":
                 // Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction avec
                 // heritage de statistiques, et des monstres que l'on peut avoir que en reproduction".
                 OpenPanel(PanelKind.Hatchery);
@@ -2614,7 +2613,7 @@ void DrawHatcheryPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.06f, 0.06f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.55f, 0.6f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "COUVEE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.65f, 0.7f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "REPRODUCTION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.65f, 0.7f, 1f));
 
     var instructions = hatcheryFirstMonsterId is null
         ? "CHOISISSEZ LE PREMIER PARENT (ENTREE)"
@@ -4073,7 +4072,7 @@ void DrawTutorialOverlay(int w, int h)
 static string[] BuildingFlavor(string name) => name switch
 {
     "Capitale" => ["Le hall du château résonne", "de conversations feutrées."],
-    "Village" => ["Les villageois vaquent", "à leurs occupations."],
+    "Aubergiste" => ["Une odeur de soupe chaude", "flotte dans la pièce."],
     "Hôtel des ventes" => ["Des étals présentent", "les objets à vendre."],
     "Forge" => ["La chaleur de la forge", "vous accueille."],
     "Guilde" => ["Les emblèmes des guildes", "ornent les murs."],
@@ -4716,7 +4715,6 @@ void ResetCreationState()
 {
     createStage = CreateStage.Name;
     createName = string.Empty;
-    createClassIndex = 0;
     createKingdomIndex = 0;
     createSkinIndex = 0;
     createHairStyleIndex = 0;
@@ -4804,9 +4802,11 @@ void UpdateCharacterCreate()
             break;
 
         case CreateStage.ClassKingdom:
-            if (keyboard.WasJustPressed(Key.Right)) createClassIndex = Wrap(createClassIndex + 1, classValues.Length);
-            else if (keyboard.WasJustPressed(Key.Left)) createClassIndex = Wrap(createClassIndex - 1, classValues.Length);
-            else if (keyboard.WasJustPressed(Key.Down)) createKingdomIndex = Wrap(createKingdomIndex + 1, kingdomValues.Length);
+            // Voir retour utilisateur — "retire le choix de classe au debut" : CharacterClass
+            // reste un champ de la fiche personnage (voir CreateCharacterRequest), mais n'a
+            // aucun effet mecanique (jamais lu par la resolution de combat, contrairement au
+            // MonsterType des creatures) - plus de selection manuelle, valeur par defaut fixe.
+            if (keyboard.WasJustPressed(Key.Down)) createKingdomIndex = Wrap(createKingdomIndex + 1, kingdomValues.Length);
             else if (keyboard.WasJustPressed(Key.Up)) createKingdomIndex = Wrap(createKingdomIndex - 1, kingdomValues.Length);
             else if (keyboard.WasJustPressed(Key.Enter))
             {
@@ -4824,7 +4824,9 @@ void UpdateCharacterCreate()
                 {
                     SessionToken = options.SessionToken!,
                     Name = createName.Trim(),
-                    Class = classValues[createClassIndex],
+                    // Voir retour utilisateur — "retire le choix de classe au debut" : plus de
+                    // selection manuelle (voir UpdateCharacterCreation), valeur par defaut fixe.
+                    Class = classValues[0],
                     Kingdom = kingdomValues[createKingdomIndex],
                     SkinColorIndex = createSkinIndex,
                     HairStyleIndex = createHairStyleIndex,
@@ -9804,19 +9806,17 @@ void DrawCharacterCreate()
             break;
 
         case CreateStage.ClassKingdom:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSE ET ROYAUME", new Vector2(w / 2f, h * 0.62f), 3f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"CLASSE : {classValues[createClassIndex]}".ToUpperInvariant(),
-                new Vector2(w / 2f, h * 0.70f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ROYAUME", new Vector2(w / 2f, h * 0.62f), 3f, Vector4.One);
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ROYAUME : {kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
-                new Vector2(w / 2f, h * 0.77f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : CLASSE - HAUT/BAS : ROYAUME - ENTREE : CONTINUER",
+                new Vector2(w / 2f, h * 0.73f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : ROYAUME - ENTREE : CONTINUER",
                 new Vector2(w / 2f, h * 0.92f), 1.8f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
             break;
 
         case CreateStage.Confirm:
         case CreateStage.Sending:
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, createName.ToUpperInvariant(), new Vector2(w / 2f, h * 0.60f), 3.4f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{classValues[createClassIndex]} - {kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
                 new Vector2(w / 2f, h * 0.67f), 2.4f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
             if (createStage == CreateStage.Sending)

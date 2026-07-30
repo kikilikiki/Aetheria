@@ -36,6 +36,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _password = string.Empty;
 
+    /// <summary>Voir retour utilisateur — "au launcher pouvoir voir le mot de passe que l'on tape" : bascule entre PasswordBox (masqué) et TextBox (en clair), voir MainWindow.xaml.cs.</summary>
+    [ObservableProperty]
+    private bool _isPasswordVisible;
+
     [ObservableProperty]
     private string? _statusMessage;
 
@@ -497,6 +501,12 @@ public sealed partial class MainViewModel : ObservableObject
             IsLoggedIn = true;
             StatusMessage = null;
 
+            // Voir retour utilisateur — "apres la connexion effacer le mot de passe" : plus besoin
+            // de le garder en mémoire une fois la session ouverte (le SessionToken suffit pour
+            // toute action ultérieure) — laissé intact en cas d'échec pour ne pas forcer une
+            // retape après une simple faute de frappe.
+            Password = string.Empty;
+
             // Voir GDD/demande utilisateur — panneau "Communauté" réservé aux admin/fondateur.
             IsAdminAccount = result.Value.IsAdmin || result.Value.Rank == UserRank.Fondateur;
             IsStaffAccount = result.Value.IsAdmin || result.Value.Rank is UserRank.Moderateur or UserRank.Fondateur;
@@ -520,6 +530,7 @@ public sealed partial class MainViewModel : ObservableObject
         IsLoggedIn = false;
         SessionToken = null;
         Password = string.Empty;
+        IsPasswordVisible = false;
         StatusMessage = null;
         IsAdminAccount = false;
         IsStaffAccount = false;

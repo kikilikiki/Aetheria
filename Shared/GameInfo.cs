@@ -19,11 +19,11 @@ public static class GameInfo
     /// <summary>Port HTTP par défaut de l'API de compte (inscription/connexion), utilisée par le Launcher.</summary>
     public const int DefaultAccountApiPort = 7778;
 
-    /// <summary>Délai avant de passer automatiquement le tour d'un joueur qui n'agit pas (voir GDD/demande utilisateur — "timer de 10 secondes entre chaque tour"), en secondes.</summary>
-    public const int CombatTurnTimeoutSeconds = 10;
+    /// <summary>Délai avant de passer automatiquement le tour d'un joueur qui n'agit pas (voir GDD/demande utilisateur — "augmenter le timer a 60sec"), en secondes.</summary>
+    public const int CombatTurnTimeoutSeconds = 60;
 
-    /// <summary>Délai avant de résoudre automatiquement un butin non entièrement réclamé (voir GDD/demande utilisateur — "timer de 10 secondes pour le choix des gains"), en secondes.</summary>
-    public const int LootChoiceTimeoutSeconds = 10;
+    /// <summary>Délai avant de résoudre automatiquement un butin non entièrement réclamé (voir GDD/demande utilisateur — "augmenter le temps"), en secondes.</summary>
+    public const int LootChoiceTimeoutSeconds = 20;
 
     /// <summary>
     /// Voir GDD/demande utilisateur — "une page A propos avec un bouton pour aller sur les CGU
