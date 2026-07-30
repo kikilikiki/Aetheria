@@ -14,12 +14,72 @@ internal static class CombatEngine
     /// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown pour le spécial" : nombre de tours du combattant avant de pouvoir la réutiliser.</summary>
     private const int SpecialAbilityCooldownTurns = 3;
 
+    private const int DestructibleTileHealth = 15;
+
     public static void Initialize(CombatSession session)
     {
         session.Combatants = [.. session.Combatants.OrderByDescending(c => c.Speed)];
         session.TurnIndex = 0;
         session.TurnStartedAtUtc = DateTime.UtcNow;
+        ScatterTileEffects(session);
         CheckEndCondition(session);
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "cases destructibles, cases de lave, cases glacées, pièges
+    /// posés sur les cases" : quelques cases spéciales par combat PvE (jamais en PvP/Arène, pour
+    /// garder les duels entre joueurs équitables et simples). Un piège n'apparaît que si un
+    /// monstre sauvage de type Assassin/Contrôleur est engagé (voir GDD — "monstres qui peuvent
+    /// [poser des] pièges").
+    /// </summary>
+    private static void ScatterTileEffects(CombatSession session)
+    {
+        if (session.IsPvp)
+        {
+            return;
+        }
+
+        var occupied = session.Combatants.Where(c => c.IsAlive).Select(c => (c.X, c.Y)).ToHashSet();
+        var freeTiles = new List<(int X, int Y)>();
+        for (var x = 0; x < CombatSession.GridWidth; x++)
+        {
+            for (var y = 0; y < CombatSession.GridHeight; y++)
+            {
+                if (!occupied.Contains((x, y)))
+                {
+                    freeTiles.Add((x, y));
+                }
+            }
+        }
+
+        for (var i = freeTiles.Count - 1; i > 0; i--)
+        {
+            var swapIndex = Random.Shared.Next(i + 1);
+            (freeTiles[i], freeTiles[swapIndex]) = (freeTiles[swapIndex], freeTiles[i]);
+        }
+
+        var cursor = 0;
+        void PlaceTiles(TileEffect effect, int count)
+        {
+            for (var i = 0; i < count && cursor < freeTiles.Count; i++, cursor++)
+            {
+                session.TileEffects[freeTiles[cursor]] = effect;
+                if (effect == TileEffect.Destructible)
+                {
+                    session.DestructibleHealth[freeTiles[cursor]] = DestructibleTileHealth;
+                }
+            }
+        }
+
+        PlaceTiles(TileEffect.Lave, 2);
+        PlaceTiles(TileEffect.Glace, 2);
+        PlaceTiles(TileEffect.Destructible, 2);
+
+        var hasTrapper = session.Combatants.Any(c => c.Team == 1 && c.Type is MonsterType.Assassin or MonsterType.Controleur);
+        if (hasTrapper)
+        {
+            PlaceTiles(TileEffect.Piege, 1);
+        }
     }
 
     public static void ResolveMove(CombatSession session, Combatant actor, int targetX, int targetY)
@@ -29,7 +89,11 @@ internal static class CombatEngine
             throw new InvalidOperationException("Case hors de la grille.");
         }
 
-        if (Distance(actor.X, actor.Y, targetX, targetY) > actor.MovementRange)
+        // Voir GDD/demande utilisateur — "cases glacées" : +1 case de portée de déplacement quand
+        // on part d'une case de glace (glisse plus loin que prévu).
+        var effectiveRange = actor.MovementRange
+            + (session.TileEffects.GetValueOrDefault((actor.X, actor.Y)) == TileEffect.Glace ? 1 : 0);
+        if (Distance(actor.X, actor.Y, targetX, targetY) > effectiveRange)
         {
             throw new InvalidOperationException("Case hors de portée de déplacement.");
         }
@@ -39,15 +103,62 @@ internal static class CombatEngine
             throw new InvalidOperationException("Case déjà occupée.");
         }
 
+        // Voir GDD/demande utilisateur — "cases destructibles" : infranchissables tant qu'elles
+        // n'ont pas été détruites (voir ResolveAttack, qui accepte de cibler une case vide si elle
+        // porte ce statut).
+        if (session.TileEffects.GetValueOrDefault((targetX, targetY)) == TileEffect.Destructible)
+        {
+            throw new InvalidOperationException("Cette case est bloquée par un obstacle — détruisez-le d'abord.");
+        }
+
         actor.X = targetX;
         actor.Y = targetY;
         session.LastMessage = $"{actor.Name} se déplace en ({targetX}, {targetY}).";
+
+        // Voir GDD/demande utilisateur — "des monstres qui peuvent [poser des] pièges posés sur
+        // les cases" : déclenché une seule fois (retiré après usage), dégâts fixes.
+        if (session.TileEffects.GetValueOrDefault((targetX, targetY)) == TileEffect.Piege)
+        {
+            session.TileEffects.Remove((targetX, targetY));
+            var trapDamage = Math.Max(2, actor.MaxHealth / 8);
+            actor.CurrentHealth = Math.Max(0, actor.CurrentHealth - trapDamage);
+            session.LastMessage = $"{session.LastMessage} {actor.Name} déclenche un piège et subit {trapDamage} dégâts !";
+            CheckEndCondition(session);
+        }
     }
 
     public static void ResolveAttack(CombatSession session, Combatant actor, int targetX, int targetY)
     {
-        var target = session.Combatants.FirstOrDefault(c => c.IsAlive && c.X == targetX && c.Y == targetY)
-            ?? throw new InvalidOperationException("Aucune cible sur cette case.");
+        var target = session.Combatants.FirstOrDefault(c => c.IsAlive && c.X == targetX && c.Y == targetY);
+        if (target is null)
+        {
+            // Voir GDD/demande utilisateur — "cases destructibles" : une case vide portant ce
+            // statut peut être attaquée directement (pas de combattant requis) pour la détruire.
+            if (session.TileEffects.GetValueOrDefault((targetX, targetY)) != TileEffect.Destructible)
+            {
+                throw new InvalidOperationException("Aucune cible sur cette case.");
+            }
+
+            if (Distance(actor.X, actor.Y, targetX, targetY) > actor.AttackRange)
+            {
+                throw new InvalidOperationException("Cible hors de portée d'attaque.");
+            }
+
+            var remainingHealth = session.DestructibleHealth.GetValueOrDefault((targetX, targetY), DestructibleTileHealth) - actor.Attack;
+            if (remainingHealth <= 0)
+            {
+                session.TileEffects.Remove((targetX, targetY));
+                session.DestructibleHealth.Remove((targetX, targetY));
+                session.LastMessage = $"{actor.Name} détruit l'obstacle en ({targetX}, {targetY}).";
+            }
+            else
+            {
+                session.DestructibleHealth[(targetX, targetY)] = remainingHealth;
+                session.LastMessage = $"{actor.Name} endommage l'obstacle en ({targetX}, {targetY}) ({remainingHealth} PV restants).";
+            }
+
+            return;
+        }
 
         if (target.Team == actor.Team)
         {
@@ -281,6 +392,15 @@ internal static class CombatEngine
                 {
                     var regen = Math.Max(1, next.MaxHealth / 20);
                     next.CurrentHealth = Math.Min(next.MaxHealth, next.CurrentHealth + regen);
+                }
+
+                // Voir GDD/demande utilisateur — "cases de lave" : dégâts à chaque tour passé dessus.
+                if (session.TileEffects.GetValueOrDefault((next.X, next.Y)) == TileEffect.Lave && next.IsAlive)
+                {
+                    var lavaDamage = Math.Max(2, next.MaxHealth / 12);
+                    next.CurrentHealth = Math.Max(0, next.CurrentHealth - lavaDamage);
+                    session.LastMessage = $"{next.Name} brûle sur la lave et subit {lavaDamage} dégâts !";
+                    CheckEndCondition(session);
                 }
 
                 return;

@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Server.World.Combat;
 
 /// <summary>État complet (serveur, mutable) d'un combat en cours, conservé en mémoire pour sa durée de vie.</summary>
@@ -57,4 +59,15 @@ public sealed class CombatSession
     public DateTime? FinishedAtUtc { get; set; }
 
     public Combatant? CurrentCombatant => Combatants.Count == 0 ? null : Combatants[TurnIndex % Combatants.Count];
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "cases destructibles, cases de lave, cases glacées, pièges
+    /// posés sur les cases" : effets de terrain tirés au hasard par <c>CombatEngine.Initialize</c>,
+    /// jamais sur une case de départ d'un combattant. Vide (grille neutre) hors PvE — voir
+    /// Initialize.
+    /// </summary>
+    public Dictionary<(int X, int Y), TileEffect> TileEffects { get; init; } = [];
+
+    /// <summary>PV restants d'une case Destructible (voir TileEffects) — retirée de TileEffects une fois à 0 (voir CombatEngine.ResolveAttack).</summary>
+    public Dictionary<(int X, int Y), int> DestructibleHealth { get; init; } = [];
 }

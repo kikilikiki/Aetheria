@@ -848,5 +848,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         session.LastMessage,
         session.LootId,
         session.IsDungeonCombat,
-        session.TurnStartedAtUtc);
+        session.TurnStartedAtUtc,
+        session.TileEffects.Select(kv => new TileEffectEntry(kv.Key.X, kv.Key.Y, kv.Value)).ToList());
 }

@@ -7885,6 +7885,39 @@ void DrawCombat()
         }
     }
 
+    // Voir GDD/demande utilisateur — "pièges, cases destructibles, cases de lave, cases glacées".
+    if (combatState.TileEffects is { Count: > 0 } tileEffects)
+    {
+        foreach (var tile in tileEffects)
+        {
+            var tileColor = tile.Effect switch
+            {
+                TileEffect.Lave => new Vector4(0.75f, 0.25f, 0.1f, 0.55f),
+                TileEffect.Glace => new Vector4(0.55f, 0.8f, 0.95f, 0.45f),
+                TileEffect.Piege => new Vector4(0.5f, 0.15f, 0.55f, 0.5f),
+                TileEffect.Destructible => new Vector4(0.45f, 0.4f, 0.35f, 0.7f),
+                _ => (Vector4?)null,
+            };
+
+            if (tileColor is not { } color)
+            {
+                continue;
+            }
+
+            var topLeft = new Vector2(originX + tile.X * cellSize + 1, originY + tile.Y * cellSize + 1);
+            DrawPanel(topLeft, new Vector2(cellSize - 2, cellSize - 2), color);
+            var label = tile.Effect switch
+            {
+                TileEffect.Lave => "LAVE",
+                TileEffect.Glace => "GLACE",
+                TileEffect.Piege => "PIEGE",
+                TileEffect.Destructible => "MUR",
+                _ => "",
+            };
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, label, topLeft + new Vector2(cellSize / 2f - 1, cellSize / 2f - 4), 0.95f, new Vector4(1f, 1f, 1f, 0.85f));
+        }
+    }
+
     if (combatSelectedAction is { } selectedAction && combatState.CurrentTurnCombatantId is { } actingId
         && combatState.Combatants.FirstOrDefault(c => c.Id == actingId) is { } actingCombatant)
     {
