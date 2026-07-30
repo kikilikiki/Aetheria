@@ -927,5 +927,9 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> ActivateInvasionAsync(string sessionToken, KingdomType kingdom, int durationMinutes, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/invasion", new AdminInvasionRequest { SessionToken = sessionToken, Kingdom = kingdom, DurationMinutes = durationMinutes }, ct);
 
+    /// <summary>Voir retour utilisateur — "ajouter un admin pour desactiver les combats".</summary>
+    public async Task<AdminGameActionResponse> ToggleCombatsDisabledAsync(string sessionToken, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/toggle-combats", new AdminToggleCombatsRequest { SessionToken = sessionToken }, ct);
+
     public void Dispose() => _http.Dispose();
 }
