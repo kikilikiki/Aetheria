@@ -527,6 +527,11 @@ var auctionSellMode = false;
 var auctionSellCursor = 0;
 var auctionSellPrice = 10L;
 
+// Voir GDD/demande utilisateur — "la possibilité de le mettre aux enchères".
+var auctionSellIsAuction = false;
+var auctionBidMode = false;
+var auctionBidAmount = 0L;
+
 // Groupe (voir GDD — bouton Groupe, XP partagée, visibilité globale même hors groupe).
 PartySummary? myParty = null;
 var partyLoaded = false;
@@ -6274,6 +6279,12 @@ void UpdateAuctionPanel()
             return;
         }
 
+        if (keyboard.WasJustPressed(Key.A))
+        {
+            auctionSellIsAuction = !auctionSellIsAuction;
+            return;
+        }
+
         if (keyboard.WasJustPressed(Key.Down)) auctionSellCursor = Math.Min(auctionSellCursor + 1, inventoryItems.Count - 1);
         else if (keyboard.WasJustPressed(Key.Up)) auctionSellCursor = Math.Max(auctionSellCursor - 1, 0);
         else if (keyboard.WasJustPressed(Key.Left)) auctionSellPrice = Math.Max(1, auctionSellPrice - 5);
@@ -6283,7 +6294,7 @@ void UpdateAuctionPanel()
             var entry = inventoryItems[auctionSellCursor];
             auctionMessage = null;
             auctionActionTask = gameDataApi!.CreateAuctionListingAsync(
-                options.SessionToken!, chosenCharacterId!.Value, entry.ItemId, entry.Quantity, auctionSellPrice);
+                options.SessionToken!, chosenCharacterId!.Value, entry.ItemId, entry.Quantity, auctionSellPrice, auctionSellIsAuction);
         }
 
         return;
@@ -6294,15 +6305,45 @@ void UpdateAuctionPanel()
         return;
     }
 
+    if (auctionBidMode)
+    {
+        var listing = auctionListings[auctionCursor];
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            auctionBidMode = false;
+        }
+        else if (keyboard.WasJustPressed(Key.Left)) auctionBidAmount = Math.Max(listing.CurrentBid + 1, auctionBidAmount - 5);
+        else if (keyboard.WasJustPressed(Key.Right)) auctionBidAmount += 5;
+        else if (keyboard.WasJustPressed(Key.Enter))
+        {
+            auctionMessage = null;
+            auctionBidMode = false;
+            auctionActionTask = gameDataApi!.PlaceAuctionBidAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId, auctionBidAmount);
+        }
+
+        return;
+    }
+
     if (keyboard.WasJustPressed(Key.Down)) auctionCursor = Math.Min(auctionCursor + 1, auctionListings.Count - 1);
     else if (keyboard.WasJustPressed(Key.Up)) auctionCursor = Math.Max(auctionCursor - 1, 0);
     else if (keyboard.WasJustPressed(Key.Enter))
     {
         var listing = auctionListings[auctionCursor];
-        auctionMessage = null;
-        auctionActionTask = listing.IsMine
-            ? gameDataApi!.CancelAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId)
-            : gameDataApi!.BuyAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
+        if (listing.IsMine)
+        {
+            auctionMessage = null;
+            auctionActionTask = gameDataApi!.CancelAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
+        }
+        else if (listing.IsAuction)
+        {
+            auctionBidMode = true;
+            auctionBidAmount = listing.CurrentBid + 5;
+        }
+        else
+        {
+            auctionMessage = null;
+            auctionActionTask = gameDataApi!.BuyAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
+        }
     }
 }
 
@@ -8682,9 +8723,21 @@ void DrawAuctionPanel(int w, int h)
                 y += 28f;
             }
 
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"PRIX PAR UNITE : {auctionSellPrice} OR (GAUCHE/DROITE POUR AJUSTER)",
-                new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.7f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+            var priceLabel = auctionSellIsAuction ? "PRIX DE DEPART" : "PRIX PAR UNITE";
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{priceLabel} : {auctionSellPrice} OR (GAUCHE/DROITE POUR AJUSTER)",
+                new Vector2(w / 2f, topLeft.Y + boxHeight - 96f), 1.7f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+
+            // Voir GDD/demande utilisateur — "la possibilité de le mettre aux enchères".
+            var auctionToggleLabel = auctionSellIsAuction ? "MODE : ENCHERE (24H) - A POUR VENTE DIRECTE" : "MODE : VENTE DIRECTE - A POUR ENCHERE";
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, auctionToggleLabel, new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.6f, new Vector4(0.7f, 0.85f, 0.95f, 1f));
         }
+    }
+    else if (auctionBidMode)
+    {
+        var listing = auctionListings[auctionCursor];
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ENCHERIR SUR {listing.ItemName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ENCHERE ACTUELLE : {listing.CurrentBid} OR", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VOTRE OFFRE : {auctionBidAmount} OR (GAUCHE/DROITE POUR AJUSTER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 1.9f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
     }
     else if (auctionListings.Count == 0)
     {
@@ -8700,14 +8753,27 @@ void DrawAuctionPanel(int w, int h)
             var color = selected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
             var prefix = selected ? "> " : "  ";
             var suffix = listing.IsMine ? " (VOTRE ANNONCE)" : $" - {listing.SellerName}";
-            var text = $"{prefix}{listing.ItemName.ToUpperInvariant()} x{listing.Quantity} - {listing.PricePerUnit} OR/u{suffix}";
+            var text = listing.IsAuction
+                ? $"{prefix}{listing.ItemName.ToUpperInvariant()} x{listing.Quantity} - ENCHERE : {listing.CurrentBid} OR{(listing.CurrentBidderName is { Length: > 0 } b ? $" ({b})" : "")}{suffix}"
+                : $"{prefix}{listing.ItemName.ToUpperInvariant()} x{listing.Quantity} - {listing.PricePerUnit} OR/u{suffix}";
             if (DrawClickableRow(text, new Vector2(topLeft.X + 20f, y), boxWidth - 40f, 1.9f, color) && auctionActionTask is null)
             {
                 auctionCursor = i;
-                auctionMessage = null;
-                auctionActionTask = listing.IsMine
-                    ? gameDataApi!.CancelAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId)
-                    : gameDataApi!.BuyAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
+                if (listing.IsMine)
+                {
+                    auctionMessage = null;
+                    auctionActionTask = gameDataApi!.CancelAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
+                }
+                else if (listing.IsAuction)
+                {
+                    auctionBidMode = true;
+                    auctionBidAmount = listing.CurrentBid + 5;
+                }
+                else
+                {
+                    auctionMessage = null;
+                    auctionActionTask = gameDataApi!.BuyAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
+                }
             }
 
             y += 28f;
@@ -8720,8 +8786,10 @@ void DrawAuctionPanel(int w, int h)
     }
 
     var footer = auctionSellMode
-        ? "TAB : PARCOURIR - HAUT/BAS : OBJET - ENTREE : DEPOSER TOUT LE STOCK - ECHAP : FERMER"
-        : "TAB : DEPOSER UN OBJET - ENTREE : ACHETER (OU ANNULER SI C'EST LA VOTRE) - ECHAP : FERMER";
+        ? "TAB : PARCOURIR - HAUT/BAS : OBJET - A : ENCHERE/VENTE - ENTREE : DEPOSER TOUT LE STOCK - ECHAP : FERMER"
+        : auctionBidMode
+            ? "GAUCHE/DROITE : MONTANT - ENTREE : ENCHERIR - ECHAP : ANNULER"
+            : "TAB : DEPOSER UN OBJET - ENTREE : ACHETER/ENCHERIR (OU ANNULER SI C'EST LA VOTRE) - ECHAP : FERMER";
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 

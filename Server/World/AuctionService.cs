@@ -17,6 +17,8 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
 {
     public async Task<IReadOnlyList<AuctionListingSummary>> GetActiveListingsAsync(Guid? viewerCharacterId, CancellationToken ct = default)
     {
+        await ResolveExpiredAuctionsAsync(ct);
+
         var listings = await db.AuctionListings
             .Include(l => l.Item)
             .Include(l => l.SellerCharacter)
@@ -32,6 +34,11 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
             PricePerUnit = l.PricePerUnit,
             SellerName = l.SellerCharacter?.Name ?? "?",
             IsMine = viewerCharacterId is not null && l.SellerCharacterId == viewerCharacterId,
+            IsAuction = l.IsAuction,
+            CurrentBid = l.CurrentBid,
+            CurrentBidderName = l.CurrentBidderName,
+            IsMyBid = viewerCharacterId is not null && l.CurrentBidderCharacterId == viewerCharacterId,
+            AuctionEndsAtUtc = l.AuctionEndsAtUtc,
         }).ToList();
     }
 
@@ -65,11 +72,102 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
             ItemId = request.ItemId,
             Quantity = request.Quantity,
             PricePerUnit = request.PricePerUnit,
+            IsAuction = request.IsAuction,
+            CurrentBid = request.IsAuction ? request.PricePerUnit * request.Quantity : 0,
+            AuctionEndsAtUtc = request.IsAuction ? DateTime.UtcNow.AddHours(Math.Clamp(request.AuctionDurationHours, 1, 168)) : null,
         });
 
         await db.SaveChangesAsync(ct);
 
-        return new AuctionResponse { Success = true, Message = "Objet mis en vente.", RemainingGold = character.Gold };
+        return new AuctionResponse { Success = true, Message = request.IsAuction ? "Objet mis aux enchères." : "Objet mis en vente.", RemainingGold = character.Gold };
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "la possibilité de le mettre aux enchères" : enchère strictement supérieure à la précédente, aucun or prélevé tant que l'enchère n'est pas gagnée (voir <see cref="ResolveExpiredAuctionsAsync"/>).</summary>
+    public async Task<AuctionResponse> PlaceBidAsync(AuctionBidRequest request, CancellationToken ct = default)
+    {
+        var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
+
+        var listing = await db.AuctionListings.FirstOrDefaultAsync(l => l.Id == request.ListingId, ct)
+            ?? throw new AccountOperationException("Cette enchère n'existe plus.");
+
+        if (!listing.IsAuction)
+        {
+            throw new AccountOperationException("Cette annonce n'est pas une enchère.");
+        }
+
+        if (listing.SellerCharacterId == character.Id)
+        {
+            throw new AccountOperationException("Vous ne pouvez pas enchérir sur votre propre annonce.");
+        }
+
+        if (listing.AuctionEndsAtUtc is { } endsAt && endsAt <= DateTime.UtcNow)
+        {
+            throw new AccountOperationException("Cette enchère est terminée.");
+        }
+
+        if (request.BidAmount <= listing.CurrentBid)
+        {
+            throw new AccountOperationException($"L'enchère doit dépasser {listing.CurrentBid} or.");
+        }
+
+        if (character.Gold < request.BidAmount)
+        {
+            throw new AccountOperationException("Pas assez d'or pour cette enchère.");
+        }
+
+        listing.CurrentBid = request.BidAmount;
+        listing.CurrentBidderCharacterId = character.Id;
+        listing.CurrentBidderName = character.Name;
+        await db.SaveChangesAsync(ct);
+
+        return new AuctionResponse { Success = true, Message = "Enchère placée.", RemainingGold = character.Gold };
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — résolution paresseuse (appelée à chaque consultation de la
+    /// liste, voir <see cref="GetActiveListingsAsync"/>) plutôt qu'un scheduler dédié : l'objet
+    /// revient au vendeur si personne n'a enchéri, ou si le meilleur enchérisseur n'a plus assez
+    /// d'or au moment de la résolution (simplification assumée — pas d'or mis en réserve à
+    /// l'enchère, voir Docs/README.md).
+    /// </summary>
+    private async Task ResolveExpiredAuctionsAsync(CancellationToken ct)
+    {
+        var expired = await db.AuctionListings.Where(l => l.IsAuction && l.AuctionEndsAtUtc <= DateTime.UtcNow).ToListAsync(ct);
+        if (expired.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var listing in expired)
+        {
+            var winner = listing.CurrentBidderCharacterId is { } winnerId
+                ? await db.Characters.FirstOrDefaultAsync(c => c.Id == winnerId, ct)
+                : null;
+
+            if (winner is not null && winner.Gold >= listing.CurrentBid)
+            {
+                winner.Gold -= listing.CurrentBid;
+
+                var seller = await db.Characters.FirstOrDefaultAsync(c => c.Id == listing.SellerCharacterId, ct);
+                if (seller is not null)
+                {
+                    seller.Gold += await KingdomPoliticsService.ApplyTaxAsync(db, seller, listing.CurrentBid, ct);
+                }
+
+                var maxStack = await db.Items.Where(i => i.Id == listing.ItemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+                await InventoryStackingService.AddQuantityAsync(db, winner.Id, listing.ItemId, listing.Quantity, maxStack <= 0 ? 99 : maxStack, ct);
+            }
+            else
+            {
+                // Personne n'a enchéri (ou le meilleur enchérisseur n'a plus les moyens) : l'objet revient au vendeur.
+                var maxStack = await db.Items.Where(i => i.Id == listing.ItemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+                await InventoryStackingService.AddQuantityAsync(db, listing.SellerCharacterId, listing.ItemId, listing.Quantity, maxStack <= 0 ? 99 : maxStack, ct);
+            }
+
+            db.AuctionListings.Remove(listing);
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<AuctionResponse> BuyAsync(AuctionActionRequest request, CancellationToken ct = default)
@@ -78,6 +176,11 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
 
         var listing = await db.AuctionListings.FirstOrDefaultAsync(l => l.Id == request.ListingId, ct)
             ?? throw new AccountOperationException("Cette annonce n'existe plus.");
+
+        if (listing.IsAuction)
+        {
+            throw new AccountOperationException("Cette annonce est une enchère : utilisez PlaceBidAsync.");
+        }
 
         if (listing.SellerCharacterId == character.Id)
         {
@@ -119,6 +222,11 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
         if (listing.SellerCharacterId != character.Id)
         {
             throw new AccountOperationException("Ce n'est pas votre annonce.");
+        }
+
+        if (listing.IsAuction && listing.CurrentBidderCharacterId is not null)
+        {
+            throw new AccountOperationException("Impossible d'annuler une enchère qui a déjà reçu une offre.");
         }
 
         // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".

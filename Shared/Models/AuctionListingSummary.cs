@@ -10,4 +10,11 @@ public sealed class AuctionListingSummary
     public required long PricePerUnit { get; init; }
     public required string SellerName { get; init; }
     public required bool IsMine { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "la possibilité de le mettre aux enchères".</summary>
+    public bool IsAuction { get; init; }
+    public long CurrentBid { get; init; }
+    public string? CurrentBidderName { get; init; }
+    public bool IsMyBid { get; init; }
+    public DateTime? AuctionEndsAtUtc { get; init; }
 }
