@@ -65,4 +65,11 @@ public sealed class MonsterSpeciesEntity
     /// <c>ResolveDungeonEncounterSpeciesAsync</c>) — la seule façon de l'obtenir.
     /// </summary>
     public bool DungeonOnly { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute des monstres que l'on peut avoir que en
+    /// reproduction" : exclue de TOUTE rencontre naturelle (sauvage ET donjon, contrairement à
+    /// <see cref="DungeonOnly"/>) — la seule façon de l'obtenir est <c>BreedingService.BreedAsync</c>.
+    /// </summary>
+    public bool BreedingOnly { get; set; }
 }

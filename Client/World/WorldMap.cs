@@ -77,12 +77,14 @@ public sealed class WorldMap
         var shop = (X: auctionHouse.X + 3, Y: auctionHouse.Y + 2);
         var field = (X: village.X - 4, Y: village.Y + 5);
         var warRoom = (X: guild.X + 3, Y: guild.Y - 3);
+        var fusion = (X: size / 2 - 1, Y: size / 2 + 6);
+        var hatchery = (X: size / 2 + 6, Y: size / 2 + 2);
 
         SpawnPosition = (capital.X, capital.Y + 2);
         DungeonEntrance = (size - 4, size - 4);
 
         var pathTiles = new HashSet<(int X, int Y)>();
-        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, mine, shop, field, warRoom, DungeonEntrance })
+        foreach (var target in new[] { village, auctionHouse, forge, guild, teleporter, pension, mine, shop, field, warRoom, fusion, hatchery, DungeonEntrance })
         {
             MarkPath(pathTiles, capital, target);
         }
@@ -135,6 +137,13 @@ public sealed class WorldMap
             // royaume (repère facile à trouver, comme le Téléporteur), pas de contrôle de
             // territoire pour ce bâtiment lui-même (c'est la porte d'entrée du matchmaking).
             new Building("Guerre", warRoom.X, warRoom.Y, 1.4f, new Vector4(0.62f, 0.18f, 0.16f, 1f), new Vector4(0.38f, 0.1f, 0.08f, 1f), new Vector4(0.78f, 0.3f, 0.26f, 1f)),
+            // Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres (leur niveau
+            // sera leur 2 niveaux additionnes puis divise par 2)" : violet/rose fusion, distinct
+            // des autres bâtiments.
+            new Building("Fusion", fusion.X, fusion.Y, 1.3f, new Vector4(0.6f, 0.3f, 0.55f, 1f), new Vector4(0.36f, 0.16f, 0.32f, 1f), new Vector4(0.75f, 0.42f, 0.68f, 1f)),
+            // Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction avec
+            // heritage de statistiques" : rose tendre, thème "couvée".
+            new Building("Couvée", hatchery.X, hatchery.Y, 1.3f, new Vector4(0.85f, 0.55f, 0.6f, 1f), new Vector4(0.55f, 0.3f, 0.35f, 1f), new Vector4(0.95f, 0.7f, 0.75f, 1f)),
         ];
 
         Npcs =

@@ -130,10 +130,10 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         // Voir GDD/demande utilisateur — "ajoute des monstres que l'on peut avoir que en donjon" :
         // exclus des rencontres sauvages, seule ResolveDungeonEncounterSpeciesAsync peut les tirer.
         var rarity = RarityForLevel(scalingReference.Level);
-        var candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == rarity && !s.DungeonOnly).ToListAsync(ct);
+        var candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == rarity && !s.DungeonOnly && !s.BreedingOnly).ToListAsync(ct);
         if (candidates.Count == 0)
         {
-            candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun && !s.DungeonOnly).ToListAsync(ct);
+            candidates = await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun && !s.DungeonOnly && !s.BreedingOnly).ToListAsync(ct);
         }
 
         if (candidates.Count == 0)
@@ -323,8 +323,8 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         };
 
         var candidates = requiredRarity is { } rarity
-            ? await db.MonsterSpecies.Where(s => s.BaseRarity == rarity).ToListAsync(ct)
-            : await db.MonsterSpecies.Where(s => s.BaseRarity == Rarity.Commun || s.BaseRarity == Rarity.PeuCommun).ToListAsync(ct);
+            ? await db.MonsterSpecies.Where(s => s.BaseRarity == rarity && !s.BreedingOnly).ToListAsync(ct)
+            : await db.MonsterSpecies.Where(s => (s.BaseRarity == Rarity.Commun || s.BaseRarity == Rarity.PeuCommun) && !s.BreedingOnly).ToListAsync(ct);
 
         if (candidates.Count == 0)
         {

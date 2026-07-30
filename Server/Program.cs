@@ -429,6 +429,37 @@ app.MapPost("/api/monsters/{monsterId:guid}/unequip", async (Guid monsterId, Une
     }
 });
 
+// Voir GDD/demande utilisateur — bâtiment Fusion ("leur niveau sera leur 2 niveaux additionnés
+// puis divisé par 2") et bâtiment Couvée ("reproduction avec heritage de statistiques... des
+// monstres que l'on peut avoir que en reproduction").
+app.MapPost("/api/monsters/fuse", async (FuseMonstersRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var fusionService = new FusionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await fusionService.FuseAsync(request.SessionToken, request.CharacterId, request.SurvivorMonsterId, request.ConsumedMonsterId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/monsters/breed", async (BreedMonstersRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var breedingService = new BreedingService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await breedingService.BreedAsync(request.SessionToken, request.CharacterId, request.ParentMonsterId1, request.ParentMonsterId2));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Inventaire (voir GDD — bouton Inventaire en jeu).
 app.MapGet("/api/characters/{id:guid}/inventory", async (Guid id) =>
 {
