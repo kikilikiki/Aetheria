@@ -2763,6 +2763,13 @@ app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest req
 
 // Voir GDD/demande utilisateur — "commandes admin abuse : double XP, double butin, invasion de
 // monstres" (voir GlobalEventService) : mêmes gardes/annonce globale que spawn-world-boss ci-dessus.
+// Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" :
+// endpoint public (pas de session requise, même esprit qu'un statut de serveur) interrogé
+// périodiquement par le Client pour afficher un badge tant qu'un minuteur est actif.
+app.MapGet("/api/game/events/status", () => Results.Ok(new GlobalEventStatus(
+    GlobalEventService.DoubleXpUntilUtc is not null, GlobalEventService.DoubleXpUntilUtc,
+    GlobalEventService.DoubleLootUntilUtc is not null, GlobalEventService.DoubleLootUntilUtc)));
+
 app.MapPost("/api/admin/game/double-xp", async (AdminGlobalEventRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
