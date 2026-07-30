@@ -574,6 +574,15 @@ List<KingdomData> kingdomPanelData = [];
 List<TerritorySummary> kingdomPanelTerritories = [];
 Task<(List<KingdomData> Kingdoms, List<TerritorySummary> Territories)>? kingdomPanelLoadTask = null;
 
+// Voir GDD/demande utilisateur — "Fonctionnalités de royaume avancées" (élections du roi, taxes, construction).
+KingdomPoliticsStatus? kingdomPolitics = null;
+Task<KingdomPoliticsStatus?>? kingdomPoliticsTask = null;
+var kingdomVoteMode = false;
+var kingdomVoteInput = string.Empty;
+Task<bool>? kingdomVoteTask = null;
+Task<KingdomPoliticsStatus?>? kingdomConstructTask = null;
+string? kingdomPoliticsMessage = null;
+
 // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp", puis "propose un
 // pvp, si la personne est en team tout les membres doivent accepter" : invitation reçue (bouton
 // DUEL ou "/duel <pseudo>" dans le tchat pour en envoyer une), avec une limite de temps miroir de
@@ -3240,9 +3249,86 @@ void UpdateKingdomPanel()
         return;
     }
 
+    if (kingdomPoliticsTask is { IsCompleted: true } politicsTask)
+    {
+        kingdomPolitics = politicsTask.IsFaulted ? null : politicsTask.Result;
+        kingdomPoliticsTask = null;
+        return;
+    }
+
+    if (kingdomVoteTask is { IsCompleted: true } voteTask)
+    {
+        kingdomPoliticsMessage = !voteTask.IsFaulted && voteTask.Result ? "Vote enregistre." : "Vote impossible.";
+        kingdomVoteMode = false;
+        kingdomVoteInput = string.Empty;
+        kingdomVoteTask = null;
+        kingdomPoliticsTask = chosenCharacterId is null ? null : gameDataApi?.GetKingdomPoliticsAsync(chosenCharacterId.Value);
+        return;
+    }
+
+    if (kingdomConstructTask is { IsCompleted: true } constructTask)
+    {
+        if (!constructTask.IsFaulted && constructTask.Result is { } updated)
+        {
+            kingdomPolitics = updated;
+            kingdomPoliticsMessage = "Batiment construit.";
+        }
+        else
+        {
+            kingdomPoliticsMessage = "Construction impossible.";
+        }
+
+        kingdomConstructTask = null;
+        return;
+    }
+
+    if (kingdomVoteTask is not null || kingdomConstructTask is not null)
+    {
+        return;
+    }
+
+    if (kingdomVoteMode)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (kingdomVoteInput.Length < 24 && (char.IsLetterOrDigit(typed) || typed == ' ' || typed == '-' || typed == '_'))
+            {
+                kingdomVoteInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && kingdomVoteInput.Length > 0)
+        {
+            kingdomVoteInput = kingdomVoteInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            kingdomVoteMode = false;
+            kingdomVoteInput = string.Empty;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && kingdomVoteInput.Trim().Length > 0)
+        {
+            kingdomPoliticsMessage = null;
+            kingdomVoteTask = gameDataApi!.VoteForKingAsync(options.SessionToken!, chosenCharacterId!.Value, kingdomVoteInput.Trim());
+        }
+
+        return;
+    }
+
     if (keyboard.WasJustPressed(Key.Escape))
     {
         activePanel = PanelKind.None;
+    }
+    else if (keyboard.WasJustPressed(Key.V))
+    {
+        kingdomVoteMode = true;
+        kingdomVoteInput = string.Empty;
+        kingdomPoliticsMessage = null;
+    }
+    else if (keyboard.WasJustPressed(Key.B) && kingdomPolitics is not null && kingdomPolitics.KingCharacterId == chosenCharacterId)
+    {
+        kingdomPoliticsMessage = null;
+        kingdomConstructTask = gameDataApi!.ConstructKingdomBuildingAsync(options.SessionToken!, chosenCharacterId!.Value);
     }
 }
 
@@ -3286,10 +3372,31 @@ void DrawKingdomPanel(int w, int h)
                 $"{kingdom.WarPoints} points de guerre   -   {territoryCount} territoire(s)   -   bonus de rendement +{kingdom.BonusTerritoryCount}",
                 new Vector2(topLeft.X + 34f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.7f, 1f));
             y += 34f;
+
+            if (isMine && kingdomPolitics is not null)
+            {
+                var kingLabel = kingdomPolitics.KingCharacterName is { Length: > 0 } king ? king.ToUpperInvariant() : "AUCUN (VOTEZ AVEC V)";
+                TextRenderer.Draw(spriteBatch, whiteTexture,
+                    $"Roi elu : {kingLabel}   -   Tresor : {kingdomPolitics.TreasuryGold} or{(kingdomPolitics.IsTaxExempt ? "   -   EXEMPT DE TAXES" : "")}",
+                    new Vector2(topLeft.X + 34f, y), 1.4f, new Vector4(0.9f, 0.8f, 0.5f, 1f));
+                y += 30f;
+            }
+        }
+
+        if (kingdomVoteMode)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "NOM DU CANDIDAT (VOTRE ROYAUME) :", new Vector2(w / 2f, topLeft.Y + boxHeight - 78f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight - 58f), new Vector2(boxWidth - 60f, 28f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
+            TextRenderer.Draw(spriteBatch, whiteTexture, kingdomVoteInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight - 52f), 1.6f, Vector4.One);
+        }
+        else if (kingdomPoliticsMessage is { Length: > 0 })
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, kingdomPoliticsMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.7f, 0.9f, 0.7f, 1f));
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    var kingdomFooter = kingdomVoteMode ? "ENTREE : VOTER - ECHAP : ANNULER" : "V : VOTER POUR LE ROI   B : CONSTRUIRE (ROI)   -   ECHAP : FERMER";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, kingdomFooter, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void OnDialogueFinished(string npcName)
@@ -4307,6 +4414,11 @@ void OpenPanel(PanelKind kind)
             break;
         case PanelKind.Kingdom:
             kingdomPanelLoadTask = LoadKingdomPanelDataAsync();
+            kingdomPolitics = null;
+            kingdomPoliticsTask = chosenCharacterId is null ? null : gameDataApi?.GetKingdomPoliticsAsync(chosenCharacterId.Value);
+            kingdomVoteMode = false;
+            kingdomVoteInput = string.Empty;
+            kingdomPoliticsMessage = null;
             break;
         case PanelKind.Professions:
             professionRows = [];

@@ -21,4 +21,10 @@ public sealed class KingdomEntity
     /// récolte de TOUS les territoires contrôlés par ce royaume (voir ProfessionService.GatherAsync).
     /// </summary>
     public int BonusTerritoryCount { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "élections du roi" : personnage actuellement élu, ou <c>null</c> si aucune élection n'a encore eu lieu (voir KingdomPoliticsService).</summary>
+    public Guid? KingCharacterId { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "taxes" et "construction de bâtiments" : or prélevé sur les ventes des citoyens de ce royaume (voir KingdomPoliticsService.ApplyTaxAsync), dépensable par le roi élu pour agrandir <see cref="BonusTerritoryCount"/>.</summary>
+    public long TreasuryGold { get; set; }
 }

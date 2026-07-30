@@ -95,7 +95,8 @@ public sealed class AuctionService(AetheriaDbContext db, SessionTokenStore token
         character.Gold -= totalPrice;
         if (seller is not null)
         {
-            seller.Gold += totalPrice;
+            // Voir GDD/demande utilisateur — "taxes" : prélevées sur l'or gagné à la vente, au profit du trésor du royaume du vendeur (exemption au palier premium 3).
+            seller.Gold += await KingdomPoliticsService.ApplyTaxAsync(db, seller, totalPrice, ct);
         }
 
         // Voir GDD/demande utilisateur — "limite de stack d'item à 99 par item dans l'inventaire".
