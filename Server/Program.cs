@@ -1089,6 +1089,22 @@ app.MapPost("/api/auction/cancel", async (AuctionActionRequest request) =>
     }
 });
 
+// Voir GDD/demande utilisateur — "la possibilité de le mettre aux enchères".
+app.MapPost("/api/auction/bid", async (AuctionBidRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var auctionService = new AuctionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await auctionService.PlaceBidAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 app.MapGet("/api/achievements/catalog", () => Results.Ok(AchievementCatalog.All));
 
 app.MapGet("/api/achievements", async (string sessionToken) =>

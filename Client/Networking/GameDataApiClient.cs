@@ -352,10 +352,17 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
-    public async Task<AuctionResponse> CreateAuctionListingAsync(string sessionToken, Guid characterId, int itemId, int quantity, long pricePerUnit, CancellationToken ct = default)
+    public async Task<AuctionResponse> CreateAuctionListingAsync(string sessionToken, Guid characterId, int itemId, int quantity, long pricePerUnit, bool isAuction = false, CancellationToken ct = default)
         => await PostAuctionActionAsync("/api/auction/list", new CreateAuctionListingRequest
         {
-            SessionToken = sessionToken, CharacterId = characterId, ItemId = itemId, Quantity = quantity, PricePerUnit = pricePerUnit,
+            SessionToken = sessionToken, CharacterId = characterId, ItemId = itemId, Quantity = quantity, PricePerUnit = pricePerUnit, IsAuction = isAuction,
+        }, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — "la possibilité de le mettre aux enchères".</summary>
+    public async Task<AuctionResponse> PlaceAuctionBidAsync(string sessionToken, Guid characterId, Guid listingId, long bidAmount, CancellationToken ct = default)
+        => await PostAuctionActionAsync("/api/auction/bid", new AuctionBidRequest
+        {
+            SessionToken = sessionToken, CharacterId = characterId, ListingId = listingId, BidAmount = bidAmount,
         }, ct);
 
     public async Task<AuctionResponse> BuyAuctionListingAsync(string sessionToken, Guid characterId, Guid listingId, CancellationToken ct = default)
