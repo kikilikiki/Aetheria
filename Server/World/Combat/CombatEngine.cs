@@ -363,6 +363,15 @@ internal static class CombatEngine
             damage = Math.Max(2, (int)(actor.Attack * multiplier));
             verb = "transperce";
         }
+        else if (actor.Type == MonsterType.Mage)
+        {
+            // Voir GDD/demande utilisateur — "capacités élémentaires (lave/glace) pour d'autres
+            // types de monstres, en plus des ultimes" : même formule que le coup puissant
+            // générique, mais laisse en plus une case de lave/glace sous la cible (voir
+            // TryPlaceElementalTileUnderTarget) selon l'Element du Mage lui-même.
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
+            verb = "frappe d'un sort élémentaire";
+        }
         else
         {
             damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
@@ -379,7 +388,45 @@ internal static class CombatEngine
             : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !{comboSuffix}";
         ApplyPostDamagePassives(session, actor, target, damage);
 
+        if (actor.Type == MonsterType.Mage)
+        {
+            TryPlaceElementalTileUnderTarget(session, actor, target);
+        }
+
         CheckEndCondition(session);
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "capacités élémentaires (lave/glace) pour d'autres types de
+    /// monstres, en plus des ultimes" : réutilise les cases Lave/Glace déjà générées au hasard par
+    /// <see cref="ScatterTileEffects"/> (brûlure à chaque tour passé dessus / +1 case de
+    /// déplacement en partant de la case), mais posées volontairement sous la cible par un Mage,
+    /// selon son propre Element (Feu -&gt; Lave, Glace -&gt; Glace). Aucun effet pour les autres
+    /// Elements — pas de case "élémentaire" correspondante — et ne remplace jamais une case qui
+    /// porte déjà un effet (pour ne pas écraser un bloc du Contrôleur, par ex.). Purement en plus
+    /// des dégâts déjà infligés : échoue silencieusement (la cible est peut-être déjà K.O.).
+    /// </summary>
+    private static void TryPlaceElementalTileUnderTarget(CombatSession session, Combatant actor, Combatant target)
+    {
+        if (!target.IsAlive || session.TileEffects.ContainsKey((target.X, target.Y)))
+        {
+            return;
+        }
+
+        TileEffect? effect = actor.Element switch
+        {
+            Element.Feu => TileEffect.Lave,
+            Element.Glace => TileEffect.Glace,
+            _ => null,
+        };
+
+        if (effect is null)
+        {
+            return;
+        }
+
+        session.TileEffects[(target.X, target.Y)] = effect.Value;
+        session.LastMessage += effect == TileEffect.Lave ? " Le sol s'embrase sous lui !" : " Le sol gèle sous lui !";
     }
 
     /// <summary>
@@ -510,6 +557,11 @@ internal static class CombatEngine
             damage = Math.Max(2, (int)(actor.Attack * multiplier * ultimateMultiplier));
             verb = "transperce (ultime)";
         }
+        else if (actor.Type == MonsterType.Mage)
+        {
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
+            verb = "frappe d'un sort élémentaire (ultime)";
+        }
         else
         {
             damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
@@ -525,6 +577,11 @@ internal static class CombatEngine
             ? $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix}.{comboSuffix}"
             : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !{comboSuffix}";
         ApplyPostDamagePassives(session, actor, target, damage);
+
+        if (actor.Type == MonsterType.Mage)
+        {
+            TryPlaceElementalTileUnderTarget(session, actor, target);
+        }
 
         CheckEndCondition(session);
     }
