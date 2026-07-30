@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Text;
 using Aetheria.Client;
 using Aetheria.Client.Networking;
+using Aetheria.Client.Services;
 using Aetheria.Client.World;
 using Aetheria.Engine.Core;
 using Aetheria.Engine.Input;
@@ -771,6 +772,7 @@ else
 }
 
 using var host = new GameHost($"{GameInfo.Name} — v{GameInfo.Version}", 1280, 720);
+using var discordPresence = new DiscordPresenceService();
 
 SpriteBatch spriteBatch = null!;
 Texture2D whiteTexture = null!;
@@ -806,6 +808,12 @@ host.Update += deltaTime =>
     keyboard.Update();
     mouse.Update();
     animationClock += deltaTime;
+
+    // Voir GDD/demande utilisateur — "custom activite discord automatique avec les gens dans son
+    // groupe si il est en combat en donjon etage combien etc" : recalculé à chaque frame (peu
+    // coûteux — DiscordPresenceService n'envoie réellement à Discord que si le texte a changé).
+    discordPresence.Invoke();
+    discordPresence.Update(BuildDiscordPresenceDetails(), BuildDiscordPresenceState());
 
     // Voir GDD/demande utilisateur — "quand on appuie sur les touches ça s'affiche aussi dans
     // le tchat même s'il n'est pas ouvert" : les touches de déplacement produisent aussi des
@@ -5176,6 +5184,41 @@ void UpdateTitleScreen()
     {
         host.Close();
     }
+}
+
+/// <summary>Voir GDD/demande utilisateur — "custom activite discord automatique... si il est en combat en donjon etage combien etc" : ligne principale de la présence Discord.</summary>
+string BuildDiscordPresenceDetails()
+{
+    if (sceneMode == SceneMode.Combat)
+    {
+        return interiorIsDungeon ? $"En combat - Donjon (etage {dungeonFloorNumber})" : "En combat";
+    }
+
+    if (interiorIsDungeon)
+    {
+        return $"En donjon - Etage {dungeonFloorNumber}";
+    }
+
+    return sceneMode switch
+    {
+        SceneMode.Title => "Sur l'ecran titre",
+        SceneMode.CharacterSelect or SceneMode.CharacterCreate => "Selection du personnage",
+        SceneMode.Interior => "En interieur",
+        SceneMode.StarterSelection => "Choix du compagnon de depart",
+        _ => "En exploration",
+    };
+}
+
+/// <summary>Voir GDD/demande utilisateur — "avec les gens dans son groupe" : ligne secondaire de la présence Discord, null si le joueur n'est pas en groupe (ou seul dans son groupe).</summary>
+string? BuildDiscordPresenceState()
+{
+    if (myParty is not { Members.Count: > 1 } party)
+    {
+        return null;
+    }
+
+    var others = party.Members.Where(m => m.CharacterId != chosenCharacterId).Select(m => m.Name).ToList();
+    return others.Count > 0 ? $"Avec : {string.Join(", ", others)}" : null;
 }
 
 void UpdateCharacterSelect()
