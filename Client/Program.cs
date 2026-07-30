@@ -544,6 +544,8 @@ Task<MonsterInstanceData?>? monsterPrestigeTask = null;
 
 /// <summary>Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections" : parcourt <see cref="speciesById"/> (déjà chargé), "connue" si le personnage possède/a possédé au moins une créature de cette espèce (voir ownedMonsters — approximation "actuellement possédée", pas un historique permanent).</summary>
 var encyclopediaCursor = 0;
+EndGameStatus? endGameStatus = null;
+Task<EndGameStatus?>? endGameStatusTask = null;
 
 // Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
 // (ArenaQueueService), sondée régulièrement tant que le joueur attend un appairage.
@@ -2546,6 +2548,12 @@ void DrawHatcheryPanel(int w, int h)
 /// </summary>
 void UpdateEncyclopediaPanel()
 {
+    if (endGameStatusTask is { IsCompleted: true } endGameTask)
+    {
+        endGameStatus = endGameTask.IsFaulted ? null : endGameTask.Result;
+        endGameStatusTask = null;
+    }
+
     var speciesList = speciesById.Values.OrderBy(s => s.BaseRarity).ThenBy(s => s.Name).ToList();
 
     if (keyboard.WasJustPressed(Key.Escape))
@@ -2615,6 +2623,17 @@ void DrawEncyclopediaPanel(int w, int h)
         {
             TextRenderer.Draw(spriteBatch, whiteTexture, "Capturez cette espèce pour révéler sa fiche.", new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
         }
+    }
+
+    // Voir GDD/demande utilisateur — "contenu end-game", gated behind owning every monster at max
+    // level + every achievement.
+    if (endGameStatus is { } status)
+    {
+        var endGameColor = status.IsEligible ? new Vector4(0.6f, 0.95f, 0.6f, 1f) : new Vector4(0.6f, 0.6f, 0.65f, 1f);
+        var endGameLabel = status.IsEligible
+            ? "CONTENU END-GAME DEBLOQUE (donjon mythique Sanctuaire Ultime)"
+            : $"END-GAME : {status.SpeciesAtMaxLevel}/{status.TotalRequiredSpecies} especes niv. max - {status.AchievementsUnlocked}/{status.TotalAchievements} succes";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, endGameLabel, new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.4f, endGameColor);
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -4524,6 +4543,8 @@ void OpenPanel(PanelKind kind)
                 _ = LoadMonstersAsync();
             }
 
+            endGameStatus = null;
+            endGameStatusTask = chosenCharacterId is null ? null : gameDataApi?.GetEndGameStatusAsync(chosenCharacterId.Value);
             break;
     }
 }

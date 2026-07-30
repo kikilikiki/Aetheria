@@ -22,6 +22,9 @@ public static class AchievementCatalog
         new("maitre_fusionneur", "Fusion réussie", "Fusionnez deux créatures au bâtiment Fusion.", AchievementCategory.Collection, IsHidden: true),
         new("eleveur", "Éleveur", "Faites naître une créature à la Couvée.", AchievementCategory.Collection, IsHidden: true),
         new("prestige_legendaire", "Au-delà des limites", "Faites prestiger une créature au niveau maximum.", AchievementCategory.Collection, IsHidden: true),
+
+        // Voir GDD/demande utilisateur — "contenu end-game".
+        new("conquerant_du_sanctuaire", "Conquérant du Sanctuaire", "Triomphez du donjon mythique Sanctuaire Ultime.", AchievementCategory.Combat, IsHidden: true),
     ];
 
     public static AchievementDefinition? Find(string key) => All.FirstOrDefault(a => a.Key == key);

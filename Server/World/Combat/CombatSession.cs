@@ -19,6 +19,9 @@ public sealed class CombatSession
     /// <summary>Vrai pour un combat déclenché dans un donjon (voir GDD/demande utilisateur — "on ne peut pas fuir un combat en donjon, on peut en dehors") : bloque <see cref="Aetheria.Shared.Enums.CombatActionType.Flee"/>.</summary>
     public bool IsDungeonCombat { get; init; }
 
+    /// <summary>Vrai pour un combat déclenché dans un donjon mythique (voir GDD/demande utilisateur — "contenu end-game... reliques uniques") : voir <c>CombatService.ApplyPveVictoryRewardsAsync</c>, récompense garantie à la victoire.</summary>
+    public bool IsMythic { get; init; }
+
     /// <summary>
     /// Groupe à l'origine de ce combat PvE (voir GDD/demande utilisateur — "en groupe, les 2
     /// doivent voir le même combat, pas deux combats séparés") : un membre du groupe qui engage

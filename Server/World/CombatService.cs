@@ -20,7 +20,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 {
     /// <summary>XP de base accordée à la victoire PvE (voir GDD — partagée en groupe via <see cref="PartyService"/>). Simplification assumée : montant fixe plutôt que calculé sur le niveau/rareté exacte de la créature vaincue.</summary>
     private const long PveVictoryExperience = 30;
-    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false)
+    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false, bool isMythic = false)
     {
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
         {
@@ -89,9 +89,13 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // LootService, non modifié ici — la rareté de butin dépend déjà du niveau du
             // personnage, or/xp de victoire eux montent avec des monstres plus costauds via le
             // même calcul que d'habitude).
-            var hardcoreMultiplier = isHardcore ? 1.5 : 1.0;
+            // Voir GDD/demande utilisateur — "donjons mythiques avec modificateurs... boss
+            // impossibles" (contenu end-game) : statistiques ×3, cumulé avec l'invasion mais pas
+            // avec le hardcore (un donjon est soit hardcore, soit mythique, jamais les deux — voir
+            // DungeonSeeder).
+            var hardcoreMultiplier = isMythic ? 3.0 : isHardcore ? 1.5 : 1.0;
             var invasionMultiplier = isInvasion ? 1.3 : 1.0;
-            var namePrefix = (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + (isInvasion ? "[INVASION] " : "") + (isHardcore ? "[HARDCORE] " : "");
+            var namePrefix = (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + (isMythic ? "[MYTHIQUE] " : "") + (isInvasion ? "[INVASION] " : "") + (isHardcore ? "[HARDCORE] " : "");
             var wildMaxHealth = Math.Max(1, (int)Math.Round(wildSpecies.BaseHealth * variantDefinition.StatMultiplier * hardcoreMultiplier * invasionMultiplier));
             combatants.Add(new Combatant
             {
@@ -108,7 +112,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             });
         }
 
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat, PartyId = party?.Id };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat, IsMythic = isMythic, PartyId = party?.Id };
         session.TeamOwnerUserId[0] = userId;
         session.TeamCharacterId[0] = character.Id;
 
@@ -295,6 +299,17 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
         }
 
+        // Voir GDD/demande utilisateur — "contenu end-game... donjons mythiques", réservé aux
+        // comptes ayant déjà tout complété (voir EndGameService).
+        if (dungeon.IsMythic)
+        {
+            var endGameStatus = await new EndGameService(db).GetStatusAsync(request.CharacterId, ct);
+            if (!endGameStatus.IsEligible)
+            {
+                throw new AccountOperationException("Ce donjon mythique requiert de posséder chaque espèce au niveau maximum et chaque succès de jeu.");
+            }
+        }
+
         var species = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
 
         // Voir GDD/demande utilisateur — "ajoute un leaderboard pour la personne qui est arrivée
@@ -314,7 +329,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             CharacterId = request.CharacterId,
             MonsterIds = request.MonsterIds,
             WildSpeciesId = species.Id,
-        }, ct, isDungeonCombat: true, isHardcore: dungeon.IsHardcore);
+        }, ct, isDungeonCombat: true, isHardcore: dungeon.IsHardcore, isMythic: dungeon.IsMythic);
     }
 
     /// <summary>
@@ -559,10 +574,36 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
         }
 
+        // Voir GDD/demande utilisateur — "contenu end-game... reliques uniques" : une victoire en
+        // donjon mythique octroie directement une relique (parmi celles déjà du catalogue
+        // "legendary_recipes", voir EquipmentCatalogSeeder) au lieu du butin aléatoire habituel —
+        // garanti plutôt que soumis au même tirage pondéré que le reste (voir RarityWeight,
+        // Rarity.Mythique n'y pèse déjà presque rien).
+        if (session.IsMythic)
+        {
+            var winnerCharacter = await db.Characters.FirstOrDefaultAsync(c => c.Id == winnerCharacterId, ct);
+            if (winnerCharacter is not null)
+            {
+                var relic = RelicItemNames[Random.Shared.Next(RelicItemNames.Length)];
+                var relicItem = await db.Items.FirstOrDefaultAsync(i => i.Name == relic, ct);
+                if (relicItem is not null)
+                {
+                    await InventoryStackingService.AddQuantityAsync(db, winnerCharacterId, relicItem.Id, 1, relicItem.MaxStackSize <= 0 ? 99 : relicItem.MaxStackSize, ct);
+                    await new AchievementService(db).UnlockAsync(winnerCharacter.UserId, "conquerant_du_sanctuaire", ct);
+                    session.LastMessage = $"{session.LastMessage} Relique obtenue : {relicItem.Name} !".Trim();
+                }
+            }
+        }
+
         var lootService = new LootService(db, lootStore, partyService);
         var loot = await lootService.CreateFromVictoryAsync(winnerCharacterId, ct);
         return loot?.LootId;
     }
+
+    private static readonly string[] RelicItemNames =
+    [
+        "Couronne du Premier Roi", "Livre Interdit", "Orbe de l'Infini", "Cœur d'Aether", "Éclat du Monde",
+    ];
 
     public bool TryGetState(Guid combatId, out CombatSessionState state)
     {

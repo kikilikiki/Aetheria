@@ -1614,6 +1614,21 @@ app.MapPost("/api/kingdoms/wars/resolve", async () =>
     return Results.Ok(new { message });
 });
 
+// Voir GDD/demande utilisateur — "contenu end-game" (donjons mythiques, équipement légendaire, reliques uniques).
+app.MapGet("/api/endgame/status", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+
+    try
+    {
+        return Results.Ok(await new EndGameService(db).GetStatusAsync(characterId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Voir GDD/demande utilisateur — "Fonctionnalités de royaume avancées" (élections du roi, taxes, construction).
 app.MapGet("/api/kingdoms/politics", async (Guid characterId) =>
 {
@@ -1682,9 +1697,18 @@ app.MapGet("/api/seasons/current", async () =>
     }
 });
 
-app.MapPost("/api/seasons/next", async () =>
+app.MapPost("/api/seasons/next", async (AdminSessionRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     return Results.Ok(await new SeasonService(db).StartNextSeasonAsync());
 });
 
@@ -2676,4 +2700,6 @@ static DungeonData ToDungeonData(DungeonEntity entity) => new()
     WorldY = entity.WorldY,
     MinLevel = entity.MinLevel,
     IsHardcore = entity.IsHardcore,
+    IsMythic = entity.IsMythic,
+    MythicModifierDescription = entity.MythicModifierDescription,
 };

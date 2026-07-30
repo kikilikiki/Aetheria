@@ -25,4 +25,8 @@ public sealed class DungeonData
 
     /// <summary>Voir GDD/demande utilisateur — "donjons hardcore (niv 15+)".</summary>
     public bool IsHardcore { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "contenu end-game... donjons mythiques", réservé aux comptes ayant tout complété (voir EndGameService).</summary>
+    public bool IsMythic { get; init; }
+    public string MythicModifierDescription { get; init; } = string.Empty;
 }
