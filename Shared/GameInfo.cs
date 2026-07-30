@@ -11,7 +11,7 @@ public static class GameInfo
     public const string Name = "Aetheria";
 
     /// <summary>Version courante du jeu (SemVer).</summary>
-    public const string Version = "0.2.0";
+    public const string Version = "0.2.1";
 
     /// <summary>Port TCP par défaut utilisé par le serveur de jeu.</summary>
     public const int DefaultGamePort = 7777;
