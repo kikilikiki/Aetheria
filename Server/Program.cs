@@ -261,6 +261,7 @@ app.MapPost("/api/monsters/species", async (MonsterSpeciesData species) =>
         BaseStats = species.BaseStats,
         EvolvesIntoSpeciesId = species.EvolvesIntoSpeciesId,
         EvolutionLevel = species.EvolutionLevel,
+        IsCosmetic = species.IsCosmetic,
     };
 
     db.MonsterSpecies.Add(entity);
@@ -286,6 +287,7 @@ app.MapPut("/api/monsters/species/{id:int}", async (int id, MonsterSpeciesData u
     existing.BaseStats = updated.BaseStats;
     existing.EvolvesIntoSpeciesId = updated.EvolvesIntoSpeciesId;
     existing.EvolutionLevel = updated.EvolutionLevel;
+    existing.IsCosmetic = updated.IsCosmetic;
 
     await db.SaveChangesAsync();
     return Results.Ok(ToSpeciesData(existing));
@@ -2422,6 +2424,7 @@ static MonsterSpeciesData ToSpeciesData(MonsterSpeciesEntity entity) => new()
     BaseStats = entity.BaseStats,
     EvolvesIntoSpeciesId = entity.EvolvesIntoSpeciesId,
     EvolutionLevel = entity.EvolutionLevel,
+    IsCosmetic = entity.IsCosmetic,
 };
 
 static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnlyDictionary<int, string>? itemNames = null) => new()

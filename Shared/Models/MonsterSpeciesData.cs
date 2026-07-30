@@ -22,4 +22,7 @@ public sealed class MonsterSpeciesData
     public int? EvolvesIntoSpeciesId { get; init; }
 
     public int EvolutionLevel { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Monstres cosmétiques rares" : purement un badge d'affichage/prestige côté Client.</summary>
+    public bool IsCosmetic { get; init; }
 }

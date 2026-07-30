@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Server.Persistence;
+using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.WorldBoss;
 using Microsoft.EntityFrameworkCore;
 
@@ -97,6 +98,27 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
             boss.KilledAtUtc = DateTime.UtcNow;
             boss.KillerCharacterName = character.Name;
             bossKilled = true;
+
+            // Voir GDD/demande utilisateur — "Monstres cosmétiques rares" : seule voie
+            // d'obtention, une petite chance pour l'auteur du coup fatal.
+            const double CosmeticDropChance = 0.08;
+            if (Random.Shared.NextDouble() < CosmeticDropChance)
+            {
+                var cosmeticSpecies = await db.MonsterSpecies.Where(s => s.IsCosmetic).ToListAsync(ct);
+                if (cosmeticSpecies.Count > 0)
+                {
+                    var species = cosmeticSpecies[Random.Shared.Next(cosmeticSpecies.Count)];
+                    db.Monsters.Add(new MonsterEntity
+                    {
+                        Id = Guid.NewGuid(),
+                        OwnerCharacterId = character.Id,
+                        SpeciesId = species.Id,
+                        Nickname = species.Name,
+                        Level = 1,
+                        PassiveTalent = PassiveTalentCatalog.RollRandom(Random.Shared),
+                    });
+                }
+            }
 
             // Voir GDD/demande utilisateur — "plus on fait de degat plus on a de point" : la
             // récompense (or) est proportionnelle aux dégâts infligés par CHAQUE participant à

@@ -73,6 +73,9 @@ Généré depuis la base de données (voir `Server/Persistence/MonsterCatalogSee
 | 54 | Le Développeur | Arcane | Invocateur | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
 | 55 | L'Observateur | Spectre | Controleur | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
 | — | Chimèrion | Arcane | Support | Epique | **REPRODUCTION UNIQUEMENT** — bâtiment Couvée, jamais en rencontre naturelle (voir `BreedingOnly`) |
+| — | Prismail | Cristal | Support | Mythique | **COSMETIQUE — TROPHEE DE BOSS** — 8% de chance au coup fatal porté à un boss mondial |
+| — | Auroriel | Lumiere | Controleur | Ancestral | **COSMETIQUE — TROPHEE DE BOSS** — 8% de chance au coup fatal porté à un boss mondial |
+| — | Nocturnelle | Ombre | Assassin | Divin | **COSMETIQUE — TROPHEE DE BOSS** — 8% de chance au coup fatal porté à un boss mondial |
 
 ## Variantes de créature
 
