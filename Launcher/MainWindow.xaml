@@ -783,8 +783,8 @@
                         <StackPanel VerticalAlignment="Top">
                             <TextBlock Text="Créé par feelsman" Foreground="#E7E5E3" Margin="0,0,0,8" />
                             <TextBlock Text="Code par feelsman" Foreground="#E7E5E3" Margin="0,0,0,8" />
-                            <TextBlock Text="Logo par —" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" />
-                            <TextBlock Text="Musique par —" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" />
+                            <TextBlock Text="Logo par Korbak" Foreground="#E7E5E3" Margin="0,0,0,8" />
+                            <TextBlock Text="Musique par Konss" Foreground="#E7E5E3" Margin="0,0,0,8" />
                             <TextBlock Text="Graphisme par feelsman" Foreground="#E7E5E3" Margin="0,0,0,8" />
                         </StackPanel>
                     </DockPanel>
