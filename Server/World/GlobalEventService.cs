@@ -28,6 +28,10 @@ public static class GlobalEventService
     public static double XpMultiplier => _doubleXpUntilUtc > DateTime.UtcNow ? 2.0 : 1.0;
     public static int LootMultiplier => _doubleLootUntilUtc > DateTime.UtcNow ? 2 : 1;
 
+    /// <summary>Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" : consulté par l'endpoint de statut public (voir Server/Program.cs), null si aucun minuteur n'a jamais été activé ou s'il est expiré.</summary>
+    public static DateTime? DoubleXpUntilUtc => _doubleXpUntilUtc > DateTime.UtcNow ? _doubleXpUntilUtc : null;
+    public static DateTime? DoubleLootUntilUtc => _doubleLootUntilUtc > DateTime.UtcNow ? _doubleLootUntilUtc : null;
+
     public static bool IsInvasionActive(KingdomType kingdom) =>
         InvasionUntilUtcByKingdom.TryGetValue(kingdom, out var until) && until > DateTime.UtcNow;
 

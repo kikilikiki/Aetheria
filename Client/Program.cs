@@ -161,6 +161,12 @@ const float CombatPollIntervalSeconds = 0.35f;
 var hudPollClock = 0f;
 const float HudPollIntervalSeconds = 8f;
 
+// Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" :
+// rafraîchi au même rythme que le HUD or/niveau ci-dessus (voir hudPollClock), endpoint public
+// (pas de session requise) donc pas besoin d'attendre chosenCharacterId.
+GlobalEventStatus? globalEventStatus = null;
+Task<GlobalEventStatus?>? globalEventStatusTask = null;
+
 // Butin de victoire (voir GDD — 4 objets à départager, tirage aléatoire en cas d'égalité) :
 // affiché après un combat gagné, avant de revenir à la scène d'intérieur.
 LootSessionState? activeLoot = null;
@@ -1025,11 +1031,21 @@ host.Update += deltaTime =>
         profileLoadTask = null;
     }
 
+    if (globalEventStatusTask is { IsCompleted: true } eventStatusTask)
+    {
+        globalEventStatus = eventStatusTask.IsFaulted ? globalEventStatus : eventStatusTask.Result;
+        globalEventStatusTask = null;
+    }
+
     hudPollClock += deltaTime;
     if (hudPollClock >= HudPollIntervalSeconds && profileLoadTask is null && chosenCharacterId is not null && gameDataApi is not null)
     {
         hudPollClock = 0f;
         profileLoadTask = gameDataApi.GetProfileAsync(chosenCharacterId.Value);
+        if (globalEventStatusTask is null)
+        {
+            globalEventStatusTask = gameDataApi.GetGlobalEventStatusAsync();
+        }
     }
 
     if (UpdateActiveDialogueIfAny())
@@ -7930,7 +7946,20 @@ void DrawOutdoorHud()
 /// pour que le déplacement au clic puisse l'ignorer.
 /// </summary>
 /// <summary>Voir retour utilisateur — "ajouter un affichage en haut a droite son argent et son niveau" : hauteur de la ligne or/niveau au-dessus de la colonne de boutons, 0 tant que myProfile n'est pas encore chargé (voir DrawOutdoorHudButtons/IsPointOverOutdoorHudButtons, même géométrie).</summary>
-float OutdoorHudButtonsStartY() => myProfile is not null ? 14f + TextRenderer.LineHeight(1.7f) + 14f : 14f;
+float OutdoorHudButtonsStartY() => (myProfile is not null ? 14f + TextRenderer.LineHeight(1.7f) + 14f : 14f) + ActiveEventBadgesHeight();
+
+/// <summary>Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" : hauteur occupée par les badges XP x2/BUTIN x2 (0 si aucun minuteur actif), factorisée pour que <see cref="OutdoorHudButtonsStartY"/> (donc aussi <see cref="IsPointOverOutdoorHudButtons"/>) et <see cref="DrawOutdoorHudButtons"/> restent en accord sur la géométrie.</summary>
+float ActiveEventBadgesHeight()
+{
+    var activeCount = (globalEventStatus?.IsDoubleXpActive is true ? 1 : 0) + (globalEventStatus?.IsDoubleLootActive is true ? 1 : 0);
+    if (activeCount == 0)
+    {
+        return 0f;
+    }
+
+    const float badgePixelSize = 1.5f;
+    return activeCount * (TextRenderer.LineHeight(badgePixelSize) + 4f) + 6f;
+}
 
 bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
 {
@@ -7969,7 +7998,39 @@ void DrawOutdoorHudButtons(int w, int h)
         TextRenderer.Draw(spriteBatch, whiteTexture, hudLine, new Vector2(w - 16f - hudWidth, 14f), pixelSize, new Vector4(0.95f, 0.85f, 0.5f, 1f));
     }
 
-    var y = OutdoorHudButtonsStartY();
+    // Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" :
+    // badges pulsants sous la ligne or/niveau, un par minuteur global actif, tant qu'il n'est pas
+    // expiré côté serveur (voir GlobalEventService.DoubleXpUntilUtc/DoubleLootUntilUtc).
+    // ActiveEventBadgesHeight() (déjà comptée dans OutdoorHudButtonsStartY()) donne la hauteur
+    // totale du bloc : on part de startY - cette hauteur pour dessiner les badges, puis les
+    // boutons commencent exactement à startY, sans dupliquer le calcul de hauteur.
+    var startY = OutdoorHudButtonsStartY();
+    if (globalEventStatus is { IsDoubleXpActive: true } or { IsDoubleLootActive: true })
+    {
+        var pulse = 0.6f + 0.4f * MathF.Sin(animationClock * 4f);
+        const float badgePixelSize = 1.5f;
+        var badgeY = startY - ActiveEventBadgesHeight();
+
+        void DrawEventBadge(string label, Vector4 color)
+        {
+            var badgeWidth = TextRenderer.MeasureWidth(label, badgePixelSize);
+            var pulsedColor = new Vector4(color.X, color.Y, color.Z, 0.75f + 0.25f * pulse);
+            TextRenderer.Draw(spriteBatch, whiteTexture, label, new Vector2(w - 16f - badgeWidth, badgeY), badgePixelSize, pulsedColor);
+            badgeY += TextRenderer.LineHeight(badgePixelSize) + 4f;
+        }
+
+        if (globalEventStatus!.IsDoubleXpActive)
+        {
+            DrawEventBadge("XP x2 ACTIF", new Vector4(0.4f, 0.85f, 0.95f, 1f));
+        }
+
+        if (globalEventStatus.IsDoubleLootActive)
+        {
+            DrawEventBadge("BUTIN x2 ACTIF", new Vector4(0.85f, 0.7f, 0.3f, 1f));
+        }
+    }
+
+    var y = startY;
 
     foreach (var (label, kind) in buttons)
     {

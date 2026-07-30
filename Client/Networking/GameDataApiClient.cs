@@ -768,6 +768,13 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" : pas de session requise, statut public interrogé périodiquement (voir hudPollClock côté Client).</summary>
+    public async Task<GlobalEventStatus?> GetGlobalEventStatusAsync(CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync("/api/game/events/status", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<GlobalEventStatus>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "un endroit pour modifier son profil".</summary>
     public async Task<ProfileSummary?> GetProfileAsync(Guid characterId, CancellationToken ct = default)
     {
