@@ -19,8 +19,9 @@ TestResults/
 publish/
 *.pubxml.user
 
-# Paquet d'installation : seul le zip final est versionné (voir Sites/README.md), pas les
-# fichiers extraits/loose qui servent uniquement à le reconstruire.
+# Installateurs : publiés en GitHub Releases (voir Sites/README.md), pas commités dans le
+# dépôt — ni les artefacts finaux, ni les fichiers extraits/loose qui servent à les reconstruire.
+Sites/downloads/AetheriaSetup.exe
 Sites/downloads/Payload/
 Sites/downloads/AetheriaInstaller.*
 Sites/downloads/Aetheria.Shared.dll
@@ -35,6 +36,7 @@ Sites/downloads/linux/Aetheria.AppDir/usr/bin/Aetheria.Client
 Sites/downloads/linux/Aetheria.AppDir/usr/bin/libglfw.so.3
 Sites/downloads/linux/*.deb
 Sites/downloads/linux/*.AppImage
+Sites/downloads/linux/*.tar.gz
 
 # La règle globale "bin/" ci-dessus attrape aussi le usr/bin/ du paquet Linux (FHS) : on garde
 # le petit script wrapper (le vrai binaire reste ignoré via les règles explicites ci-dessus).

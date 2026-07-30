@@ -281,8 +281,8 @@
 
   <div id="os-panel-windows" class="os-panel">
     <div>
-      <a class="btn btn-primary" href="downloads/AetheriaSetup.exe" download id="telecharger">Installer le Launcher (.exe)</a>
-      <a class="btn btn-secondary" href="https://github.com/kikilikiki/Aetheria">Voir le code source</a>
+      <a class="btn btn-primary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/AetheriaSetup.exe" id="telecharger">Installer le Launcher (.exe)</a>
+      <a class="btn btn-secondary" href="https://github.com/kikilikiki/Aetheria/releases">Toutes les versions</a>
     </div>
     <span class="note">
       Un seul exécutable : lancez-le pour installer le Launcher (compte, connexion, mises à
@@ -293,14 +293,18 @@
 
   <div id="os-panel-linux" class="os-panel">
     <div>
-      <a class="btn btn-primary" href="https://github.com/kikilikiki/Aetheria/tree/main/Sites/downloads/linux">Instructions Linux (GitHub)</a>
-      <a class="btn btn-secondary" href="https://github.com/kikilikiki/Aetheria">Voir le code source</a>
+      <a class="btn btn-primary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-client_0.2.0_amd64.deb">Télécharger le .deb</a>
+      <a class="btn btn-secondary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-client-linux-x64.tar.gz">Archive .tar.gz</a>
     </div>
     <span class="note">
-      Support Linux partiel pour le moment : le moteur de jeu se compile nativement pour
-      Linux, mais le Launcher (connexion, création de compte) est encore réservé à Windows.
-      Le dossier ci-dessus contient un client autonome buildable en <code>.deb</code>/AppImage
-      et les instructions pour s'y connecter sans Launcher.
+      Support Linux partiel pour le moment : le moteur de jeu (client) se compile nativement
+      pour Linux, mais le Launcher (connexion, création de compte) est encore réservé à
+      Windows. Le paquet installe le client seul ; voir le
+      <code>README-linux.txt</code> inclus pour s'y connecter sans Launcher
+      (<code>--host=</code>, <code>--token=</code>). Pas encore d'AppImage — les outils pour
+      le générer ne sont pas disponibles sur la machine de build actuelle, voir
+      <a href="https://github.com/kikilikiki/Aetheria/tree/main/Sites/downloads/linux">le
+      scaffolding sur GitHub</a>.
     </span>
   </div>
 </div>
@@ -365,7 +369,7 @@
     Le launcher installe le jeu, gère les mises à jour et vous connecte à votre compte.
   </p>
   <div style="text-align: center;">
-    <a class="btn btn-primary" href="downloads/AetheriaSetup.exe" download>Installer le Launcher (Windows)</a>
+    <a class="btn btn-primary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/AetheriaSetup.exe">Installer le Launcher (Windows)</a>
   </div>
 </section>
 
