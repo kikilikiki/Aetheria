@@ -137,6 +137,21 @@ public sealed class FusionService(AetheriaDbContext db, SessionTokenStore tokenS
         survivor.Level = Math.Max(1, (survivor.Level + consumed.Level) / 2);
         survivor.Experience = 0;
 
+        // Voir retour utilisateur — "corrige la perte d'equipement" : les objets equipes sur la
+        // creature consommee par la fusion disparaissaient purement et simplement avec elle
+        // (db.Monsters.Remove ci-dessous) au lieu d'etre rendus a l'inventaire, contrairement au
+        // deseequipement normal (voir MonsterEquipmentService.ReturnEquippedItemToInventoryAsync).
+        foreach (var itemId in new[] { consumed.EquippedWeaponItemId, consumed.EquippedArmorItemId, consumed.EquippedAccessoryItemId })
+        {
+            if (itemId is not { } id)
+            {
+                continue;
+            }
+
+            var maxStackSize = await db.Items.Where(i => i.Id == id).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
+            await InventoryStackingService.AddQuantityAsync(db, character.Id, id, 1, maxStackSize <= 0 ? 99 : maxStackSize, ct);
+        }
+
         db.Monsters.Remove(consumed);
         character.PendingFusionSurvivorId = null;
         character.PendingFusionConsumedId = null;
