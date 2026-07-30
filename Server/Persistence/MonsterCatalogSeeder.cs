@@ -347,12 +347,16 @@ public static class MonsterCatalogSeeder
                 Name = "Arc en bois renforcé", Description = "Une arme de tir adaptée aux archers.",
                 ItemType = ItemType.Arme, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 200,
                 StatBonus = new StatBlock(0, 9, 0, 2, 0, 0),
+                // Voir GDD/demande utilisateur — "restreindre l'equipement par type de monstre (ex.
+                // arc = Archer uniquement)".
+                RestrictedToMonsterType = MonsterType.Archer,
             },
             new()
             {
                 Name = "Bâton d'apprenti", Description = "Un bâton qui canalise l'intelligence de son porteur.",
                 ItemType = ItemType.Arme, Rarity = Rarity.PeuCommun, IsStackable = false, MaxStackSize = 1, Price = 200,
                 StatBonus = new StatBlock(0, 3, 0, 0, 9, 0),
+                RestrictedToMonsterType = MonsterType.Mage,
             },
             new()
             {

@@ -53,4 +53,13 @@ public sealed class ItemEntity
     /// distribuable manuellement via le panel admin ("DONNER UN OBJET"), qui ignore ce champ.
     /// </summary>
     public bool IsObtainable { get; set; } = true;
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "restreindre l'equipement par type de monstre (ex. arc =
+    /// Archer uniquement)" : null pour la plupart des objets (équipable par n'importe quel type),
+    /// renseigné uniquement sur les quelques armes explicitement à thème (voir
+    /// MonsterCatalogSeeder — "Arc en bois renforcé", "Bâton d'apprenti"). Vérifié par
+    /// MonsterEquipmentService.EquipAsync contre le MonsterType de l'espèce de la créature.
+    /// </summary>
+    public MonsterType? RestrictedToMonsterType { get; set; }
 }

@@ -33,6 +33,20 @@ public sealed class MonsterEquipmentService(AetheriaDbContext db, SessionTokenSt
             _ => throw new AccountOperationException("Cet objet ne peut pas être équipé (seuls les armes/armures/accessoires le peuvent)."),
         };
 
+        // Voir GDD/demande utilisateur — "restreindre l'equipement par type de monstre (ex. arc =
+        // Archer uniquement)" : la plupart des objets n'ont aucune restriction (RestrictedToMonsterType
+        // null), seules quelques armes à thème en ont une (voir ItemEntity.RestrictedToMonsterType).
+        if (item.RestrictedToMonsterType is { } requiredType)
+        {
+            var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == monster.SpeciesId, ct)
+                ?? throw new AccountOperationException("Espèce de créature introuvable.");
+
+            if (species.Type != requiredType)
+            {
+                throw new AccountOperationException($"{item.Name} ne peut être équipé que par un type {requiredType}.");
+            }
+        }
+
         var inventoryItem = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == character.Id && i.ItemId == request.ItemId, ct)
             ?? throw new AccountOperationException("Vous ne possédez pas cet objet.");
 
