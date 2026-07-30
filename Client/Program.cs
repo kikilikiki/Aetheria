@@ -604,8 +604,9 @@ List<MonsterInstanceData> ownedMonsters = [];
 Dictionary<int, MonsterSpeciesData> speciesById = [];
 var monsterCursor = 0;
 var monstersLoaded = false;
-var monsterGiveItemMode = false;
-var monsterGiveItemCursor = 0;
+// Voir retour utilisateur — "retire le 'D' pour donner un objet a un monstre" : l'interaction
+// D (donner un objet consommable a une créature contre de l'XP) a été retirée du panel Monstres,
+// mais la tâche en attente reste réutilisée par la commande admin "L" (+5 niveaux, voir plus bas).
 Task<MonsterInstanceData?>? monsterGiveItemTask = null;
 Task<MonsterInstanceData?>? monsterTeamToggleTask = null;
 string? monsterMessage = null;
@@ -5424,7 +5425,6 @@ void OpenPanel(PanelKind kind)
             break;
         case PanelKind.Monsters:
             monstersLoaded = false;
-            monsterGiveItemMode = false;
             monsterDetailOpen = false;
             monsterMessage = null;
             _ = LoadMonstersAsync();
@@ -6055,7 +6055,6 @@ void UpdateMonstersPanel()
         }
 
         monsterGiveItemTask = null;
-        monsterGiveItemMode = false;
         return;
     }
 
@@ -6110,32 +6109,6 @@ void UpdateMonstersPanel()
 
     if (monsterEquipTask is not null)
     {
-        return;
-    }
-
-    if (monsterGiveItemMode)
-    {
-        if (keyboard.WasJustPressed(Key.Escape))
-        {
-            monsterGiveItemMode = false;
-        }
-        else if (inventoryItems.Count > 0)
-        {
-            if (keyboard.WasJustPressed(Key.Down)) monsterGiveItemCursor = Math.Min(monsterGiveItemCursor + 1, inventoryItems.Count - 1);
-            else if (keyboard.WasJustPressed(Key.Up)) monsterGiveItemCursor = Math.Max(monsterGiveItemCursor - 1, 0);
-            monsterGiveItemCursor = ApplyScrollWheel(monsterGiveItemCursor, inventoryItems.Count);
-            if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0)
-            {
-                var item = inventoryItems[monsterGiveItemCursor];
-                var monster = ownedMonsters[monsterCursor];
-                monsterMessage = null;
-                // Voir GDD/demande utilisateur — "on peut changer la compétence avec un objet".
-                monsterGiveItemTask = item.Name == "Parchemin de Compétence"
-                    ? gameDataApi!.RerollPassiveTalentAsync(options.SessionToken!, monster.Id, item.ItemId)
-                    : gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, monster.Id, item.ItemId);
-            }
-        }
-
         return;
     }
 
@@ -6224,12 +6197,6 @@ void UpdateMonstersPanel()
     if (keyboard.WasJustPressed(Key.I))
     {
         monsterDetailOpen = true;
-    }
-    else if (keyboard.WasJustPressed(Key.D) && inventoryItems.Count > 0)
-    {
-        monsterGiveItemMode = true;
-        monsterGiveItemCursor = 0;
-        monsterMessage = null;
     }
     else if (keyboard.WasJustPressed(Key.E))
     {
@@ -8391,44 +8358,6 @@ void DrawMonstersPanel(int w, int h)
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE CREATURE POUR L'INSTANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     }
-    else if (monsterGiveItemMode)
-    {
-        var monster = ownedMonsters[monsterCursor];
-        var monsterLabel = monster.Nickname.Length > 0 ? monster.Nickname : (speciesById.TryGetValue(monster.SpeciesId, out var s) ? s.Name : "Créature");
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"DONNER UN OBJET A {monsterLabel.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 62f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-
-        if (inventoryItems.Count == 0)
-        {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-        }
-        else
-        {
-            const int visibleRows = 9;
-            const float rowHeight = 26f;
-            var scrollStart = Math.Clamp(monsterGiveItemCursor - visibleRows / 2, 0, Math.Max(0, inventoryItems.Count - visibleRows));
-            var y = topLeft.Y + 100f;
-            for (var i = scrollStart; i < Math.Min(inventoryItems.Count, scrollStart + visibleRows); i++)
-            {
-                var isSelected = i == monsterGiveItemCursor;
-                var prefix = isSelected ? "> " : "  ";
-                var color = isSelected ? new Vector4(0.6f, 0.95f, 0.65f, 1f) : Vector4.One;
-                var text = $"{prefix}{inventoryItems[i].Name.ToUpperInvariant()} x{inventoryItems[i].Quantity}";
-                if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 2f, color) && monsterGiveItemTask is null && ownedMonsters.Count > 0)
-                {
-                    monsterGiveItemCursor = i;
-                    monsterMessage = null;
-                    monsterGiveItemTask = gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, ownedMonsters[monsterCursor].Id, inventoryItems[i].ItemId);
-                }
-
-                y += rowHeight;
-            }
-
-            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 100f), visibleRows * rowHeight, inventoryItems.Count, visibleRows, scrollStart);
-        }
-
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DONNER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-        return;
-    }
     else if (monsterEquipMode)
     {
         var monster = ownedMonsters[monsterCursor];
@@ -8552,8 +8481,8 @@ void DrawMonstersPanel(int w, int h)
         // : bannière pulsante en bas (DrawPromptBanner) plutôt qu'un texte simple dans la boîte,
         // pour rester cohérent avec les panneaux plus récents.
         var hint = myRank == UserRank.Fondateur
-            ? "I:DETAILS - D:OBJET - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
-            : "I:DETAILS - D:DONNER OBJET - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
+            ? "I:DETAILS - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
+            : "I:DETAILS - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
