@@ -13,4 +13,12 @@ public sealed class GuildSummary
     /// <summary>Voir GDD/demande utilisateur — "Niveau de guilde".</summary>
     public long GuildExperience { get; init; }
     public long ExperienceForNextLevel { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes".</summary>
+    public long WarPoints { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Quêtes de guilde" : objectif hebdomadaire "déposer des objets au coffre partagé".</summary>
+    public int WeeklyQuestItemsDeposited { get; init; }
+    public int WeeklyQuestItemTarget { get; init; }
+    public bool WeeklyQuestCompleted { get; init; }
 }

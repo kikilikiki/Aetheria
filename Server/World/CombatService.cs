@@ -818,6 +818,9 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         {
             await new KingdomWarService(db).AwardWarPointsAsync(winnerCharacter.Kingdom, 10, ct);
         }
+
+        // Voir GDD/demande utilisateur — "Guerres de guildes" : sans effet si le vainqueur n'a pas de guilde.
+        await new GuildService(db, tokenStore).AwardWarPointsAsync(winnerCharacterId, 10, ct);
     }
 
     /// <summary>
@@ -890,6 +893,9 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             {
                 await new KingdomWarService(db).AwardWarPointsAsync(character.Kingdom, 10, ct);
             }
+
+            // Voir GDD/demande utilisateur — "Guerres de guildes".
+            await new GuildService(db, tokenStore).AwardWarPointsAsync(characterId, 10, ct);
         }
     }
 

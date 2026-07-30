@@ -190,6 +190,27 @@ public sealed class CombatApiClient : IDisposable
     public Task CancelWarQueueAsync(Guid characterId, CancellationToken ct = default) =>
         _http.PostAsync($"/api/kingdoms/wars/queue/cancel?characterId={characterId}", null, ct);
 
+    /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes" : même mécanique que la guerre de royaumes, matchmaking entre deux guildes différentes.</summary>
+    public async Task<bool> QueueForGuildWarAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/guilds/wars/queue", new QueueForWarRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<ArenaQueueStatus?> GetGuildWarQueueStatusAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/guilds/wars/queue/status?characterId={characterId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ArenaQueueStatus>(JsonOptions, ct) : null;
+    }
+
+    public Task CancelGuildWarQueueAsync(Guid characterId, CancellationToken ct = default) =>
+        _http.PostAsync($"/api/guilds/wars/queue/cancel?characterId={characterId}", null, ct);
+
     /// <summary>Voir GDD/demande utilisateur — "ajoute un leaderboard dans l'UI pour le ready, pour afficher le nombre de points par team".</summary>
     public async Task<List<KingdomWarStanding>> GetWarStandingsAsync(CancellationToken ct = default)
     {

@@ -66,8 +66,41 @@ public sealed class KingdomWarService(AetheriaDbContext db)
             kingdom.WarPoints = 0;
         }
 
+        // Voir GDD/demande utilisateur — "capture de territoires" : le premier prend réellement
+        // un territoire (mine/champ en priorité, pour que sa team ait un nouvel endroit où
+        // "aller faire des quêtes de minage") au dernier, plutôt qu'un simple bonus de rendement.
+        // Ignoré s'il n'y a qu'un seul royaume classé (rien à capturer) ou si le dernier n'a plus
+        // aucun territoire.
+        var captureSummary = await CaptureTerritoryAsync(kingdoms[0], kingdoms[^1], ct);
+        if (captureSummary is not null)
+        {
+            summary.Add(captureSummary);
+        }
+
         await db.SaveChangesAsync(ct);
 
         return $"Guerre de royaumes résolue — {string.Join(", ", summary)}.";
+    }
+
+    private async Task<string?> CaptureTerritoryAsync(Database.Entities.KingdomEntity winner, Database.Entities.KingdomEntity loser, CancellationToken ct)
+    {
+        if (winner.Id == loser.Id)
+        {
+            return null;
+        }
+
+        var loserTerritories = await db.Territories.Where(t => t.ControllingKingdomId == loser.Id).ToListAsync(ct);
+        if (loserTerritories.Count == 0)
+        {
+            return null;
+        }
+
+        // Priorité aux territoires de ressources (Mine/Champ) — c'est là que "la team qui gagne"
+        // profite concrètement de la capture (voir GDD/demande utilisateur).
+        var target = loserTerritories.FirstOrDefault(t => t.TerritoryType is TerritoryType.Mine or TerritoryType.Champ)
+            ?? loserTerritories[Random.Shared.Next(loserTerritories.Count)];
+
+        target.ControllingKingdomId = winner.Id;
+        return $"{winner.Name} capture \"{target.Name}\" sur {loser.Name}";
     }
 }
