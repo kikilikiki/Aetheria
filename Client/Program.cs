@@ -15,6 +15,7 @@ using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Models.Premium;
+using Aetheria.Shared.Models.WorldBoss;
 using Aetheria.Shared.Network.Packets;
 using Aetheria.Shared.Settings;
 using Silk.NET.Input;
@@ -363,6 +364,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
+        "INVOQUER BOSS MONDIAL (nom;pv)",
         "DONNER DES GEMMES (perso;montant)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
     ]
@@ -380,6 +382,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
+        "INVOQUER BOSS MONDIAL (nom;pv)",
     ];
 
 // Voir GDD/demande utilisateur — "ajouter les amis (online/offline, discussion privée, niveau,
@@ -437,6 +440,16 @@ BattlePassStatus? battlePassStatus = null;
 Task<BattlePassStatus?>? battlePassLoadTask = null;
 Task<ShopPurchaseResponse>? battlePassPurchaseTask = null;
 string? battlePassMessage = null;
+
+// Voir GDD/demande utilisateur — "un boss monde... barre de vie... leaderboard du boss actuel et de toujours".
+WorldBossStatus? worldBossStatus = null;
+Task<WorldBossStatus?>? worldBossLoadTask = null;
+Task<WorldBossAttackResponse>? worldBossAttackTask = null;
+List<WorldBossLeaderboardRow> worldBossCurrentLeaderboard = [];
+List<WorldBossLeaderboardRow> worldBossAllTimeLeaderboard = [];
+Task<List<WorldBossLeaderboardRow>>? worldBossLeaderboardLoadTask = null;
+var worldBossShowAllTime = false;
+string? worldBossMessage = null;
 
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
@@ -869,6 +882,7 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.J)) OpenPanel(PanelKind.QuestList);
     else if (keyboard.WasJustPressed(Key.B)) OpenPanel(PanelKind.Professions);
     else if (keyboard.WasJustPressed(Key.N)) OpenPanel(PanelKind.BattlePass);
+    else if (keyboard.WasJustPressed(Key.H)) OpenPanel(PanelKind.WorldBoss);
     // Voir GDD/demande utilisateur — "ajoute un raccourci clavier" (panneau Duel).
     else if (keyboard.WasJustPressed(Key.Y)) OpenPanel(PanelKind.Duel);
     // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
@@ -2079,6 +2093,134 @@ void DrawBattlePassPanel(int w, int h)
 }
 
 /// <summary>
+/// Panneau Boss Mondial (touche H, voir GDD/demande utilisateur — "un boss monde ou le but est de
+/// faire un max de degat, plus on fait de degat plus on a de point, ajoute un leaderboard... du
+/// boss actuel et de toujours, il a une barre de vie et peut etre tue"). Bouton ATTAQUER avec
+/// cooldown côté serveur (voir WorldBossService) — pas de combat sur grille ici, volontairement
+/// simplifié (voir commentaire de WorldBossService).
+/// </summary>
+void UpdateWorldBossPanel()
+{
+    if (worldBossLoadTask is { IsCompleted: true } loadTask)
+    {
+        worldBossStatus = loadTask.IsFaulted ? null : loadTask.Result;
+        worldBossLoadTask = null;
+    }
+
+    if (worldBossLeaderboardLoadTask is { IsCompleted: true } leaderboardTask)
+    {
+        var rows = leaderboardTask.IsFaulted ? [] : leaderboardTask.Result;
+        if (worldBossShowAllTime)
+        {
+            worldBossAllTimeLeaderboard = rows;
+        }
+        else
+        {
+            worldBossCurrentLeaderboard = rows;
+        }
+
+        worldBossLeaderboardLoadTask = null;
+    }
+
+    if (worldBossAttackTask is { IsCompleted: true } attackTask)
+    {
+        worldBossMessage = attackTask.IsFaulted ? "Connexion au serveur impossible." : attackTask.Result.Message;
+        worldBossAttackTask = null;
+        worldBossLoadTask = gameDataApi?.GetWorldBossStatusAsync();
+        worldBossLeaderboardLoadTask = gameDataApi?.GetWorldBossLeaderboardAsync(worldBossShowAllTime);
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Left) || keyboard.WasJustPressed(Key.Right))
+    {
+        worldBossShowAllTime = !worldBossShowAllTime;
+        worldBossLeaderboardLoadTask = gameDataApi?.GetWorldBossLeaderboardAsync(worldBossShowAllTime);
+    }
+
+    if (keyboard.WasJustPressed(Key.Enter) && worldBossStatus is { IsAlive: true } && worldBossAttackTask is null
+        && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        worldBossMessage = null;
+        worldBossAttackTask = gameDataApi.AttackWorldBossAsync(options.SessionToken!, chosenCharacterId.Value);
+    }
+}
+
+void DrawWorldBossPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 460f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.3f, 0.25f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BOSS MONDIAL", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.45f, 0.4f, 1f));
+
+    if (worldBossLoadTask is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (worldBossStatus is null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN BOSS MONDIAL ACTIF POUR LE MOMENT", new Vector2(w / 2f, topLeft.Y + 100f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var status = worldBossStatus;
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 62f), 2.2f, Vector4.One);
+
+        var barTop = new Vector2(topLeft.X + 30f, topLeft.Y + 92f);
+        var barSize = new Vector2(boxWidth - 60f, 22f);
+        var healthRatio = status.MaxHealth <= 0 ? 0f : Math.Clamp((float)status.CurrentHealth / status.MaxHealth, 0f, 1f);
+        DrawPanel(barTop, barSize, new Vector4(0.2f, 0.08f, 0.08f, 1f));
+        DrawPanel(barTop, new Vector2(barSize.X * healthRatio, barSize.Y), new Vector4(0.85f, 0.25f, 0.2f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{status.CurrentHealth} / {status.MaxHealth} PV", barTop + new Vector2(barSize.X / 2f, barSize.Y / 2f - 8f), 1.5f, Vector4.One);
+
+        if (!status.IsAlive)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VAINCU PAR {status.KillerCharacterName?.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 130f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        }
+        else if (DrawClickableCentered("ATTAQUER (ENTREE)", new Vector2(w / 2f, topLeft.Y + 134f), 2f, new Vector4(0.95f, 0.45f, 0.4f, 1f))
+            && worldBossAttackTask is null && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            worldBossMessage = null;
+            worldBossAttackTask = gameDataApi.AttackWorldBossAsync(options.SessionToken!, chosenCharacterId.Value);
+        }
+
+        if (worldBossMessage is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, worldBossMessage, new Vector2(w / 2f, topLeft.Y + 166f), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        }
+    }
+
+    var leaderboardTitle = worldBossShowAllTime ? "< CLASSEMENT DE TOUJOURS >" : "< CLASSEMENT DU BOSS ACTUEL >";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, leaderboardTitle, new Vector2(w / 2f, topLeft.Y + 210f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+    var leaderboard = worldBossShowAllTime ? worldBossAllTimeLeaderboard : worldBossCurrentLeaderboard;
+    var y = topLeft.Y + 244f;
+    if (leaderboard.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE DONNEE POUR CE CLASSEMENT", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        for (var i = 0; i < leaderboard.Count; i++)
+        {
+            var row = leaderboard[i];
+            var color = i == 0 ? new Vector4(0.95f, 0.75f, 0.4f, 1f) : Vector4.One;
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName} - {row.TotalDamage} degats", new Vector2(topLeft.X + 30f, y), 1.6f, color);
+            y += 24f;
+        }
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : classement - ENTREE : attaquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
 /// Voir GDD/demande utilisateur — "panel admin en jeu... peuvent afficher un message en haut de
 /// l'écran, donner des items, transformer le skin de tout les joueurs en panneau, ban/mute/kick" :
 /// ban/mute existent déjà via les commandes de tchat <c>/ban</c>/<c>/mute</c> (voir
@@ -2247,6 +2389,22 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             break;
         case 12:
         {
+            // Voir GDD/demande utilisateur — "boss geant mondial" : disponible à tout admin
+            // (le serveur revérifie IsAdmin, pas seulement Fondateur — voir /api/admin/game/spawn-world-boss).
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var bossHealth))
+            {
+                adminPanelActionTask = gameDataApi!.SpawnWorldBossAsync(options.SessionToken!, parts[0], bossHealth);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : nom;pv";
+            }
+
+            break;
+        }
+        case 13:
+        {
             // Voir GDD/demande utilisateur — "/givegems" exclusif au Fondateur ; le serveur
             // revérifie de toute façon le grade de l'appelant (voir /api/admin/game/give-gems).
             var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
@@ -2261,7 +2419,7 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
 
             break;
         }
-        case 13:
+        case 14:
             // Voir GDD/demande utilisateur — bouton exclusif au Fondateur ; le serveur revérifie
             // de toute façon le grade de l'appelant (voir /api/admin/game/toggle-admin).
             adminPanelActionTask = gameDataApi!.ToggleAdminAsync(options.SessionToken!, input);
@@ -3801,6 +3959,13 @@ void OpenPanel(PanelKind kind)
             battlePassStatus = null;
             battlePassLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetBattlePassStatusAsync(chosenCharacterId.Value);
             break;
+        case PanelKind.WorldBoss:
+            worldBossMessage = null;
+            worldBossStatus = null;
+            worldBossShowAllTime = false;
+            worldBossLoadTask = gameDataApi?.GetWorldBossStatusAsync();
+            worldBossLeaderboardLoadTask = gameDataApi?.GetWorldBossLeaderboardAsync(allTime: false);
+            break;
     }
 }
 
@@ -4596,6 +4761,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.BattlePass)
     {
         UpdateBattlePassPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.WorldBoss)
+    {
+        UpdateWorldBossPanel();
         return;
     }
 
@@ -5673,6 +5844,7 @@ void DrawOutdoorHud()
             case PanelKind.Kingdom: DrawKingdomPanel(w, h); break;
             case PanelKind.Professions: DrawProfessionsPanel(w, h); break;
             case PanelKind.BattlePass: DrawBattlePassPanel(w, h); break;
+            case PanelKind.WorldBoss: DrawWorldBossPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -5727,6 +5899,8 @@ void DrawOutdoorHud()
         ("METIERS (B)", PanelKind.Professions),
         // Voir GDD/demande utilisateur — "un pass de niveaux de joueur".
         ("PASSE (N)", PanelKind.BattlePass),
+        // Voir GDD/demande utilisateur — "un boss monde".
+        ("BOSS MONDIAL (H)", PanelKind.WorldBoss),
         // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
         // son pseudo".
         ("DUEL (Y)", PanelKind.Duel),
@@ -8030,6 +8204,9 @@ enum PanelKind
 
     /// <summary>Voir GDD/demande utilisateur — "un pass de niveaux de joueur".</summary>
     BattlePass,
+
+    /// <summary>Voir GDD/demande utilisateur — "un boss monde".</summary>
+    WorldBoss,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>

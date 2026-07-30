@@ -8,6 +8,7 @@ using Aetheria.Shared.Models.Account;
 using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Premium;
+using Aetheria.Shared.Models.WorldBoss;
 
 namespace Aetheria.Client.Networking;
 
@@ -615,6 +616,43 @@ public sealed class GameDataApiClient : IDisposable
 
     public async Task<AdminGameActionResponse> RemoveFriendAsync(string sessionToken, Guid characterId, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/friends/remove", new FriendActionRequest { SessionToken = sessionToken, CharacterId = characterId, TargetCharacterName = targetCharacterName }, ct);
+
+    // Voir GDD/demande utilisateur — "un boss monde... barre de vie... leaderboard".
+    public async Task<WorldBossStatus?> GetWorldBossStatusAsync(CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync("/api/worldboss/status", ct);
+        return response.StatusCode == System.Net.HttpStatusCode.NoContent
+            ? null
+            : await response.Content.ReadFromJsonAsync<WorldBossStatus>(JsonOptions, ct);
+    }
+
+    public async Task<WorldBossAttackResponse> AttackWorldBossAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/worldboss/attack", new WorldBossAttackRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new WorldBossAttackResponse(false, error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).", 0, 0, false, 0);
+        }
+
+        return (await response.Content.ReadFromJsonAsync<WorldBossAttackResponse>(JsonOptions, ct))!;
+    }
+
+    public async Task<List<WorldBossLeaderboardRow>> GetWorldBossLeaderboardAsync(bool allTime, int limit = 10, CancellationToken ct = default)
+    {
+        var scope = allTime ? "alltime" : "current";
+        var result = await _http.GetFromJsonAsync<List<WorldBossLeaderboardRow>>($"/api/worldboss/leaderboard?scope={scope}&limit={limit}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "boss geant mondial", réservé aux admins/fondateur (le serveur revérifie de toute façon).</summary>
+    public async Task<AdminGameActionResponse> SpawnWorldBossAsync(string sessionToken, string name, int maxHealth, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, Name = name, MaxHealth = maxHealth }, ct);
 
     public void Dispose() => _http.Dispose();
 }
