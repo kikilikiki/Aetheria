@@ -63,7 +63,12 @@ var isPlayerMoving = false;
 
 // Scène active : le monde extérieur, une scène d'intérieur plein écran (bâtiment/donjon), ou la
 // sélection du premier compagnon. Voir Docs/README.md pour les limites assumées de chacune.
-var sceneMode = SceneMode.Outdoor;
+// Voir GDD/demande utilisateur — "ajoute un ecran titre avec play option etc" : premier écran
+// affiché dans tous les cas (mode connecté ou démo hors-ligne), voir sceneAfterTitle pour la
+// scène vers laquelle "JOUER" bascule ensuite.
+var sceneMode = SceneMode.Title;
+var sceneAfterTitle = SceneMode.Outdoor;
+var titleShowOptions = false;
 NearbyInteraction? nearbyInteraction = null;
 
 // Tutoriel (voir GDD/demande utilisateur — "ajoute un tutoriel pour expliquer comment jouer") :
@@ -750,12 +755,12 @@ if (isConnectedMode)
             Console.WriteLine($"[Personnage] Impossible de récupérer la liste des personnages : {ex.Message}");
         }
 
-        sceneMode = myCharacters.Count > 0 ? SceneMode.CharacterSelect : SceneMode.CharacterCreate;
+        sceneAfterTitle = myCharacters.Count > 0 ? SceneMode.CharacterSelect : SceneMode.CharacterCreate;
     }
     else
     {
         // Compatibilité : --characterId fourni directement (anciens raccourcis) — on se
-        // connecte tout de suite, sans passer par l'écran de sélection.
+        // connecte tout de suite, sans passer par l'écran titre ni celui de sélection.
         ConnectAndEnterWorld(chosenCharacterId.Value);
         await CheckStarterNeedAsync(chosenCharacterId.Value);
     }
@@ -932,6 +937,12 @@ host.Update += deltaTime =>
     if (isWarRoomOpen)
     {
         UpdateWarRoomPanel(deltaTime);
+        return;
+    }
+
+    if (sceneMode == SceneMode.Title)
+    {
+        UpdateTitleScreen();
         return;
     }
 
@@ -1446,6 +1457,9 @@ host.Render += _ =>
 
     switch (sceneMode)
     {
+        case SceneMode.Title:
+            DrawTitleScreen();
+            break;
         case SceneMode.CharacterSelect:
             DrawCharacterSelect();
             break;
@@ -5130,6 +5144,38 @@ void ResetCreationState()
     createAccessoryIndex = 0;
     createAppearanceField = 0;
     createErrorMessage = null;
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "ajoute un ecran titre avec play option etc" : premier écran
+/// affiché au lancement, dans les deux modes (connecté ou démo hors-ligne, voir sceneAfterTitle).
+/// Options se limite au réglage déjà existant (disposition clavier, F9 fonctionne globalement
+/// même ici) — aucun autre paramètre configurable n'existe dans le jeu pour l'instant.
+/// </summary>
+void UpdateTitleScreen()
+{
+    if (titleShowOptions)
+    {
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            titleShowOptions = false;
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Enter))
+    {
+        sceneMode = sceneAfterTitle;
+    }
+    else if (keyboard.WasJustPressed(Key.O))
+    {
+        titleShowOptions = true;
+    }
+    else if (keyboard.WasJustPressed(Key.Escape))
+    {
+        host.Close();
+    }
 }
 
 void UpdateCharacterSelect()
@@ -10459,6 +10505,49 @@ void DrawCharacterPreview(Vector2 center, float scale, int skinIndex, int hairSt
     }
 }
 
+/// <summary>Voir GDD/demande utilisateur — "ajoute un ecran titre avec play option etc".</summary>
+void DrawTitleScreen()
+{
+    var w = uiCamera.ViewportWidth;
+    var h = uiCamera.ViewportHeight;
+
+    DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.03f, 0.03f, 0.05f, 0.88f));
+
+    var titlePulse = 0.7f + 0.3f * MathF.Sin(animationClock * 1.5f);
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AETHERIA", new Vector2(w / 2f, h * 0.28f), 6f, new Vector4(0.95f, 0.8f, 0.4f, titlePulse));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VERSION {GameInfo.Version}", new Vector2(w / 2f, h * 0.28f + 56f), 1.6f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+
+    if (titleShowOptions)
+    {
+        var layoutLabel = $"DISPOSITION CLAVIER : {gameSettings.KeyboardLayout.ToString().ToUpperInvariant()} ({(isAzerty ? "ZQSD" : "WASD")})";
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "OPTIONS", new Vector2(w / 2f, h * 0.5f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, layoutLabel, new Vector2(w / 2f, h * 0.58f), 1.8f, Vector4.One);
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "F9 POUR CHANGER", new Vector2(w / 2f, h * 0.58f + 26f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+
+        if (DrawClickableCentered("RETOUR (ECHAP)", new Vector2(w / 2f, h * 0.74f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f)))
+        {
+            titleShowOptions = false;
+        }
+
+        return;
+    }
+
+    if (DrawClickableCentered("JOUER (ENTREE)", new Vector2(w / 2f, h * 0.52f), 2.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f)))
+    {
+        sceneMode = sceneAfterTitle;
+    }
+
+    if (DrawClickableCentered("OPTIONS (O)", new Vector2(w / 2f, h * 0.6f), 2.2f, new Vector4(0.7f, 0.8f, 0.95f, 1f)))
+    {
+        titleShowOptions = true;
+    }
+
+    if (DrawClickableCentered("QUITTER (ECHAP)", new Vector2(w / 2f, h * 0.68f), 2.2f, new Vector4(0.85f, 0.55f, 0.5f, 1f)))
+    {
+        host.Close();
+    }
+}
+
 void DrawLoading()
 {
     var w = uiCamera.ViewportWidth;
@@ -10709,6 +10798,7 @@ void DrawStarterSelection()
 
 enum SceneMode
 {
+    Title,
     CharacterSelect,
     CharacterCreate,
     Loading,

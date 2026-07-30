@@ -50,6 +50,9 @@ public sealed class GameHost : IDisposable
     /// <summary>Démarre la boucle de jeu. Bloque jusqu'à la fermeture de la fenêtre.</summary>
     public void Run() => _window.Run();
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un ecran titre avec play option etc" (bouton Quitter) : ferme la fenêtre, ce qui débloque <see cref="Run"/> proprement (même chemin que fermer la fenêtre à la croix).</summary>
+    public void Close() => _window.Close();
+
     private void OnLoad()
     {
         Gl = GL.GetApi(_window);
