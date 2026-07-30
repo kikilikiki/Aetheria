@@ -25,6 +25,10 @@ public static class AchievementCatalog
 
         // Voir GDD/demande utilisateur — "contenu end-game".
         new("conquerant_du_sanctuaire", "Conquérant du Sanctuaire", "Triomphez du donjon mythique Sanctuaire Ultime.", AchievementCategory.Combat, IsHidden: true),
+
+        // Voir GDD/demande utilisateur — "Exploration : îles volantes/aquatiques + montures dédiées".
+        new("explorateur_des_cieux", "Explorateur des cieux", "Survolez une île volante avec une monture volante.", AchievementCategory.Collection, IsHidden: true),
+        new("explorateur_des_flots", "Explorateur des flots", "Rejoignez une île aquatique avec une monture aquatique.", AchievementCategory.Collection, IsHidden: true),
     ];
 
     public static AchievementDefinition? Find(string key) => All.FirstOrDefault(a => a.Key == key);

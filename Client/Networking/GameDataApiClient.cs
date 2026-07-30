@@ -485,6 +485,42 @@ public sealed class GameDataApiClient : IDisposable
         return await _http.GetFromJsonAsync<EndGameStatus>($"/api/endgame/status?characterId={characterId}", JsonOptions, ct);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "Exploration : coffres cachés hebdomadaires par royaume".</summary>
+    public async Task<WeeklyChestStatus?> GetWeeklyChestAsync(int kingdomId, CancellationToken ct = default)
+    {
+        return await _http.GetFromJsonAsync<WeeklyChestStatus>($"/api/kingdoms/{kingdomId}/weekly-chest", JsonOptions, ct);
+    }
+
+    public async Task<WeeklyChestStatus?> ClaimWeeklyChestAsync(string sessionToken, Guid characterId, int kingdomId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/kingdoms/{kingdomId}/weekly-chest/claim?characterId={characterId}", new AdminSessionRequest
+        {
+            SessionToken = sessionToken,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<WeeklyChestStatus>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Exploration : îles volantes/aquatiques + montures dédiées".</summary>
+    public async Task<string?> VisitIslandAsync(string sessionToken, Guid characterId, MountKind islandKind, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/exploration/visit-island", new VisitIslandRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            IslandKind = islandKind,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        return body.TryGetProperty("message", out var messageProp) ? messageProp.GetString() : null;
+    }
+
     public async Task<bool> VoteForKingAsync(string sessionToken, Guid characterId, string candidateName, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/api/kingdoms/vote", new VoteForKingRequest

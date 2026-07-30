@@ -1614,6 +1614,23 @@ app.MapPost("/api/kingdoms/wars/resolve", async () =>
     return Results.Ok(new { message });
 });
 
+// Voir GDD/demande utilisateur — "Exploration : îles volantes/aquatiques + montures dédiées".
+app.MapPost("/api/exploration/visit-island", async (VisitIslandRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var explorationService = new ExplorationService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        var message = await explorationService.VisitIslandAsync(request);
+        return Results.Ok(new { message });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Voir GDD/demande utilisateur — "contenu end-game" (donjons mythiques, équipement légendaire, reliques uniques).
 app.MapGet("/api/endgame/status", async (Guid characterId) =>
 {
@@ -1676,6 +1693,29 @@ app.MapPost("/api/kingdoms/construct", async (ConstructKingdomBuildingRequest re
     try
     {
         return Results.Ok(await politicsService.ConstructBuildingAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir GDD/demande utilisateur — "Exploration : coffres cachés hebdomadaires par royaume".
+app.MapGet("/api/kingdoms/{kingdomId:int}/weekly-chest", async (int kingdomId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var chestService = new WeeklyChestService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    return Results.Ok(await chestService.GetStatusAsync(kingdomId));
+});
+
+app.MapPost("/api/kingdoms/{kingdomId:int}/weekly-chest/claim", async (int kingdomId, AdminSessionRequest request, Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var chestService = new WeeklyChestService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await chestService.ClaimAsync(request.SessionToken, characterId, kingdomId));
     }
     catch (AccountOperationException ex)
     {
