@@ -155,6 +155,12 @@ Task<CombatSessionState?>? combatPollTask = null;
 var combatPollClock = 0f;
 const float CombatPollIntervalSeconds = 0.35f;
 
+// Voir retour utilisateur — "ajouter un affichage en haut a droite son argent et son niveau" :
+// rafraîchi périodiquement (pas seulement à l'ouverture du panneau Profil) pour un HUD toujours
+// à jour, même après un gain d'or/XP survenu ailleurs (combat, quête, vente...).
+var hudPollClock = 0f;
+const float HudPollIntervalSeconds = 8f;
+
 // Butin de victoire (voir GDD — 4 objets à départager, tirage aléatoire en cas d'égalité) :
 // affiché après un combat gagné, avant de revenir à la scène d'intérieur.
 LootSessionState? activeLoot = null;
@@ -955,6 +961,19 @@ host.Update += deltaTime =>
     }
 
     // À partir d'ici, sceneMode == SceneMode.Outdoor.
+    if (profileLoadTask is { IsCompleted: true } hudProfileTask)
+    {
+        myProfile = hudProfileTask.IsFaulted ? myProfile : hudProfileTask.Result;
+        profileLoadTask = null;
+    }
+
+    hudPollClock += deltaTime;
+    if (hudPollClock >= HudPollIntervalSeconds && profileLoadTask is null && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        hudPollClock = 0f;
+        profileLoadTask = gameDataApi.GetProfileAsync(chosenCharacterId.Value);
+    }
+
     if (UpdateActiveDialogueIfAny())
     {
         return; // Le monde se fige pendant un dialogue, comme dans un RPG classique.
@@ -1997,7 +2016,11 @@ void DrawProfilePanel(int w, int h)
 
     var y = topLeft.Y + 66f;
     TextRenderer.Draw(spriteBatch, whiteTexture, $"{myProfile.CharacterName} - Nv.{myProfile.Level} - {myProfile.Rank}", new Vector2(topLeft.X + 20f, y), 1.8f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
-    y += 34f;
+    y += 28f;
+
+    // Voir retour utilisateur — "ajoute l'or que l'on a sur notre profil".
+    TextRenderer.Draw(spriteBatch, whiteTexture, $"Or : {myProfile.Gold}", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    y += 30f;
 
     TextRenderer.Draw(spriteBatch, whiteTexture, $"Titre actif : {myProfile.ActiveTitle ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
     y += 26f;
@@ -2116,6 +2139,7 @@ void UpdateProfessionsPanel()
 
     if (keyboard.WasJustPressed(Key.Down)) professionCursor = Math.Min(professionCursor + 1, Math.Max(0, professionRows.Count - 1));
     else if (keyboard.WasJustPressed(Key.Up)) professionCursor = Math.Max(professionCursor - 1, 0);
+    professionCursor = ApplyScrollWheel(professionCursor, professionRows.Count);
 }
 
 void DrawProfessionsPanel(int w, int h)
@@ -2203,6 +2227,7 @@ void UpdateBattlePassPanel()
     {
         if (keyboard.WasJustPressed(Key.Down)) battlePassCursor = Math.Min(battlePassCursor + 1, Math.Max(0, status.Tiers.Count - 1));
         else if (keyboard.WasJustPressed(Key.Up)) battlePassCursor = Math.Max(battlePassCursor - 1, 0);
+        battlePassCursor = ApplyScrollWheel(battlePassCursor, status.Tiers.Count);
     }
 }
 
@@ -2709,6 +2734,7 @@ void UpdateEncyclopediaPanel()
 
     if (keyboard.WasJustPressed(Key.Down)) encyclopediaCursor = Math.Min(encyclopediaCursor + 1, speciesList.Count - 1);
     else if (keyboard.WasJustPressed(Key.Up)) encyclopediaCursor = Math.Max(encyclopediaCursor - 1, 0);
+    encyclopediaCursor = ApplyScrollWheel(encyclopediaCursor, speciesList.Count);
 }
 
 void DrawEncyclopediaPanel(int w, int h)
@@ -3024,7 +3050,8 @@ void UpdateAdminGamePanel()
 
     if (keyboard.WasJustPressed(Key.Down)) adminPanelCursor = Math.Min(adminPanelCursor + 1, AdminPanelCommands().Length - 1);
     else if (keyboard.WasJustPressed(Key.Up)) adminPanelCursor = Math.Max(adminPanelCursor - 1, 0);
-    else if (keyboard.WasJustPressed(Key.Enter))
+    adminPanelCursor = ApplyScrollWheel(adminPanelCursor, AdminPanelCommands().Length);
+    if (keyboard.WasJustPressed(Key.Enter))
     {
         if (adminPanelCursor == 1)
         {
@@ -6263,6 +6290,13 @@ void UpdatePanel(float deltaTime)
             // Voir GDD/demande utilisateur — la liste de vente reflète l'inventaire courant :
             // rafraîchi après un achat/une vente pour ne pas afficher des quantités périmées.
             _ = LoadInventoryAsync();
+            // Voir retour utilisateur — "ajouter l'or que l'on a dans la boutique" : rafraîchi
+            // immédiatement plutôt que d'attendre le sondage périodique du HUD (8s, voir Update).
+            if (chosenCharacterId is not null && gameDataApi is not null)
+            {
+                profileLoadTask = gameDataApi.GetProfileAsync(chosenCharacterId.Value);
+            }
+
             // Voir GDD/demande utilisateur — quête 5 "Les rouages du commerce".
             _ = CompleteStoryQuestAsync("Les rouages du commerce");
         }
@@ -6293,7 +6327,8 @@ void UpdatePanel(float deltaTime)
 
         if (keyboard.WasJustPressed(Key.Down)) shopSellCursor = Math.Min(shopSellCursor + 1, inventoryItems.Count - 1);
         else if (keyboard.WasJustPressed(Key.Up)) shopSellCursor = Math.Max(shopSellCursor - 1, 0);
-        else if (keyboard.WasJustPressed(Key.Enter))
+        shopSellCursor = ApplyScrollWheel(shopSellCursor, inventoryItems.Count);
+        if (keyboard.WasJustPressed(Key.Enter))
         {
             shopMessage = null;
             var entry = inventoryItems[shopSellCursor];
@@ -6310,7 +6345,8 @@ void UpdatePanel(float deltaTime)
 
     if (keyboard.WasJustPressed(Key.Down)) shopCursor = Math.Min(shopCursor + 1, shopCatalog.Count - 1);
     else if (keyboard.WasJustPressed(Key.Up)) shopCursor = Math.Max(shopCursor - 1, 0);
-    else if (keyboard.WasJustPressed(Key.Enter))
+    shopCursor = ApplyScrollWheel(shopCursor, shopCatalog.Count);
+    if (keyboard.WasJustPressed(Key.Enter))
     {
         shopMessage = null;
         shopBuyTask = gameDataApi!.BuyItemAsync(options.SessionToken!, chosenCharacterId!.Value, shopCatalog[shopCursor].ItemId);
@@ -6339,6 +6375,14 @@ void UpdateAuctionPanel()
         auctionActionTask = null;
         auctionLoadTask = gameDataApi?.GetAuctionListingsAsync(chosenCharacterId ?? Guid.Empty);
         _ = LoadInventoryAsync();
+        // Voir retour utilisateur — "ajouter l'or que l'on a dans la boutique (l'HDV et la
+        // boutique)" : rafraîchi immédiatement après achat/enchère plutôt que d'attendre le
+        // sondage périodique du HUD.
+        if (chosenCharacterId is not null && gameDataApi is not null)
+        {
+            profileLoadTask = gameDataApi.GetProfileAsync(chosenCharacterId.Value);
+        }
+
         return;
     }
 
@@ -6388,6 +6432,7 @@ void UpdateAuctionPanel()
                 options.SessionToken!, chosenCharacterId!.Value, entry.ItemId, entry.Quantity, auctionSellPrice, auctionSellIsAuction);
         }
 
+        auctionSellCursor = ApplyScrollWheel(auctionSellCursor, inventoryItems.Count);
         return;
     }
 
@@ -6436,6 +6481,8 @@ void UpdateAuctionPanel()
             auctionActionTask = gameDataApi!.BuyAuctionListingAsync(options.SessionToken!, chosenCharacterId!.Value, listing.ListingId);
         }
     }
+
+    auctionCursor = ApplyScrollWheel(auctionCursor, auctionListings.Count);
 }
 
 async Task<CombatResult> StartWildCombatAsync()
@@ -7127,6 +7174,23 @@ void DrawScrollbar(Vector2 trackTopRight, float trackHeight, int totalCount, int
 }
 
 /// <summary>
+/// Voir retour utilisateur — "faire en sorte que l'on puisse aussi scroll a la molette" : à
+/// appeler depuis chaque Update*Panel qui gère déjà un curseur Haut/Bas (voir DrawScrollbar pour
+/// l'affichage) — un cran de molette avance/recule le curseur exactement comme Haut/Bas.
+/// </summary>
+int ApplyScrollWheel(int cursor, int count)
+{
+    if (count <= 0)
+    {
+        return cursor;
+    }
+
+    if (mouse.ScrollDelta > 0) return Math.Max(cursor - 1, 0);
+    if (mouse.ScrollDelta < 0) return Math.Min(cursor + 1, count - 1);
+    return cursor;
+}
+
+/// <summary>
 /// Comme <see cref="TextRenderer.DrawCentered"/> mais cliquable : surligne le texte au survol de
 /// la souris et retourne vrai s'il vient d'être cliqué (bouton gauche). Voir retour utilisateur —
 /// "on doit pouvoir cliquer pour faire les actions et pas seulement au clavier". Les raccourcis
@@ -7476,6 +7540,9 @@ void DrawOutdoorHud()
 /// rectangle englobant de la colonne de boutons (même géométrie que <see cref="DrawOutdoorHudButtons"/>)
 /// pour que le déplacement au clic puisse l'ignorer.
 /// </summary>
+/// <summary>Voir retour utilisateur — "ajouter un affichage en haut a droite son argent et son niveau" : hauteur de la ligne or/niveau au-dessus de la colonne de boutons, 0 tant que myProfile n'est pas encore chargé (voir DrawOutdoorHudButtons/IsPointOverOutdoorHudButtons, même géométrie).</summary>
+float OutdoorHudButtonsStartY() => myProfile is not null ? 14f + TextRenderer.LineHeight(1.7f) + 14f : 14f;
+
 bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
 {
     const float pixelSize = 1.7f;
@@ -7493,9 +7560,10 @@ bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
     var maxWidth = labels.Count > 0 ? labels.Max(l => TextRenderer.MeasureWidth(l, pixelSize)) : 0f;
     var totalHeight = labels.Count * (TextRenderer.LineHeight(pixelSize) + 10f);
     const float pad = 10f;
+    var startY = OutdoorHudButtonsStartY();
 
     return point.X >= w - 16f - maxWidth - pad && point.X <= w + pad
-        && point.Y >= 14f - pad && point.Y <= 14f + totalHeight + pad;
+        && point.Y >= startY - pad && point.Y <= startY + totalHeight + pad;
 }
 
 void DrawOutdoorHudButtons(int w, int h)
@@ -7503,7 +7571,16 @@ void DrawOutdoorHudButtons(int w, int h)
     var buttons = OutdoorHudButtonLabels();
 
     const float pixelSize = 1.7f;
-    var y = 14f;
+
+    // Voir retour utilisateur — "ajouter un affichage en haut a droite son argent et son niveau".
+    if (myProfile is { } profile)
+    {
+        var hudLine = $"{profile.Gold} OR - NIV. {profile.Level}";
+        var hudWidth = TextRenderer.MeasureWidth(hudLine, pixelSize);
+        TextRenderer.Draw(spriteBatch, whiteTexture, hudLine, new Vector2(w - 16f - hudWidth, 14f), pixelSize, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+    }
+
+    var y = OutdoorHudButtonsStartY();
 
     foreach (var (label, kind) in buttons)
     {
@@ -8751,6 +8828,19 @@ void DrawShopPanel(int w, int h)
     var modeLabel = shopSellMode ? "BOUTIQUE - VENTE" : "BOUTIQUE - ACHAT";
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
+    // Voir retour utilisateur — "ajouter l'or que l'on a dans la boutique (l'HDV et la boutique)".
+    if (myProfile is { } shopProfile)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{shopProfile.Gold} OR", new Vector2(w / 2f, topLeft.Y + 50f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    }
+
+    // Voir retour utilisateur — "le marchand l'UI tout depasse + ajouter un scroll" : catalogue et
+    // inventaire de vente peuvent largement dépasser les lignes visibles sans fenêtrage - même
+    // motif DrawScrollbar/ApplyScrollWheel que les autres listes (H82/H85).
+    const float rowsTop = 70f;
+    const float rowHeight = 28f;
+    const int visibleRows = 10;
+
     // Voir GDD/demande utilisateur — "un UI pour l'achat/vente d'objet mais tu gagnes un peu
     // moins que si tu les mets à l'HDV" : Tab bascule entre les deux modes.
     if (shopSellMode)
@@ -8761,8 +8851,9 @@ void DrawShopPanel(int w, int h)
         }
         else
         {
-            var y = topLeft.Y + 56f;
-            for (var i = 0; i < inventoryItems.Count; i++)
+            var scrollStart = Math.Clamp(shopSellCursor - visibleRows / 2, 0, Math.Max(0, inventoryItems.Count - visibleRows));
+            var y = topLeft.Y + rowsTop;
+            for (var i = scrollStart; i < Math.Min(inventoryItems.Count, scrollStart + visibleRows); i++)
             {
                 var entry = inventoryItems[i];
                 var selected = i == shopSellCursor;
@@ -8780,8 +8871,10 @@ void DrawShopPanel(int w, int h)
                     shopBuyTask = gameDataApi!.SellItemAsync(options.SessionToken!, chosenCharacterId!.Value, entry.ItemId, 1);
                 }
 
-                y += 28f;
+                y += rowHeight;
             }
+
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + rowsTop), visibleRows * rowHeight, inventoryItems.Count, visibleRows, scrollStart);
         }
     }
     else if (shopCatalog.Count == 0)
@@ -8790,8 +8883,9 @@ void DrawShopPanel(int w, int h)
     }
     else
     {
-        var y = topLeft.Y + 56f;
-        for (var i = 0; i < shopCatalog.Count; i++)
+        var scrollStart = Math.Clamp(shopCursor - visibleRows / 2, 0, Math.Max(0, shopCatalog.Count - visibleRows));
+        var y = topLeft.Y + rowsTop;
+        for (var i = scrollStart; i < Math.Min(shopCatalog.Count, scrollStart + visibleRows); i++)
         {
             var item = shopCatalog[i];
             var selected = i == shopCursor;
@@ -8805,8 +8899,10 @@ void DrawShopPanel(int w, int h)
                 shopBuyTask = gameDataApi!.BuyItemAsync(options.SessionToken!, chosenCharacterId!.Value, item.ItemId);
             }
 
-            y += 28f;
+            y += rowHeight;
         }
+
+        DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + rowsTop), visibleRows * rowHeight, shopCatalog.Count, visibleRows, scrollStart);
     }
 
     if (shopMessage is not null)
@@ -8831,6 +8927,12 @@ void DrawAuctionPanel(int w, int h)
     var modeLabel = auctionSellMode ? "HOTEL DES VENTES - DEPOSER" : "HOTEL DES VENTES";
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.6f, 0.8f, 0.95f, 1f));
 
+    // Voir retour utilisateur — "ajouter l'or que l'on a dans la boutique (l'HDV et la boutique)".
+    if (myProfile is { } auctionProfile)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{auctionProfile.Gold} OR", new Vector2(w / 2f, topLeft.Y + 48f), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    }
+
     if (auctionSellMode)
     {
         if (inventoryItems.Count == 0)
@@ -8839,8 +8941,14 @@ void DrawAuctionPanel(int w, int h)
         }
         else
         {
-            var y = topLeft.Y + 56f;
-            for (var i = 0; i < inventoryItems.Count; i++)
+            // Voir retour utilisateur — "le marchand l'UI tout depasse + ajouter un scroll" :
+            // même bug/motif de correction que la Boutique (H82/H85) — moins de lignes visibles
+            // ici pour laisser la place au prix/mode d'enchère affichés en dessous de la liste.
+            const int visibleRows = 7;
+            const float rowHeight = 26f;
+            var scrollStart = Math.Clamp(auctionSellCursor - visibleRows / 2, 0, Math.Max(0, inventoryItems.Count - visibleRows));
+            var y = topLeft.Y + 68f;
+            for (var i = scrollStart; i < Math.Min(inventoryItems.Count, scrollStart + visibleRows); i++)
             {
                 var entry = inventoryItems[i];
                 var selected = i == auctionSellCursor;
@@ -8853,8 +8961,10 @@ void DrawAuctionPanel(int w, int h)
                     auctionSellCursor = i;
                 }
 
-                y += 28f;
+                y += rowHeight;
             }
+
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 68f), visibleRows * rowHeight, inventoryItems.Count, visibleRows, scrollStart);
 
             var priceLabel = auctionSellIsAuction ? "PRIX DE DEPART" : "PRIX PAR UNITE";
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{priceLabel} : {auctionSellPrice} OR (GAUCHE/DROITE POUR AJUSTER)",
@@ -8878,8 +8988,11 @@ void DrawAuctionPanel(int w, int h)
     }
     else
     {
-        var y = topLeft.Y + 56f;
-        for (var i = 0; i < auctionListings.Count; i++)
+        const int visibleRows = 9;
+        const float rowHeight = 28f;
+        var scrollStart = Math.Clamp(auctionCursor - visibleRows / 2, 0, Math.Max(0, auctionListings.Count - visibleRows));
+        var y = topLeft.Y + 68f;
+        for (var i = scrollStart; i < Math.Min(auctionListings.Count, scrollStart + visibleRows); i++)
         {
             var listing = auctionListings[i];
             var selected = i == auctionCursor;
@@ -8909,8 +9022,10 @@ void DrawAuctionPanel(int w, int h)
                 }
             }
 
-            y += 28f;
+            y += rowHeight;
         }
+
+        DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 68f), visibleRows * rowHeight, auctionListings.Count, visibleRows, scrollStart);
     }
 
     if (auctionMessage is not null)

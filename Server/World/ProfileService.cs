@@ -44,6 +44,7 @@ public sealed class ProfileService(AetheriaDbContext db, SessionTokenStore token
             CharacterName = character.Name,
             Description = character.ProfileDescription,
             Level = character.Level,
+            Gold = character.Gold,
             Rank = character.User.Rank,
             ShowcaseItemId = character.ShowcaseItemId,
             ShowcaseItemName = showcaseItemName,
