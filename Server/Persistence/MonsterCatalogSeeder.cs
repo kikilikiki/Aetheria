@@ -403,6 +403,12 @@ public static class MonsterCatalogSeeder
                 Name = "Potion de chance", Description = "Réduit les malus de récolte hors territoire pendant 30 minutes. S'utilise avec /use.",
                 ItemType = ItemType.Consommable, Rarity = Rarity.Rare, IsStackable = true, MaxStackSize = 20, Price = 150,
             },
+            // Voir GDD/demande utilisateur — "on peut changer la compétence [passive] avec un objet".
+            new()
+            {
+                Name = "Parchemin de Compétence", Description = "Change aléatoirement la compétence passive d'une créature.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Epique, IsStackable = true, MaxStackSize = 20, Price = 400,
+            },
         };
 
         var missingShopItems = wantedShopItems.Where(i => !existingItemNames.Contains(i.Name)).ToList();

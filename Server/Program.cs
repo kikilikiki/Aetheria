@@ -401,6 +401,22 @@ app.MapPost("/api/monsters/{monsterId:guid}/set-active-team", async (Guid monste
     }
 });
 
+// Voir GDD/demande utilisateur — "on peut changer la compétence [passive] avec un objet".
+app.MapPost("/api/monsters/reroll-passive", async (RerollPassiveTalentRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var careService = new MonsterCareService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await careService.RerollPassiveTalentAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Voir GDD/demande utilisateur — "Prestige après niveau maximum".
 app.MapPost("/api/monsters/{monsterId:guid}/prestige", async (Guid monsterId, PrestigeMonsterRequest request) =>
 {

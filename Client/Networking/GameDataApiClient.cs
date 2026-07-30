@@ -661,6 +661,19 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "on peut changer la compétence avec un objet" (Parchemin de Compétence).</summary>
+    public async Task<MonsterInstanceData?> RerollPassiveTalentAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/monsters/reroll-passive", new RerollPassiveTalentRequest
+        {
+            SessionToken = sessionToken,
+            MonsterId = monsterId,
+            ItemId = itemId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos monstres".</summary>
     public async Task<MonsterInstanceData?> EquipItemAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
     {
