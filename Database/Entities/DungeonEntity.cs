@@ -26,4 +26,15 @@ public sealed class DungeonEntity
 
     /// <summary>Voir GDD/demande utilisateur — "des donjons hardcore (niv 15+) et en dessous il n'y aura pas de hardcore" : monstres à statistiques majorées (voir CombatService.StartFromDungeonAsync). Toujours accompagné de <see cref="MinLevel"/> ≥ 15.</summary>
     public bool IsHardcore { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "contenu end-game... donjons mythiques avec modificateurs...
+    /// boss impossibles" : gardé en plus de <see cref="MinLevel"/> par <c>EndGameService</c>
+    /// (voir CombatService.StartFromDungeonAsync) — réservé aux comptes possédant déjà chaque
+    /// espèce de créature au niveau maximum et chaque succès de gameplay.
+    /// </summary>
+    public bool IsMythic { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "modificateurs" : texte affiché au joueur, statistiques des monstres rencontrés majorées ×3 (voir CombatService.StartAsync).</summary>
+    public string MythicModifierDescription { get; set; } = string.Empty;
 }

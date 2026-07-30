@@ -64,6 +64,16 @@ public static class DungeonSeeder
                 Description = "Un donjon hardcore où même les ombres évitent de s'aventurer.",
                 Seed = 1007, MinLevel = 20, IsHardcore = true,
             },
+            // Voir GDD/demande utilisateur — "contenu end-game... donjons mythiques avec
+            // modificateurs... boss impossibles" : réservé aux comptes ayant déjà tout complété
+            // (voir EndGameService, CombatService.StartFromDungeonAsync).
+            new()
+            {
+                Name = "Sanctuaire Ultime", KingdomId = kingdomDuFeu.Id,
+                Description = "Un donjon mythique, hors du temps, réservé à ceux qui ont déjà tout accompli.",
+                Seed = 1008, MinLevel = 1, IsMythic = true,
+                MythicModifierDescription = "Modificateur : statistiques des créatures rencontrées multipliées par 3.",
+            },
         };
 
         var existingNames = (await db.Dungeons.Select(d => d.Name).ToListAsync(ct)).ToHashSet();

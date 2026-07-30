@@ -479,6 +479,12 @@ public sealed class GameDataApiClient : IDisposable
         return await _http.GetFromJsonAsync<KingdomPoliticsStatus>($"/api/kingdoms/politics?characterId={characterId}", JsonOptions, ct);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "contenu end-game".</summary>
+    public async Task<EndGameStatus?> GetEndGameStatusAsync(Guid characterId, CancellationToken ct = default)
+    {
+        return await _http.GetFromJsonAsync<EndGameStatus>($"/api/endgame/status?characterId={characterId}", JsonOptions, ct);
+    }
+
     public async Task<bool> VoteForKingAsync(string sessionToken, Guid characterId, string candidateName, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/api/kingdoms/vote", new VoteForKingRequest

@@ -17,6 +17,13 @@ public sealed class SeasonService(AetheriaDbContext db)
         => await db.Seasons.FirstOrDefaultAsync(s => s.IsActive, ct)
             ?? throw new AccountOperationException("Aucune saison active.");
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "classements... saisonniers" (contenu end-game) : le
+    /// classement ELO courant (<c>PvpStatistics.CurrentRank</c>) redevient donc lui-même le
+    /// classement de la nouvelle saison après reset, plutôt que de dupliquer un second système de
+    /// classement figé — <c>BestRank</c> (déjà utilisé par <see cref="TitleCatalog"/>) reste la
+    /// trace "de tous les temps", jamais réinitialisée.
+    /// </summary>
     public async Task<SeasonEntity> StartNextSeasonAsync(CancellationToken ct = default)
     {
         var current = await db.Seasons.FirstOrDefaultAsync(s => s.IsActive, ct);
@@ -31,6 +38,14 @@ public sealed class SeasonService(AetheriaDbContext db)
 
         var season = new SeasonEntity { Number = nextNumber, IsActive = true };
         db.Seasons.Add(season);
+
+        var allStats = await db.Statistics.ToListAsync(ct);
+        foreach (var stats in allStats)
+        {
+            stats.Pvp.CurrentRank = 1000;
+            stats.Pvp.Season = nextNumber;
+        }
+
         await db.SaveChangesAsync(ct);
 
         return season;
