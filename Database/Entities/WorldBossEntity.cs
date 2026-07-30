@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Database.Entities;
 
 /// <summary>
@@ -15,6 +17,9 @@ public sealed class WorldBossEntity
     public DateTime SpawnedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? KilledAtUtc { get; set; }
     public string? KillerCharacterName { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "boss geant mondial [invoque] a un royaume" : purement informatif (le combat contre le boss reste accessible à tous, voir WorldBossService), affiché dans l'UI.</summary>
+    public KingdomType? TargetKingdom { get; set; }
 
     public List<WorldBossDamageEntity> DamageEntries { get; set; } = [];
 }

@@ -166,7 +166,9 @@ public sealed class LootService(AetheriaDbContext db, LootSessionStore lootStore
     private async Task GrantItemAsync(Guid characterId, int itemId, CancellationToken ct)
     {
         var maxStackSize = await db.Items.Where(i => i.Id == itemId).Select(i => i.MaxStackSize).FirstOrDefaultAsync(ct);
-        await InventoryStackingService.AddQuantityAsync(db, characterId, itemId, 1, maxStackSize <= 0 ? 99 : maxStackSize, ct);
+
+        // Voir GDD/demande utilisateur — "commandes admin abuse : double butin" (voir GlobalEventService).
+        await InventoryStackingService.AddQuantityAsync(db, characterId, itemId, GlobalEventService.LootMultiplier, maxStackSize <= 0 ? 99 : maxStackSize, ct);
         await db.SaveChangesAsync(ct);
     }
 

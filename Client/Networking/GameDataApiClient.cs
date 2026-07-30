@@ -799,9 +799,19 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "boss geant mondial", réservé aux admins/fondateur (le serveur revérifie de toute façon).</summary>
-    public async Task<AdminGameActionResponse> SpawnWorldBossAsync(string sessionToken, string name, int maxHealth, CancellationToken ct = default)
-        => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, Name = name, MaxHealth = maxHealth }, ct);
+    /// <summary>Voir GDD/demande utilisateur — "boss geant mondial [invoque] a un royaume", réservé aux admins/fondateur (le serveur revérifie de toute façon).</summary>
+    public async Task<AdminGameActionResponse> SpawnWorldBossAsync(string sessionToken, string name, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, Name = name, MaxHealth = maxHealth, TargetKingdom = targetKingdom }, ct);
+
+    // Voir GDD/demande utilisateur — "commandes admin abuse : double XP, double butin, invasion de monstres".
+    public async Task<AdminGameActionResponse> ActivateDoubleXpAsync(string sessionToken, int durationMinutes, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/double-xp", new AdminGlobalEventRequest { SessionToken = sessionToken, DurationMinutes = durationMinutes }, ct);
+
+    public async Task<AdminGameActionResponse> ActivateDoubleLootAsync(string sessionToken, int durationMinutes, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/double-loot", new AdminGlobalEventRequest { SessionToken = sessionToken, DurationMinutes = durationMinutes }, ct);
+
+    public async Task<AdminGameActionResponse> ActivateInvasionAsync(string sessionToken, KingdomType kingdom, int durationMinutes, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/invasion", new AdminInvasionRequest { SessionToken = sessionToken, Kingdom = kingdom, DurationMinutes = durationMinutes }, ct);
 
     public void Dispose() => _http.Dispose();
 }

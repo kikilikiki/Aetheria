@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Server.Persistence;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.WorldBoss;
 using Microsoft.EntityFrameworkCore;
@@ -27,7 +28,7 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
     private static readonly ConcurrentDictionary<Guid, DateTime> LastAttackAtUtc = new();
     private static readonly TimeSpan AttackCooldown = TimeSpan.FromSeconds(8);
 
-    public async Task<WorldBossEntity> SpawnAsync(string name, int maxHealth, CancellationToken ct = default)
+    public async Task<WorldBossEntity> SpawnAsync(string name, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
     {
         var previouslyAlive = await db.WorldBosses.Where(b => b.IsAlive).ToListAsync(ct);
         foreach (var previous in previouslyAlive)
@@ -41,6 +42,7 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
             Name = name,
             MaxHealth = Math.Max(1, maxHealth),
             CurrentHealth = Math.Max(1, maxHealth),
+            TargetKingdom = targetKingdom,
         };
 
         db.WorldBosses.Add(boss);
@@ -191,5 +193,5 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
     }
 
     private static WorldBossStatus ToStatus(WorldBossEntity boss) => new(
-        boss.Id, boss.Name, boss.CurrentHealth, boss.MaxHealth, boss.IsAlive, boss.SpawnedAtUtc, boss.KilledAtUtc, boss.KillerCharacterName);
+        boss.Id, boss.Name, boss.CurrentHealth, boss.MaxHealth, boss.IsAlive, boss.SpawnedAtUtc, boss.KilledAtUtc, boss.KillerCharacterName, boss.TargetKingdom);
 }

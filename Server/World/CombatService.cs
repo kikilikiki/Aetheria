@@ -70,13 +70,19 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         // mise à l'échelle des stats individuelles).
         (int X, int Y)[] enemyPositions = [(CombatSession.GridWidth - 1, 1), (CombatSession.GridWidth - 1, 3), (CombatSession.GridWidth - 1, 5), (CombatSession.GridWidth - 2, 3)];
         var enemyCount = Math.Clamp(combatants.Count, 1, enemyPositions.Length);
+
+        // Voir GDD/demande utilisateur — "commandes admin abuse : invasion de monstres" (voir
+        // GlobalEventService) : pendant une invasion du royaume du personnage, les rencontres
+        // sauvages ne tirent plus que des variantes dangereuses, avec des statistiques majorées.
+        var isInvasion = GlobalEventService.IsInvasionActive(character.Kingdom);
+
         for (var i = 0; i < enemyCount; i++)
         {
             var (x, y) = enemyPositions[i];
             // Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) :
             // tirée à chaque monstre sauvage engagé, indépendamment des autres (une rencontre à
             // plusieurs ennemis peut mélanger les variantes).
-            var variant = MonsterVariantCatalog.RollWeighted(Random.Shared);
+            var variant = isInvasion ? GlobalEventService.RollInvasionVariant(Random.Shared) : MonsterVariantCatalog.RollWeighted(Random.Shared);
             var variantDefinition = MonsterVariantCatalog.Get(variant);
             // Voir GDD/demande utilisateur — "donjon hardcore (niv 15+)" : statistiques des
             // monstres majorées de 50%, en contrepartie de récompenses plus généreuses (voir
@@ -84,16 +90,17 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // personnage, or/xp de victoire eux montent avec des monstres plus costauds via le
             // même calcul que d'habitude).
             var hardcoreMultiplier = isHardcore ? 1.5 : 1.0;
-            var namePrefix = (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + (isHardcore ? "[HARDCORE] " : "");
-            var wildMaxHealth = Math.Max(1, (int)Math.Round(wildSpecies.BaseHealth * variantDefinition.StatMultiplier * hardcoreMultiplier));
+            var invasionMultiplier = isInvasion ? 1.3 : 1.0;
+            var namePrefix = (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + (isInvasion ? "[INVASION] " : "") + (isHardcore ? "[HARDCORE] " : "");
+            var wildMaxHealth = Math.Max(1, (int)Math.Round(wildSpecies.BaseHealth * variantDefinition.StatMultiplier * hardcoreMultiplier * invasionMultiplier));
             combatants.Add(new Combatant
             {
                 Id = Guid.NewGuid(),
                 Name = enemyCount > 1 ? $"{namePrefix}{wildSpecies.Name} {i + 1}" : $"{namePrefix}{wildSpecies.Name}",
                 Team = 1, X = x, Y = y,
                 MaxHealth = wildMaxHealth, CurrentHealth = wildMaxHealth,
-                Attack = Math.Max(1, (int)Math.Round(wildSpecies.BaseAttack * variantDefinition.StatMultiplier * hardcoreMultiplier)),
-                Defense = Math.Max(1, (int)Math.Round(wildSpecies.BaseDefense * variantDefinition.StatMultiplier * hardcoreMultiplier)),
+                Attack = Math.Max(1, (int)Math.Round(wildSpecies.BaseAttack * variantDefinition.StatMultiplier * hardcoreMultiplier * invasionMultiplier)),
+                Defense = Math.Max(1, (int)Math.Round(wildSpecies.BaseDefense * variantDefinition.StatMultiplier * hardcoreMultiplier * invasionMultiplier)),
                 Speed = Math.Max(1, (int)Math.Round(wildSpecies.BaseSpeed * variantDefinition.StatMultiplier)),
                 MovementRange = 2, AttackRange = BaseAttackRange(wildSpecies.Type), IsPlayerControlled = false,
                 Type = wildSpecies.Type, Element = wildSpecies.Element, SpeciesId = wildSpecies.Id,
