@@ -5553,7 +5553,8 @@ void UpdateMonstersPanel()
                 ownedMonsters[index] = updated;
             }
 
-            monsterMessage = $"{(updated.Nickname.Length > 0 ? updated.Nickname : "Créature")} est maintenant niveau {updated.Level}.";
+            var updatedName = updated.Nickname.Length > 0 ? updated.Nickname : "Créature";
+            monsterMessage = $"{updatedName} - niveau {updated.Level} - compétence : {PassiveTalentCatalog.Describe(updated.PassiveTalent)}.";
             _ = LoadInventoryAsync();
         }
         else
@@ -5635,7 +5636,10 @@ void UpdateMonstersPanel()
                 var item = inventoryItems[monsterGiveItemCursor];
                 var monster = ownedMonsters[monsterCursor];
                 monsterMessage = null;
-                monsterGiveItemTask = gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, monster.Id, item.ItemId);
+                // Voir GDD/demande utilisateur — "on peut changer la compétence avec un objet".
+                monsterGiveItemTask = item.Name == "Parchemin de Compétence"
+                    ? gameDataApi!.RerollPassiveTalentAsync(options.SessionToken!, monster.Id, item.ItemId)
+                    : gameDataApi!.GiveItemToMonsterAsync(options.SessionToken!, monster.Id, item.ItemId);
             }
         }
 

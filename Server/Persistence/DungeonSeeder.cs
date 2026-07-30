@@ -74,6 +74,15 @@ public static class DungeonSeeder
                 Seed = 1008, MinLevel = 1, IsMythic = true,
                 MythicModifierDescription = "Modificateur : statistiques des créatures rencontrées multipliées par 3.",
             },
+            // Voir GDD/demande utilisateur — "ajoute une zone réservée aux personnages niveau
+            // 100+" : donjon exclusif de haut niveau, statistiques majorées (réutilise le
+            // multiplicateur "hardcore" existant plutôt qu'un quatrième palier de difficulté).
+            new()
+            {
+                Name = "Terres Interdites", KingdomId = kingdomDuFeu.Id,
+                Description = "Un territoire hors des cartes, où seuls les plus expérimentés s'aventurent.",
+                Seed = 1009, MinLevel = 100, IsHardcore = true,
+            },
         };
 
         var existingNames = (await db.Dungeons.Select(d => d.Name).ToListAsync(ct)).ToHashSet();
