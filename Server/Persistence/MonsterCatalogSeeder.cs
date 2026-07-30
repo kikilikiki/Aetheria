@@ -196,6 +196,16 @@ public static class MonsterCatalogSeeder
                 Beast("Le Gardien du Code", Element.Metal, MonsterType.Tank, Rarity.Admin, adminStats, "En dehors du jeu", "Rien ne passe sans son autorisation."),
                 Beast("Le Développeur", Element.Arcane, MonsterType.Invocateur, Rarity.Admin, adminStats, "En dehors du jeu", "Peut faire apparaître ou disparaître n'importe quoi."),
                 Beast("L'Observateur", Element.Spectre, MonsterType.Controleur, Rarity.Admin, adminStats, "En dehors du jeu", "Voit tout, partout, tout le temps."),
+
+                // Voir GDD/demande utilisateur — "ajoute des monstres que l'on peut avoir que en
+                // reproduction" : jamais en rencontre naturelle (voir BreedingOnly ci-dessous),
+                // seule la Couvée (voir BreedingService) peut en produire.
+                new MonsterSpeciesEntity
+                {
+                    Name = "Chimèrion", Element = Element.Arcane, Type = MonsterType.Support, BaseRarity = Rarity.Epique,
+                    Habitat = "Né en Couvée uniquement", Lore = "Un mélange improbable de deux lignées, jamais vu à l'état sauvage.",
+                    BaseStats = epicStats, BreedingOnly = true,
+                },
             };
 
             var missingExtended = extendedBestiary.Where(s => !existingNames.Contains(s.Name)).ToList();

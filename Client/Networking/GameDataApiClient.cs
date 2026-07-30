@@ -617,6 +617,46 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> RemoveFriendAsync(string sessionToken, Guid characterId, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/friends/remove", new FriendActionRequest { SessionToken = sessionToken, CharacterId = characterId, TargetCharacterName = targetCharacterName }, ct);
 
+    // Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres".
+    public async Task<MonsterInstanceData> FuseMonstersAsync(string sessionToken, Guid characterId, Guid survivorMonsterId, Guid consumedMonsterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/monsters/fuse", new FuseMonstersRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            SurvivorMonsterId = survivorMonsterId,
+            ConsumedMonsterId = consumedMonsterId,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        return (await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct))!;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction avec heritage de statistiques".</summary>
+    public async Task<MonsterInstanceData> BreedMonstersAsync(string sessionToken, Guid characterId, Guid parentMonsterId1, Guid parentMonsterId2, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/monsters/breed", new BreedMonstersRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ParentMonsterId1 = parentMonsterId1,
+            ParentMonsterId2 = parentMonsterId2,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            throw new HttpRequestException(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+        }
+
+        return (await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct))!;
+    }
+
     // Voir GDD/demande utilisateur — "un boss monde... barre de vie... leaderboard".
     public async Task<WorldBossStatus?> GetWorldBossStatusAsync(CancellationToken ct = default)
     {

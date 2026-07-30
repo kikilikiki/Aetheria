@@ -72,6 +72,7 @@ Généré depuis la base de données (voir `Server/Persistence/MonsterCatalogSee
 | 53 | Le Gardien du Code | Metal | Tank | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
 | 54 | Le Développeur | Arcane | Invocateur | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
 | 55 | L'Observateur | Spectre | Controleur | Admin | **ADMIN UNIQUEMENT** — distribuable uniquement via /givemonster ou le panel admin |
+| — | Chimèrion | Arcane | Support | Epique | **REPRODUCTION UNIQUEMENT** — bâtiment Couvée, jamais en rencontre naturelle (voir `BreedingOnly`) |
 
 ## Variantes de créature
 
@@ -127,3 +128,15 @@ posés sur les 3 starters où une espèce déjà existante formait une suite th�
 Vérifiée après chaque victoire de combat PvE (créatures alliées) et après chaque objet donné à une
 créature (voir `MonsterCareService.GiveItemAsync`) — le surnom par défaut (jamais renommé par le
 joueur) suit l'évolution, un surnom personnalisé est conservé.
+
+## Fusion et Couvée (bâtiments)
+
+Voir GDD/demande utilisateur. Deux bâtiments visitables sur la carte du monde (voir
+`Client/World/WorldMap.cs`), chacun avec son propre panneau de sélection à deux créatures :
+
+- **Fusion** (`Server/World/FusionService.cs`) : une créature survit, l'autre est consommée. Le
+  niveau final est `(niveau1 + niveau2) / 2` (arrondi vers le bas, minimum 1).
+- **Couvée** (`Server/World/BreedingService.cs`) : les deux parents survivent, un bébé niveau 1
+  naît d'une espèce exclusive à la reproduction (voir Chimèrion ci-dessus). "Héritage de
+  statistiques" est porté par la variante (voir MonsterVariantCatalog, seul système de variance de
+  statistiques individuelle du jeu) : le bébé hérite de la meilleure variante des deux parents.

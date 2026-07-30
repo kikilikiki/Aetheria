@@ -451,6 +451,19 @@ Task<List<WorldBossLeaderboardRow>>? worldBossLeaderboardLoadTask = null;
 var worldBossShowAllTime = false;
 string? worldBossMessage = null;
 
+// Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres" et "un batiment pour
+// faire de la reproduction avec heritage de statistiques" : même UI de sélection à deux étapes
+// (choisir la première créature, puis la seconde), réutilisée pour les deux bâtiments.
+Guid? fusionFirstMonsterId = null;
+var fusionCursor = 0;
+string? fusionMessage = null;
+Task<MonsterInstanceData>? fusionActionTask = null;
+
+Guid? hatcheryFirstMonsterId = null;
+var hatcheryCursor = 0;
+string? hatcheryMessage = null;
+Task<MonsterInstanceData>? hatcheryActionTask = null;
+
 // Recherche/création de guilde (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
 var guildMode = GuildPanelMode.None;
 var guildTextInput = string.Empty;
@@ -1107,6 +1120,16 @@ host.Update += deltaTime =>
                 // dedans, pas après avoir parlé au Commis" : ouvre directement le panneau, comme
                 // le Téléporteur/la Mine/la Pension, plutôt que de passer par un dialogue d'abord.
                 OpenPanel(PanelKind.Auction);
+                break;
+            case InteractionKind.Building when interaction.Building!.Name == "Fusion":
+                // Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres (leur
+                // niveau sera leur 2 niveaux additionnes puis divise par 2)".
+                OpenPanel(PanelKind.Fusion);
+                break;
+            case InteractionKind.Building when interaction.Building!.Name == "Couvée":
+                // Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction avec
+                // heritage de statistiques, et des monstres que l'on peut avoir que en reproduction".
+                OpenPanel(PanelKind.Hatchery);
                 break;
             case InteractionKind.Building:
                 sceneMode = SceneMode.Interior;
@@ -2218,6 +2241,237 @@ void DrawWorldBossPanel(int w, int h)
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : classement - ENTREE : attaquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>Nom affiché d'une créature possédée (surnom, sinon nom d'espèce) — voir DrawMonstersPanel pour l'usage d'origine.</summary>
+string MonsterDisplayName(MonsterInstanceData monster)
+{
+    if (monster.Nickname.Length > 0)
+    {
+        return monster.Nickname;
+    }
+
+    return speciesById.TryGetValue(monster.SpeciesId, out var species) ? species.Name : "Créature";
+}
+
+/// <summary>
+/// Panneau Fusion (bâtiment "Fusion", voir GDD/demande utilisateur — "un batiment pour fusionner
+/// des monstres, leur niveau sera leur 2 niveaux additionnes puis divise par 2") : sélection à
+/// deux étapes dans la liste des créatures possédées (voir <see cref="ownedMonsters"/>, déjà
+/// chargée par <see cref="LoadMonstersAsync"/>).
+/// </summary>
+void UpdateFusionPanel()
+{
+    if (fusionActionTask is { IsCompleted: true } actionTask)
+    {
+        if (actionTask.IsFaulted)
+        {
+            fusionMessage = "Connexion au serveur impossible.";
+        }
+        else
+        {
+            fusionMessage = "Fusion réussie !";
+            fusionFirstMonsterId = null;
+            monstersLoaded = false;
+            _ = LoadMonstersAsync();
+        }
+
+        fusionActionTask = null;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (!monstersLoaded || fusionActionTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) fusionCursor = Math.Min(fusionCursor + 1, Math.Max(0, ownedMonsters.Count - 1));
+    else if (keyboard.WasJustPressed(Key.Up)) fusionCursor = Math.Max(fusionCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        var selected = ownedMonsters[fusionCursor];
+        if (fusionFirstMonsterId is null)
+        {
+            fusionFirstMonsterId = selected.Id;
+            fusionMessage = null;
+        }
+        else if (fusionFirstMonsterId != selected.Id)
+        {
+            fusionMessage = null;
+            fusionActionTask = gameDataApi.FuseMonstersAsync(options.SessionToken!, chosenCharacterId.Value, fusionFirstMonsterId.Value, selected.Id);
+        }
+        else
+        {
+            fusionMessage = "Choisissez une créature différente.";
+        }
+    }
+}
+
+void DrawFusionPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 460f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.05f, 0.08f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.75f, 0.42f, 0.68f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FUSION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.55f, 0.78f, 1f));
+
+    var instructions = fusionFirstMonsterId is null
+        ? "CHOISISSEZ LA PREMIERE CREATURE (ENTREE)"
+        : $"PREMIERE : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == fusionFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LA SECONDE";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+    if (!monstersLoaded)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (ownedMonsters.Count < 2)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 92f;
+        for (var i = 0; i < ownedMonsters.Count; i++)
+        {
+            var monster = ownedMonsters[i];
+            var isSelected = i == fusionCursor;
+            var isLockedFirst = monster.Id == fusionFirstMonsterId;
+            var prefix = isSelected ? "> " : (isLockedFirst ? "* " : "  ");
+            var color = isLockedFirst ? new Vector4(0.95f, 0.6f, 0.8f, 1f) : isSelected ? new Vector4(0.85f, 0.55f, 0.78f, 1f) : Vector4.One;
+            var text = $"{prefix}{MonsterDisplayName(monster).ToUpperInvariant()} - NIV. {monster.Level}";
+            if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+            {
+                fusionCursor = i;
+            }
+
+            y += 26f;
+        }
+    }
+
+    if (fusionMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, fusionMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Panneau Couvée (bâtiment "Couvée", voir GDD/demande utilisateur — "un batiment pour faire de la
+/// reproduction avec heritage de statistiques, et des monstres que l'on peut avoir que en
+/// reproduction") : mêmes deux étapes que la Fusion, mais les deux parents survivent — voir
+/// BreedingService.
+/// </summary>
+void UpdateHatcheryPanel()
+{
+    if (hatcheryActionTask is { IsCompleted: true } actionTask)
+    {
+        if (actionTask.IsFaulted)
+        {
+            hatcheryMessage = "Connexion au serveur impossible.";
+        }
+        else
+        {
+            hatcheryMessage = $"{MonsterDisplayName(actionTask.Result)} est né !";
+            hatcheryFirstMonsterId = null;
+            monstersLoaded = false;
+            _ = LoadMonstersAsync();
+        }
+
+        hatcheryActionTask = null;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (!monstersLoaded || hatcheryActionTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) hatcheryCursor = Math.Min(hatcheryCursor + 1, Math.Max(0, ownedMonsters.Count - 1));
+    else if (keyboard.WasJustPressed(Key.Up)) hatcheryCursor = Math.Max(hatcheryCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter) && ownedMonsters.Count > 0 && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        var selected = ownedMonsters[hatcheryCursor];
+        if (hatcheryFirstMonsterId is null)
+        {
+            hatcheryFirstMonsterId = selected.Id;
+            hatcheryMessage = null;
+        }
+        else if (hatcheryFirstMonsterId != selected.Id)
+        {
+            hatcheryMessage = null;
+            hatcheryActionTask = gameDataApi.BreedMonstersAsync(options.SessionToken!, chosenCharacterId.Value, hatcheryFirstMonsterId.Value, selected.Id);
+        }
+        else
+        {
+            hatcheryMessage = "Choisissez une créature différente.";
+        }
+    }
+}
+
+void DrawHatcheryPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 460f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.06f, 0.06f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.55f, 0.6f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "COUVEE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.65f, 0.7f, 1f));
+
+    var instructions = hatcheryFirstMonsterId is null
+        ? "CHOISISSEZ LE PREMIER PARENT (ENTREE)"
+        : $"PREMIER PARENT : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == hatcheryFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LE SECOND";
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+    if (!monstersLoaded)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (ownedMonsters.Count < 2)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 92f;
+        for (var i = 0; i < ownedMonsters.Count; i++)
+        {
+            var monster = ownedMonsters[i];
+            var isSelected = i == hatcheryCursor;
+            var isLockedFirst = monster.Id == hatcheryFirstMonsterId;
+            var prefix = isSelected ? "> " : (isLockedFirst ? "* " : "  ");
+            var color = isLockedFirst ? new Vector4(0.95f, 0.7f, 0.75f, 1f) : isSelected ? new Vector4(0.9f, 0.65f, 0.7f, 1f) : Vector4.One;
+            var text = $"{prefix}{MonsterDisplayName(monster).ToUpperInvariant()} - NIV. {monster.Level}";
+            if (DrawClickableRow(text, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+            {
+                hatcheryCursor = i;
+            }
+
+            y += 26f;
+        }
+    }
+
+    if (hatcheryMessage is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, hatcheryMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -3966,6 +4220,20 @@ void OpenPanel(PanelKind kind)
             worldBossLoadTask = gameDataApi?.GetWorldBossStatusAsync();
             worldBossLeaderboardLoadTask = gameDataApi?.GetWorldBossLeaderboardAsync(allTime: false);
             break;
+        case PanelKind.Fusion:
+            fusionFirstMonsterId = null;
+            fusionCursor = 0;
+            fusionMessage = null;
+            monstersLoaded = false;
+            _ = LoadMonstersAsync();
+            break;
+        case PanelKind.Hatchery:
+            hatcheryFirstMonsterId = null;
+            hatcheryCursor = 0;
+            hatcheryMessage = null;
+            monstersLoaded = false;
+            _ = LoadMonstersAsync();
+            break;
     }
 }
 
@@ -4767,6 +5035,18 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.WorldBoss)
     {
         UpdateWorldBossPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Fusion)
+    {
+        UpdateFusionPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Hatchery)
+    {
+        UpdateHatcheryPanel();
         return;
     }
 
@@ -5845,6 +6125,8 @@ void DrawOutdoorHud()
             case PanelKind.Professions: DrawProfessionsPanel(w, h); break;
             case PanelKind.BattlePass: DrawBattlePassPanel(w, h); break;
             case PanelKind.WorldBoss: DrawWorldBossPanel(w, h); break;
+            case PanelKind.Fusion: DrawFusionPanel(w, h); break;
+            case PanelKind.Hatchery: DrawHatcheryPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -8207,6 +8489,12 @@ enum PanelKind
 
     /// <summary>Voir GDD/demande utilisateur — "un boss monde".</summary>
     WorldBoss,
+
+    /// <summary>Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres".</summary>
+    Fusion,
+
+    /// <summary>Voir GDD/demande utilisateur — "un batiment pour faire de la reproduction".</summary>
+    Hatchery,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
