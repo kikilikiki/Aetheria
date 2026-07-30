@@ -86,6 +86,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isStaffAccount;
 
+    /// <summary>Voir GDD/demande utilisateur — "seul le compte admin (avec le grade fondateur) peut modifier l'adresse du serveur" : plus étroit que <see cref="IsAdminAccount"/> (qui reste utilisé pour le panneau d'administration, ouvert à tout admin).</summary>
+    [ObservableProperty]
+    private bool _isFondateurAccount;
+
     [ObservableProperty]
     private bool _isAdminPanelOpen;
 
@@ -152,6 +156,7 @@ public sealed partial class MainViewModel : ObservableObject
         IsLoggedIn = true;
         IsAdminAccount = result.Value!.IsAdmin || result.Value.Rank == UserRank.Fondateur;
         IsStaffAccount = result.Value.IsAdmin || result.Value.Rank is UserRank.Moderateur or UserRank.Fondateur;
+        IsFondateurAccount = result.Value.Rank == UserRank.Fondateur;
         _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
     }
 
@@ -495,6 +500,7 @@ public sealed partial class MainViewModel : ObservableObject
             // Voir GDD/demande utilisateur — panneau "Communauté" réservé aux admin/fondateur.
             IsAdminAccount = result.Value.IsAdmin || result.Value.Rank == UserRank.Fondateur;
             IsStaffAccount = result.Value.IsAdmin || result.Value.Rank is UserRank.Moderateur or UserRank.Fondateur;
+            IsFondateurAccount = result.Value.Rank == UserRank.Fondateur;
             _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
 
             // Voir GDD/demande utilisateur — "rester connecté jusqu'à la déconnexion".
@@ -517,6 +523,7 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = null;
         IsAdminAccount = false;
         IsStaffAccount = false;
+        IsFondateurAccount = false;
         IsAdminPanelOpen = false;
         AdminUsers.Clear();
 
