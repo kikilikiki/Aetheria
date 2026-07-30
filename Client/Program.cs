@@ -5863,7 +5863,9 @@ void UpdateGuildPanel(float deltaTime)
             {
                 if (keyboard.WasJustPressed(Key.Down)) guildChestCursor = Math.Min(guildChestCursor + 1, guildChest.Count - 1);
                 else if (keyboard.WasJustPressed(Key.Up)) guildChestCursor = Math.Max(guildChestCursor - 1, 0);
-                else if (keyboard.WasJustPressed(Key.O))
+                else guildChestCursor = ApplyScrollWheel(guildChestCursor, guildChest.Count);
+
+                if (keyboard.WasJustPressed(Key.O))
                 {
                     guildActionMessage = null;
                     var entry = guildChest[guildChestCursor];
@@ -8146,16 +8148,24 @@ void DrawGuildPanel(int w, int h)
         }
         else
         {
+            // Voir retour utilisateur — "faire en sorte que l'on puisse aussi scroll a la molette"
+            // : la liste du coffre de guilde n'etait pas fenetree et pouvait deborder du panel.
+            const float rowHeight = 26f;
+            const int visibleRows = 8;
+            var scrollStart = Math.Clamp(guildChestCursor - visibleRows / 2, 0, Math.Max(0, guildChest.Count - visibleRows));
+
             var y = topLeft.Y + 90f;
-            for (var i = 0; i < guildChest.Count; i++)
+            for (var i = scrollStart; i < Math.Min(guildChest.Count, scrollStart + visibleRows); i++)
             {
                 var entry = guildChest[i];
                 var isSelected = i == guildChestCursor;
                 var prefix = isSelected ? "> " : "  ";
                 var color = isSelected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
                 TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{entry.ItemName.ToUpperInvariant()} x{entry.Quantity}", new Vector2(topLeft.X + 24f, y), 1.9f, color);
-                y += 26f;
+                y += rowHeight;
             }
+
+            DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 86f), visibleRows * rowHeight, guildChest.Count, visibleRows, scrollStart);
         }
 
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, "I : DEPOSER 1ER OBJET DE L'INVENTAIRE - O : RETIRER LA SELECTION", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
