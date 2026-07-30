@@ -444,6 +444,34 @@ Task<ShopPurchaseResponse>? premiumActionTask = null;
 // montrer, titre, grade)" : panneau Profil (touche U), toujours le sien propre pour cette version
 // (pas de consultation du profil d'un autre joueur — voir Docs/README.md).
 ProfileSummary? myProfile = null;
+
+/// <summary>
+/// Voir retour utilisateur — "ajoute un message quand on recoit de l'argent ou autre" + "ajoute
+/// un message quand on monte un niveau" (personnage) : compare avec l'ancien myProfile plutôt que
+/// d'accrocher un toast à chaque appel gagnant de l'or/XP individuellement (des dizaines
+/// d'endroits différents — combat, quêtes, coffres, ventes, dons admin...). Remplace toute
+/// affectation directe de myProfile depuis un ProfileSummary fraîchement chargé (voir les 3
+/// points d'appel : sondage HUD, ouverture du panneau Profil, modification du profil).
+/// </summary>
+void ApplyProfileUpdate(ProfileSummary updated)
+{
+    if (myProfile is { } previous)
+    {
+        var goldGained = updated.Gold - previous.Gold;
+        if (goldGained > 0)
+        {
+            PushSystemToast($"+{goldGained} or", new Vector4(0.95f, 0.85f, 0.4f, 1f));
+        }
+
+        if (updated.Level > previous.Level)
+        {
+            PushSystemToast($"Niveau {updated.Level} !", new Vector4(0.6f, 0.85f, 1f, 1f));
+        }
+    }
+
+    myProfile = updated;
+}
+
 var profileEditMode = false;
 var profileTextInput = string.Empty;
 string? profileMessage = null;
@@ -983,7 +1011,11 @@ host.Update += deltaTime =>
     // À partir d'ici, sceneMode == SceneMode.Outdoor.
     if (profileLoadTask is { IsCompleted: true } hudProfileTask)
     {
-        myProfile = hudProfileTask.IsFaulted ? myProfile : hudProfileTask.Result;
+        if (!hudProfileTask.IsFaulted && hudProfileTask.Result is { } freshProfile)
+        {
+            ApplyProfileUpdate(freshProfile);
+        }
+
         profileLoadTask = null;
     }
 
@@ -1940,15 +1972,23 @@ void UpdateProfilePanel()
 {
     if (profileLoadTask is { IsCompleted: true } loadTask)
     {
-        myProfile = loadTask.IsFaulted ? null : loadTask.Result;
+        if (!loadTask.IsFaulted && loadTask.Result is { } loadedProfile)
+        {
+            ApplyProfileUpdate(loadedProfile);
+        }
+        else
+        {
+            myProfile = null;
+        }
+
         profileLoadTask = null;
     }
 
     if (profileActionTask is { IsCompleted: true } actionTask)
     {
-        if (!actionTask.IsFaulted && actionTask.Result is not null)
+        if (!actionTask.IsFaulted && actionTask.Result is { } updatedProfile)
         {
-            myProfile = actionTask.Result;
+            ApplyProfileUpdate(updatedProfile);
             profileMessage = "Profil mis à jour.";
         }
         else
@@ -5278,6 +5318,11 @@ async Task LoadMonstersAsync()
         return;
     }
 
+    // Voir retour utilisateur — "ajoute un message quand on monte un niveau (pareil pour les
+    // monstres)" : compare avec l'etat precedent plutot que d'accrocher un toast a chaque appel
+    // gagnant de l'XP individuellement (combat, capture... tous rechargent ownedMonsters).
+    var previousLevelById = ownedMonsters.ToDictionary(m => m.Id, m => m.Level);
+
     try
     {
         ownedMonsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
@@ -5291,6 +5336,15 @@ async Task LoadMonstersAsync()
     catch (HttpRequestException)
     {
         ownedMonsters = [];
+    }
+
+    foreach (var monster in ownedMonsters)
+    {
+        if (previousLevelById.TryGetValue(monster.Id, out var previousLevel) && monster.Level > previousLevel)
+        {
+            var name = monster.Nickname.Length > 0 ? monster.Nickname : (speciesById.TryGetValue(monster.SpeciesId, out var s) ? s.Name : "Créature");
+            PushSystemToast($"{name} : niveau {monster.Level} !", new Vector4(0.6f, 0.95f, 0.65f, 1f));
+        }
     }
 
     monsterCursor = Math.Clamp(monsterCursor, 0, Math.Max(0, ownedMonsters.Count - 1));
