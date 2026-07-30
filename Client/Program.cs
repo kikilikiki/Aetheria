@@ -179,6 +179,13 @@ string? lootMessage = null;
 // GameInfo.LootChoiceTimeoutSeconds, sans qu'aucune action de CE client ne le déclenche).
 var lootPollClock = 0f;
 
+// Voir retour utilisateur — "des fois on ne peut pas choisir" (l'objet de butin) : tâche SÉPARÉE
+// de lootTask pour que le sondage périodique ci-dessus ne bloque plus la lecture du clavier dans
+// UpdateLoot (qui retournait plus tôt tant que lootTask n'était pas null, y compris pendant un
+// sondage en vol — un Entrée pressé pile à ce moment-là était silencieusement perdu, WasJustPressed
+// n'étant vrai qu'une seule frame). lootTask reste réservé à la réclamation du joueur lui-même.
+Task<LootSessionState?>? lootPollTask = null;
+
 // Dialogue PNJ, superposé au monde extérieur (le déplacement se fige tant qu'il est ouvert).
 Npc? activeDialogueNpc = null;
 var dialogueLineIndex = 0;
@@ -7439,13 +7446,24 @@ void UpdateLoot(float deltaTime)
     // Sondage périodique (voir GDD/demande utilisateur — "le joueur qui n'a pas donné le dernier
     // coup ne peut pas choisir d'objet") : sans ça, ce client ne voyait jamais qu'un coéquipier
     // avait réclamé un objet (ni que le serveur avait résolu le butin après le délai imparti,
-    // voir GameInfo.LootChoiceTimeoutSeconds) tant qu'il ne réclamait pas lui-même.
+    // voir GameInfo.LootChoiceTimeoutSeconds) tant qu'il ne réclamait pas lui-même. Utilise
+    // lootPollTask (pas lootTask) pour ne pas bloquer la lecture du clavier ci-dessous — voir
+    // retour utilisateur "des fois on ne peut pas choisir" et le commentaire sur lootPollTask.
+    if (lootPollTask is { IsCompleted: true } pollTask)
+    {
+        if (!pollTask.IsFaulted && pollTask.Result is { } polled)
+        {
+            activeLoot = polled;
+        }
+
+        lootPollTask = null;
+    }
+
     lootPollClock += deltaTime;
-    if (lootPollClock >= CombatPollIntervalSeconds)
+    if (lootPollClock >= CombatPollIntervalSeconds && lootPollTask is null)
     {
         lootPollClock = 0f;
-        lootTask = combatApi!.GetLootAsync(activeLoot.LootId);
-        return;
+        lootPollTask = combatApi!.GetLootAsync(activeLoot.LootId);
     }
 
     if (keyboard.WasJustPressed(Key.Down)) lootCursor = Math.Min(lootCursor + 1, activeLoot.Items.Count - 1);
@@ -10214,7 +10232,8 @@ void DrawLootClaim(int w, int h)
             TextRenderer.DrawCentered(spriteBatch, whiteTexture, claimCount.ToString(), badgeTopLeft + badgeSize / 2f, 1.8f, Vector4.One);
         }
 
-        if (mouse.WasButtonJustPressed(MouseButton.Left)
+        if (lootTask is null
+            && mouse.WasButtonJustPressed(MouseButton.Left)
             && mouse.Position.X >= rowTopLeft.X && mouse.Position.X <= rowTopLeft.X + rowWidth
             && mouse.Position.Y >= rowTopLeft.Y && mouse.Position.Y <= rowTopLeft.Y + rowHeight)
         {
