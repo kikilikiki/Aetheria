@@ -29,4 +29,6 @@ public sealed record CombatantState(
     /// <summary>Voir GDD/demande utilisateur — "Compétences passives" (voir PassiveTalentCatalog), vide pour un combattant sans passif.</summary>
     string PassiveTalent = "",
     /// <summary>Voir GDD/demande utilisateur — "un bouton pour la capacité ultime... affiché seulement quand c'est le tour d'un monstre au niveau max".</summary>
-    int Level = 1);
+    int Level = 1,
+    /// <summary>Voir GDD/demande utilisateur — "l'attaque spéciale ... en plus de l'attaque ultime si le monstre est lvl max" : cooldown séparé de <see cref="SpecialAbilityCooldownRemaining"/>, 0 si utilisable ce tour-ci.</summary>
+    int UltimateAbilityCooldownRemaining = 0);

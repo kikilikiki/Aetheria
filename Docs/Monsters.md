@@ -147,9 +147,22 @@ jamais pour les monstres sauvages) :
 | Bouclier | Réduit les dégâts subis de 15%. |
 | Contre-attaque | 20% de chances de renvoyer la moitié des dégâts subis à l'attaquant. |
 
-**Ultime** : une fois `MonsterProgressionService.MaxLevel` (1000) atteint, la capacité spéciale de
-la créature (voir `CombatEngine.ResolveSpecialAbility`) devient son ultime — mêmes conditions
-d'usage (cooldown, cible), mais dégâts ×1.6 supplémentaires.
+**Capacité spéciale** (`CombatEngine.ResolveSpecialAbility`, touche 4, cooldown 3 tours) — selon le
+type (`MonsterType`) du combattant, toujours utilisable quel que soit le niveau :
+
+| Type | Effet |
+|---|---|
+| Soigneur | Soigne l'allié le plus affaibli de 30% de ses PV max (aucune cible à viser). |
+| Contrôleur | Pose un obstacle Destructible sur une case vide à portée 3 (voir "cases destructibles" plus bas) — bloque le passage tant qu'il n'est pas détruit. |
+| Archer | Tir perçant : ignore la Défense, portée +1. |
+| Tout autre type | Coup puissant à dégâts majorés. |
+
+**Ultime** (`CombatEngine.ResolveUltimateAbility`, touche U côté client, cooldown 3 tours séparé) :
+débloquée une fois `MonsterProgressionService.MaxLevel` (150) atteint — action DISTINCTE de la
+capacité spéciale ci-dessus (les deux restent utilisables, l'une ne remplace pas l'autre). Même
+flaveur par type (Soigneur soigne intégralement au lieu de 30%, Archer/autres dégâts ×1.6
+supplémentaires) — y compris pour le Contrôleur, dont la capacité spéciale n'inflige elle-même
+aucun dégât.
 
 ## Fusion et Couvée (bâtiments)
 
