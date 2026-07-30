@@ -1614,6 +1614,60 @@ app.MapPost("/api/kingdoms/wars/resolve", async () =>
     return Results.Ok(new { message });
 });
 
+// Voir GDD/demande utilisateur — "Fonctionnalités de royaume avancées" (élections du roi, taxes, construction).
+app.MapGet("/api/kingdoms/politics", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var politicsService = new KingdomPoliticsService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await politicsService.GetStatusAsync(characterId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/kingdoms/vote", async (VoteForKingRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var politicsService = new KingdomPoliticsService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        await politicsService.VoteAsync(request);
+        return Results.Ok();
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/kingdoms/elections/resolve", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var message = await new KingdomPoliticsService(db, app.Services.GetRequiredService<SessionTokenStore>()).ResolveElectionsAsync();
+    return Results.Ok(new { message });
+});
+
+app.MapPost("/api/kingdoms/construct", async (ConstructKingdomBuildingRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var politicsService = new KingdomPoliticsService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await politicsService.ConstructBuildingAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 app.MapGet("/api/seasons/current", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
@@ -2492,7 +2546,7 @@ var combatTimeoutTask = combatTimeoutScheduler.RunAsync(shutdownCts.Token);
 
 // Voir GDD/demande utilisateur — "guerre de territoire" résolue automatiquement chaque semaine
 // (voir KingdomWarScheduler), plutôt que de dépendre d'un appel manuel à l'endpoint.
-var kingdomWarScheduler = new KingdomWarScheduler(dbFactory, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<KingdomWarScheduler>());
+var kingdomWarScheduler = new KingdomWarScheduler(dbFactory, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<KingdomWarScheduler>(), app.Services.GetRequiredService<SessionTokenStore>());
 var kingdomWarTask = kingdomWarScheduler.RunAsync(shutdownCts.Token);
 
 await Task.WhenAll(tcpTask, httpTask, dailyDigestTask, combatTimeoutTask, kingdomWarTask);

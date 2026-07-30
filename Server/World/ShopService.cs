@@ -93,7 +93,10 @@ public sealed class ShopService(AetheriaDbContext db, SessionTokenStore tokenSto
         }
 
         var totalPrice = (long)(entry.Item.Price * SellBackRatio) * quantity;
-        character.Gold += totalPrice;
+
+        // Voir GDD/demande utilisateur — "taxes" : prélevées sur l'or gagné à la vente, au profit du trésor du royaume du vendeur (exemption au palier premium 3).
+        var netPrice = await KingdomPoliticsService.ApplyTaxAsync(db, character, totalPrice, ct);
+        character.Gold += netPrice;
 
         entry.Quantity -= quantity;
         if (entry.Quantity <= 0)
@@ -106,7 +109,7 @@ public sealed class ShopService(AetheriaDbContext db, SessionTokenStore tokenSto
         return new ShopPurchaseResponse
         {
             Success = true,
-            Message = $"{entry.Item.Name} x{quantity} vendu(s) pour {totalPrice} or.",
+            Message = $"{entry.Item.Name} x{quantity} vendu(s) pour {netPrice} or.",
             RemainingGold = character.Gold,
         };
     }

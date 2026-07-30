@@ -473,6 +473,40 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "Fonctionnalités de royaume avancées" (élections du roi, taxes, construction).</summary>
+    public async Task<KingdomPoliticsStatus?> GetKingdomPoliticsAsync(Guid characterId, CancellationToken ct = default)
+    {
+        return await _http.GetFromJsonAsync<KingdomPoliticsStatus>($"/api/kingdoms/politics?characterId={characterId}", JsonOptions, ct);
+    }
+
+    public async Task<bool> VoteForKingAsync(string sessionToken, Guid characterId, string candidateName, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/kingdoms/vote", new VoteForKingRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            CandidateName = candidateName,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<KingdomPoliticsStatus?> ConstructKingdomBuildingAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/kingdoms/construct", new ConstructKingdomBuildingRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<KingdomPoliticsStatus>(JsonOptions, ct);
+    }
+
     public async Task<List<KingdomWarStanding>> GetWarStandingsAsync(CancellationToken ct = default)
     {
         var result = await _http.GetFromJsonAsync<List<KingdomWarStanding>>("/api/kingdoms/wars/standings", JsonOptions, ct);

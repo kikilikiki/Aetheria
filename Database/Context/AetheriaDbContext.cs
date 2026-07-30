@@ -40,6 +40,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<WorldBossEntity> WorldBosses => Set<WorldBossEntity>();
     public DbSet<WorldBossDamageEntity> WorldBossDamageEntries => Set<WorldBossDamageEntity>();
     public DbSet<GuildChestItemEntity> GuildChestItems => Set<GuildChestItemEntity>();
+    public DbSet<KingdomVoteEntity> KingdomVotes => Set<KingdomVoteEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -264,6 +265,16 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
                 .WithMany()
                 .HasForeignKey(l => l.ItemId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<KingdomVoteEntity>(vote =>
+        {
+            vote.HasIndex(v => new { v.KingdomId, v.VoterCharacterId }).IsUnique();
+
+            vote.HasOne(v => v.Kingdom)
+                .WithMany()
+                .HasForeignKey(v => v.KingdomId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

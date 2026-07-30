@@ -1,5 +1,6 @@
 using Aetheria.Database.Context;
 using Aetheria.Server.Discord;
+using Aetheria.Server.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -13,7 +14,7 @@ namespace Aetheria.Server.World;
 /// <see cref="DigestScheduler"/> pour éviter une double résolution au redémarrage/à chaque
 /// vérification dans la même journée.
 /// </summary>
-public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbContextFactory, ILogger<KingdomWarScheduler> logger)
+public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbContextFactory, ILogger<KingdomWarScheduler> logger, SessionTokenStore tokenStore)
 {
     private static readonly string StatePath = RepoPath.Resolve(".kingdom-war-last-week");
 
@@ -61,6 +62,10 @@ public sealed class KingdomWarScheduler(IDbContextFactory<AetheriaDbContext> dbC
         await using var db = await dbContextFactory.CreateDbContextAsync(ct);
         var message = await new KingdomWarService(db).ResolveWeeklyWarAsync(ct);
         logger.LogInformation("Guerre de royaumes résolue automatiquement (samedi) : {Message}", message);
+
+        // Voir GDD/demande utilisateur — "élections du roi" : même cadence hebdomadaire que la guerre de royaumes.
+        var electionMessage = await new KingdomPoliticsService(db, tokenStore).ResolveElectionsAsync(ct);
+        logger.LogInformation("Élections de royaume résolues automatiquement (samedi) : {Message}", electionMessage);
 
         await File.WriteAllTextAsync(StatePath, currentWeekBucket, ct);
     }
