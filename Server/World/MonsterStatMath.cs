@@ -14,4 +14,8 @@ public static class MonsterStatMath
 
     public static int ScaledStat(int baseStat, int level, MonsterVariant variant) =>
         Math.Max(1, (int)Math.Round(ScaledStat(baseStat, level) * MonsterVariantCatalog.Get(variant).StatMultiplier));
+
+    /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : +5% permanent par palier de prestige, cumulé par-dessus le bonus de variante.</summary>
+    public static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel) =>
+        Math.Max(1, (int)Math.Round(ScaledStat(baseStat, level, variant) * (1.0 + prestigeLevel * 0.05)));
 }

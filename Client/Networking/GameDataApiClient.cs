@@ -465,6 +465,19 @@ public sealed class GameDataApiClient : IDisposable
         return new ProfessionActionResponse { Profession = ProfessionType.Agriculteur, Level = 0, Experience = 0, LeveledUp = false, Message = error?.Message ?? "Récolte impossible." };
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum".</summary>
+    public async Task<MonsterInstanceData?> PrestigeMonsterAsync(string sessionToken, Guid characterId, Guid monsterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/monsters/{monsterId}/prestige", new PrestigeMonsterRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            MonsterId = monsterId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Donne un objet d'inventaire à une créature (voir GDD — UI de gestion des montres).</summary>
     public async Task<MonsterInstanceData?> GiveItemToMonsterAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
     {

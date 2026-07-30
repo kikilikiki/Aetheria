@@ -98,6 +98,7 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
             boss.KilledAtUtc = DateTime.UtcNow;
             boss.KillerCharacterName = character.Name;
             bossKilled = true;
+            await new AchievementService(db).UnlockAsync(character.UserId, "terrasseur_de_boss_mondial", ct);
 
             // Voir GDD/demande utilisateur — "Monstres cosmétiques rares" : seule voie
             // d'obtention, une petite chance pour l'auteur du coup fatal.

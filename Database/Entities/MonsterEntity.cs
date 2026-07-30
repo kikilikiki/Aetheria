@@ -35,4 +35,7 @@ public sealed class MonsterEntity
     public int? EquippedAccessoryItemId { get; set; }
 
     public DateTime CapturedAtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : incrémenté par PrestigeService, remet Level/Experience à zéro contre un bonus de statistiques permanent (voir MonsterStatMath).</summary>
+    public int PrestigeLevel { get; set; }
 }

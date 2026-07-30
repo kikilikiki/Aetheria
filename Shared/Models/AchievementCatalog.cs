@@ -15,6 +15,13 @@ public static class AchievementCatalog
         new("premiere_capture", "Premier compagnon", "Capturez votre première créature.", AchievementCategory.Capture),
         new("premier_craft", "Artisan débutant", "Fabriquez votre premier objet.", AchievementCategory.Metiers),
         new("fondateur_de_guilde", "Fondateur", "Créez une guilde.", AchievementCategory.Social),
+
+        // Voir GDD/demande utilisateur — "Succès cachés" : nom/description masqués côté Client
+        // tant qu'ils ne sont pas débloqués (voir IsHidden).
+        new("terrasseur_de_boss_mondial", "Terrasseur", "Portez le coup fatal à un boss mondial.", AchievementCategory.Combat, IsHidden: true),
+        new("maitre_fusionneur", "Fusion réussie", "Fusionnez deux créatures au bâtiment Fusion.", AchievementCategory.Collection, IsHidden: true),
+        new("eleveur", "Éleveur", "Faites naître une créature à la Couvée.", AchievementCategory.Collection, IsHidden: true),
+        new("prestige_legendaire", "Au-delà des limites", "Faites prestiger une créature au niveau maximum.", AchievementCategory.Collection, IsHidden: true),
     ];
 
     public static AchievementDefinition? Find(string key) => All.FirstOrDefault(a => a.Key == key);
