@@ -31,6 +31,12 @@ public sealed class Combatant
     /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) : bonus de statistiques déjà appliqué à Attack/Defense/Speed/MaxHealth ci-dessus, conservée ici pour l'affichage et pour être reportée sur la créature capturée (voir ResolveCaptureAsync).</summary>
     public MonsterVariant Variant { get; init; } = MonsterVariant.Normal;
 
+    /// <summary>Voir GDD/demande utilisateur — "Compétences passives" (voir PassiveTalentCatalog, effets appliqués dans CombatEngine) : vide pour un combattant sans passif (monstres sauvages).</summary>
+    public string PassiveTalent { get; init; } = string.Empty;
+
+    /// <summary>Voir GDD/demande utilisateur — "Competences ultimes debloquees au niveau max" : niveau réel de la créature (1 pour un monstre sauvage, sans notion de niveau propre), voir CombatEngine.ResolveSpecialAbility.</summary>
+    public int Level { get; init; } = 1;
+
     /// <summary>
     /// Espèce d'origine (monstre sauvage ou créature possédée), <c>null</c> pour un combattant
     /// sans espèce. Utilisé par <c>ResolveCaptureAsync</c> pour retrouver l'espèce de façon

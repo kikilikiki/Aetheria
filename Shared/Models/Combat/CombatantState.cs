@@ -25,4 +25,6 @@ public sealed record CombatantState(
     /// <summary>Voir GDD/demande utilisateur — "cooldown pour le spécial" : 0 si utilisable ce tour-ci.</summary>
     int SpecialAbilityCooldownRemaining = 0,
     /// <summary>Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog, affichage badge côté Client).</summary>
-    MonsterVariant Variant = MonsterVariant.Normal);
+    MonsterVariant Variant = MonsterVariant.Normal,
+    /// <summary>Voir GDD/demande utilisateur — "Compétences passives" (voir PassiveTalentCatalog), vide pour un combattant sans passif.</summary>
+    string PassiveTalent = "");

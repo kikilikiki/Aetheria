@@ -663,7 +663,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
                 Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
-                Variant = monster.Variant,
+                Variant = monster.Variant, PassiveTalent = monster.PassiveTalent, Level = monster.Level,
             });
         }
 
@@ -840,7 +840,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         CombatSession.GridWidth,
         CombatSession.GridHeight,
         session.Combatants
-            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining, c.Variant))
+            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining, c.Variant, c.PassiveTalent))
             .ToList(),
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,

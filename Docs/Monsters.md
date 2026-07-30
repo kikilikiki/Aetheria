@@ -129,6 +129,25 @@ Vérifiée après chaque victoire de combat PvE (créatures alliées) et après 
 créature (voir `MonsterCareService.GiveItemAsync`) — le surnom par défaut (jamais renommé par le
 joueur) suit l'évolution, un surnom personnalisé est conservé.
 
+## Compétences passives et ultimes
+
+Généré depuis `Shared/Models/PassiveTalentCatalog.cs` — voir GDD/demande utilisateur "Compétences
+passives" + "Compétences ultimes débloquées au niveau max". Tirée au hasard et conservée pour
+toujours dès qu'une créature rejoint l'équipe du joueur (choix de départ, capture, reproduction —
+jamais pour les monstres sauvages) :
+
+| Passif | Effet |
+|---|---|
+| Régénération | Récupère 5% de ses PV max au début de chacun de ses tours. |
+| Vol de vie | Récupère 20% des dégâts infligés en attaquant. |
+| Acharnement | +30% de dégâts infligés quand ses PV passent sous 30%. |
+| Bouclier | Réduit les dégâts subis de 15%. |
+| Contre-attaque | 20% de chances de renvoyer la moitié des dégâts subis à l'attaquant. |
+
+**Ultime** : une fois `MonsterProgressionService.MaxLevel` (1000) atteint, la capacité spéciale de
+la créature (voir `CombatEngine.ResolveSpecialAbility`) devient son ultime — mêmes conditions
+d'usage (cooldown, cible), mais dégâts ×1.6 supplémentaires.
+
 ## Fusion et Couvée (bâtiments)
 
 Voir GDD/demande utilisateur. Deux bâtiments visitables sur la carte du monde (voir

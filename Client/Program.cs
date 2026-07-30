@@ -6590,6 +6590,10 @@ void DrawMonstersPanel(int w, int h)
             // Voir GDD/demande utilisateur — bâtiment pour "déplacer ce que l'on a dans notre team".
             var teamLabel = monster.IsInActiveTeam ? " [EQUIPE]" : "";
             var rowText = $"{prefix}{name.ToUpperInvariant()}{variantLabel}{typeLabel}{teamLabel} - NIV. {monster.Level}";
+            if (monster.PassiveTalent.Length > 0)
+            {
+                rowText += $" - {monster.PassiveTalent.ToUpperInvariant()}";
+            }
             if (DrawClickableRow(rowText, new Vector2(textX, y), boxWidth - textX + topLeft.X - 20f, 2f, color))
             {
                 monsterCursor = i;

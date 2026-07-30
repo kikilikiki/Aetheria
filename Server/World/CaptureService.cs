@@ -76,6 +76,8 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
             Variant = request.Variant,
             Nickname = species.Name,
             Level = 1,
+            // Voir GDD/demande utilisateur — "Compétences passives" : tirée une fois pour toutes à la capture.
+            PassiveTalent = PassiveTalentCatalog.RollRandom(Random),
         };
 
         db.Monsters.Add(monster);

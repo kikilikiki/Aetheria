@@ -60,6 +60,8 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
             Variant = inheritedVariant,
             Nickname = offspringSpecies.Name,
             Level = 1,
+            // Voir GDD/demande utilisateur — "Compétences passives" : tirée au hasard comme pour une capture.
+            PassiveTalent = PassiveTalentCatalog.RollRandom(Random),
         };
 
         db.Monsters.Add(offspring);
