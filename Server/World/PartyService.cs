@@ -157,7 +157,8 @@ public sealed class PartyService(AetheriaDbContext db, SessionTokenStore tokenSt
         // palier de grade et une potion active différents.
         foreach (var recipient in recipients)
         {
-            var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, recipient.UserId, ct) * TemporaryBoostService.XpMultiplier(recipient);
+            // Voir GDD/demande utilisateur — "commandes admin abuse : double XP" (voir GlobalEventService), multiplicatif avec le grade payant et les potions.
+            var multiplier = await PremiumService.GetXpGoldMultiplierAsync(db, recipient.UserId, ct) * TemporaryBoostService.XpMultiplier(recipient) * GlobalEventService.XpMultiplier;
             var xpGained = (long)Math.Round(amount * multiplier);
             CharacterProgressionService.GrantExperience(recipient, xpGained);
             await BattlePassService.GrantExperienceAsync(db, recipient, xpGained, ct);

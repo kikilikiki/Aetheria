@@ -364,7 +364,10 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
-        "INVOQUER BOSS MONDIAL (nom;pv)",
+        "INVOQUER BOSS MONDIAL (nom;pv;royaume optionnel)",
+        "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
+        "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
+        "INVASION DE MONSTRES (royaume;minutes)",
         "DONNER DES GEMMES (perso;montant)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
     ]
@@ -382,7 +385,10 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
-        "INVOQUER BOSS MONDIAL (nom;pv)",
+        "INVOQUER BOSS MONDIAL (nom;pv;royaume optionnel)",
+        "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
+        "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
+        "INVASION DE MONSTRES (royaume;minutes)",
     ];
 
 // Voir GDD/demande utilisateur — "ajouter les amis (online/offline, discussion privée, niveau,
@@ -2755,21 +2761,54 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             break;
         case 12:
         {
-            // Voir GDD/demande utilisateur — "boss geant mondial" : disponible à tout admin
-            // (le serveur revérifie IsAdmin, pas seulement Fondateur — voir /api/admin/game/spawn-world-boss).
+            // Voir GDD/demande utilisateur — "boss geant mondial [invoque] a un royaume" :
+            // disponible à tout admin (le serveur revérifie IsAdmin, pas seulement Fondateur —
+            // voir /api/admin/game/spawn-world-boss). Le royaume est optionnel (purement
+            // informatif, voir WorldBossEntity.TargetKingdom).
             var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 2 && int.TryParse(parts[1], out var bossHealth))
             {
-                adminPanelActionTask = gameDataApi!.SpawnWorldBossAsync(options.SessionToken!, parts[0], bossHealth);
+                KingdomType? targetKingdom = parts.Length >= 3 && Enum.TryParse<KingdomType>(parts[2], true, out var bossKingdom) ? bossKingdom : null;
+                adminPanelActionTask = gameDataApi!.SpawnWorldBossAsync(options.SessionToken!, parts[0], bossHealth, targetKingdom);
             }
             else
             {
-                adminPanelMessage = "Format attendu : nom;pv";
+                adminPanelMessage = "Format attendu : nom;pv;royaume (optionnel)";
             }
 
             break;
         }
         case 13:
+        {
+            // Voir GDD/demande utilisateur — "commandes admin abuse : double XP" (voir GlobalEventService).
+            var minutes = int.TryParse(input.Trim(), out var xpMinutes) && xpMinutes > 0 ? xpMinutes : 30;
+            adminPanelActionTask = gameDataApi!.ActivateDoubleXpAsync(options.SessionToken!, minutes);
+            break;
+        }
+        case 14:
+        {
+            // Voir GDD/demande utilisateur — "commandes admin abuse : double butin" (voir GlobalEventService).
+            var minutes = int.TryParse(input.Trim(), out var lootMinutes) && lootMinutes > 0 ? lootMinutes : 30;
+            adminPanelActionTask = gameDataApi!.ActivateDoubleLootAsync(options.SessionToken!, minutes);
+            break;
+        }
+        case 15:
+        {
+            // Voir GDD/demande utilisateur — "commandes admin abuse : invasion de monstres" (voir GlobalEventService).
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 1 && Enum.TryParse<KingdomType>(parts[0], true, out var invasionKingdom))
+            {
+                var minutes = parts.Length >= 2 && int.TryParse(parts[1], out var invasionMinutes) && invasionMinutes > 0 ? invasionMinutes : 30;
+                adminPanelActionTask = gameDataApi!.ActivateInvasionAsync(options.SessionToken!, invasionKingdom, minutes);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : royaume;minutes (ex: Feu;30)";
+            }
+
+            break;
+        }
+        case 16:
         {
             // Voir GDD/demande utilisateur — "/givegems" exclusif au Fondateur ; le serveur
             // revérifie de toute façon le grade de l'appelant (voir /api/admin/game/give-gems).
@@ -2785,7 +2824,7 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
 
             break;
         }
-        case 14:
+        case 17:
             // Voir GDD/demande utilisateur — bouton exclusif au Fondateur ; le serveur revérifie
             // de toute façon le grade de l'appelant (voir /api/admin/game/toggle-admin).
             adminPanelActionTask = gameDataApi!.ToggleAdminAsync(options.SessionToken!, input);

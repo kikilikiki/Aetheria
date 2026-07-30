@@ -122,6 +122,10 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             .Property(k => k.Type)
             .HasConversion<string>();
 
+        modelBuilder.Entity<WorldBossEntity>()
+            .Property(b => b.TargetKingdom)
+            .HasConversion<string>();
+
         modelBuilder.Entity<AchievementEntity>()
             .HasOne(a => a.User)
             .WithMany()

@@ -2498,15 +2498,90 @@ app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest req
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.Name, request.MaxHealth);
+    var boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.Name, request.MaxHealth, request.TargetKingdom);
+
+    var kingdomSuffix = request.TargetKingdom is { } kingdom ? $" au royaume {kingdom}" : "";
+    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.Broadcast,
+        Message = $"Un boss mondial est apparu{kingdomSuffix} : {boss.Name} ({boss.MaxHealth} PV) !",
+    });
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{boss.Name} a été invoqué avec {boss.MaxHealth} PV{kingdomSuffix}." });
+});
+
+// Voir GDD/demande utilisateur — "commandes admin abuse : double XP, double butin, invasion de
+// monstres" (voir GlobalEventService) : mêmes gardes/annonce globale que spawn-world-boss ci-dessus.
+app.MapPost("/api/admin/game/double-xp", async (AdminGlobalEventRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var duration = TimeSpan.FromMinutes(Math.Max(1, request.DurationMinutes));
+    GlobalEventService.ActivateDoubleXp(duration);
 
     app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
     {
         Kind = AdminEffectKind.Broadcast,
-        Message = $"Un boss mondial est apparu : {boss.Name} ({boss.MaxHealth} PV) !",
+        Message = $"Evenement : XP DOUBLEE pour tout le monde pendant {duration.TotalMinutes:0} minutes !",
     });
 
-    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{boss.Name} a été invoqué avec {boss.MaxHealth} PV." });
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"XP doublée activée pour {duration.TotalMinutes:0} minutes." });
+});
+
+app.MapPost("/api/admin/game/double-loot", async (AdminGlobalEventRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var duration = TimeSpan.FromMinutes(Math.Max(1, request.DurationMinutes));
+    GlobalEventService.ActivateDoubleLoot(duration);
+
+    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.Broadcast,
+        Message = $"Evenement : BUTIN DOUBLE pour tout le monde pendant {duration.TotalMinutes:0} minutes !",
+    });
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Butin doublé activé pour {duration.TotalMinutes:0} minutes." });
+});
+
+app.MapPost("/api/admin/game/invasion", async (AdminInvasionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var duration = TimeSpan.FromMinutes(Math.Max(1, request.DurationMinutes));
+    GlobalEventService.ActivateInvasion(request.Kingdom, duration);
+
+    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.Broadcast,
+        Message = $"Evenement : INVASION DE MONSTRES au royaume {request.Kingdom} pendant {duration.TotalMinutes:0} minutes !",
+    });
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Invasion déclenchée au royaume {request.Kingdom} pour {duration.TotalMinutes:0} minutes." });
 });
 
 using var shutdownCts = new CancellationTokenSource();

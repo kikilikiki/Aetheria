@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Shared.Models.WorldBoss;
 
 /// <summary>État courant du boss mondial (voir GDD/demande utilisateur — "il a une barre de vie et peut etre tue"), ou <c>null</c> si aucun boss n'est actif.</summary>
@@ -9,4 +11,5 @@ public sealed record WorldBossStatus(
     bool IsAlive,
     DateTime SpawnedAtUtc,
     DateTime? KilledAtUtc,
-    string? KillerCharacterName);
+    string? KillerCharacterName,
+    KingdomType? TargetKingdom);
