@@ -392,6 +392,11 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "INVASION DE MONSTRES (royaume;minutes)",
         "DONNER DES GEMMES (perso;montant)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
+        // Voir retour utilisateur — "ajouter un admin pour desactiver les combats" : toujours le
+        // DERNIER élément de la liste (voir UpdateAdminGamePanel/DrawAdminGamePanel/
+        // SubmitAdminPanelCommand, qui calculent son index via Length-1 plutôt qu'un nombre en
+        // dur — les deux listes Fondateur/admin n'ont pas la même longueur).
+        "DESACTIVER/REACTIVER LES COMBATS (aucune saisie)",
     ]
     :
     [
@@ -411,6 +416,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
+        "DESACTIVER/REACTIVER LES COMBATS (aucune saisie)",
     ];
 
 // Voir GDD/demande utilisateur — "ajouter les amis (online/offline, discussion privée, niveau,
@@ -3377,10 +3383,16 @@ void UpdateAdminGamePanel()
     adminPanelCursor = ApplyScrollWheel(adminPanelCursor, AdminPanelCommands().Length);
     if (keyboard.WasJustPressed(Key.Enter))
     {
+        var commands = AdminPanelCommands();
         if (adminPanelCursor == 1)
         {
             adminPanelMessage = null;
             adminPanelActionTask = gameDataApi!.ActivateSignModeAsync(options.SessionToken!, 300);
+        }
+        else if (adminPanelCursor == commands.Length - 1)
+        {
+            adminPanelMessage = null;
+            adminPanelActionTask = gameDataApi!.ToggleCombatsDisabledAsync(options.SessionToken!);
         }
         else
         {
@@ -8733,6 +8745,11 @@ void DrawAdminGamePanel(int w, int h)
                 {
                     adminPanelMessage = null;
                     adminPanelActionTask = gameDataApi!.ActivateSignModeAsync(options.SessionToken!, 300);
+                }
+                else if (i == commands.Length - 1)
+                {
+                    adminPanelMessage = null;
+                    adminPanelActionTask = gameDataApi!.ToggleCombatsDisabledAsync(options.SessionToken!);
                 }
                 else
                 {

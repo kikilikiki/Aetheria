@@ -2811,6 +2811,37 @@ app.MapPost("/api/admin/game/double-loot", async (AdminGlobalEventRequest reques
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Butin doublé activé pour {duration.TotalMinutes:0} minutes." });
 });
 
+// Voir retour utilisateur — "ajouter un admin pour desactiver les combats" : bascule (pas de
+// minuterie, voir GlobalEventService) - bloque le lancement de tout nouveau combat (voir
+// CombatService.StartAsync/StartWildEncounterAsync/StartFriendlyTeamDuelAsync/StartFromDungeonAsync)
+// tant qu'actif, jusqu'à réactivation manuelle.
+app.MapPost("/api/admin/game/toggle-combats", async (AdminToggleCombatsRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var nowDisabled = !GlobalEventService.AreCombatsDisabled;
+    GlobalEventService.SetCombatsDisabled(nowDisabled);
+
+    if (nowDisabled)
+    {
+        app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+        {
+            Kind = AdminEffectKind.Broadcast,
+            Message = "Les combats sont temporairement désactivés par un administrateur.",
+        });
+    }
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = nowDisabled ? "Combats désactivés." : "Combats réactivés." });
+});
+
 app.MapPost("/api/admin/game/invasion", async (AdminInvasionRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();

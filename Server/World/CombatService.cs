@@ -22,6 +22,12 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     private const long PveVictoryExperience = 30;
     public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false, bool isMythic = false)
     {
+        // Voir retour utilisateur — "ajouter un admin pour desactiver les combats".
+        if (GlobalEventService.AreCombatsDisabled)
+        {
+            throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
+        }
+
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
         {
             throw new AccountOperationException("Session invalide ou expirée.");
@@ -132,6 +138,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// </summary>
     public async Task<CombatSessionState> StartWildEncounterAsync(StartWildEncounterRequest request, CancellationToken ct = default)
     {
+        if (GlobalEventService.AreCombatsDisabled)
+        {
+            throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
+        }
+
         if (!tokenStore.TryValidate(request.SessionToken, out var userId))
         {
             throw new AccountOperationException("Session invalide ou expirée.");
@@ -232,6 +243,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// </summary>
     public async Task<CombatSessionState> StartFriendlyTeamDuelAsync(IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, CancellationToken ct = default)
     {
+        if (GlobalEventService.AreCombatsDisabled)
+        {
+            throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
+        }
+
         var combatants = new List<Combatant>();
         var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, Combatants = combatants };
 
@@ -284,6 +300,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     public async Task<CombatSessionState> StartFromDungeonAsync(
         int dungeonId, int floorNumber, int roomIndex, StartDungeonCombatRequest request, CancellationToken ct = default)
     {
+        if (GlobalEventService.AreCombatsDisabled)
+        {
+            throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
+        }
+
         // Voir GDD/demande utilisateur — "donjons hardcore (niv 15+) et en dessous il n'y aura pas
         // de hardcore" : bloqué avant même de tirer l'espèce rencontrée.
         var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId, ct)

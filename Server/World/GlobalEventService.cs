@@ -16,9 +16,14 @@ public static class GlobalEventService
     private static DateTime? _doubleLootUntilUtc;
     private static readonly Dictionary<KingdomType, DateTime> InvasionUntilUtcByKingdom = new();
 
+    /// <summary>Voir GDD/demande utilisateur — "ajouter un admin pour desactiver les combats" : bascule manuelle (pas de minuterie), voir CombatService — bloque le lancement de tout nouveau combat (PvE, donjon, duel) tant qu'actif.</summary>
+    private static bool _combatsDisabled;
+
     public static void ActivateDoubleXp(TimeSpan duration) => _doubleXpUntilUtc = DateTime.UtcNow + duration;
     public static void ActivateDoubleLoot(TimeSpan duration) => _doubleLootUntilUtc = DateTime.UtcNow + duration;
     public static void ActivateInvasion(KingdomType kingdom, TimeSpan duration) => InvasionUntilUtcByKingdom[kingdom] = DateTime.UtcNow + duration;
+    public static void SetCombatsDisabled(bool disabled) => _combatsDisabled = disabled;
+    public static bool AreCombatsDisabled => _combatsDisabled;
 
     public static double XpMultiplier => _doubleXpUntilUtc > DateTime.UtcNow ? 2.0 : 1.0;
     public static int LootMultiplier => _doubleLootUntilUtc > DateTime.UtcNow ? 2 : 1;
