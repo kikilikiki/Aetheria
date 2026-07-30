@@ -95,6 +95,7 @@ public sealed class PlayerSession(
             {
                 registry.Unregister(CharacterId);
                 registry.BroadcastExcept(CharacterId, new PlayerLeftPacket { CharacterId = CharacterId });
+                SaveLastPosition();
             }
 
             logger.LogInformation("Session terminée pour {Endpoint} (personnage {CharacterId}).", remoteEndPoint, CharacterId);
@@ -176,10 +177,11 @@ public sealed class PlayerSession(
         Rank = user?.Rank ?? UserRank.Joueur;
         IsAdmin = user?.IsAdmin ?? false;
 
-        // Position de départ : la capitale du royaume choisi. Le placement réel dans le
-        // monde persistant (royaumes/donjons) arrive avec les systèmes de jeu (Phase G).
-        PositionX = 0;
-        PositionY = 0;
+        // Voir GDD/demande utilisateur — "restaurer la position du joueur en quittant/revenant" :
+        // reprend la dernière position sauvegardée (voir Run, bloc finally), (0,0) — la capitale —
+        // pour un personnage qui n'a encore jamais été sauvegardé.
+        PositionX = character.LastPositionX;
+        PositionY = character.LastPositionY;
 
         SendPacket(new EnterWorldAcceptedPacket
         {
@@ -235,6 +237,33 @@ public sealed class PlayerSession(
         var update = new PlayerPositionUpdatePacket { CharacterId = CharacterId, PositionX = PositionX, PositionY = PositionY };
         SendPacket(update);
         registry.BroadcastExcept(CharacterId, update);
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "restaurer la position du joueur en quittant/revenant" :
+    /// écrite une seule fois à la déconnexion (voir Run, bloc finally) plutôt qu'à chaque
+    /// déplacement — la position en cours de session n'a besoin d'être exacte en base que pour la
+    /// prochaine reconnexion, pas en temps réel, donc pas d'écriture DB à chaque pas.
+    /// </summary>
+    private void SaveLastPosition()
+    {
+        try
+        {
+            using var db = dbContextFactory.CreateDbContext();
+            var character = db.Characters.FirstOrDefault(c => c.Id == CharacterId);
+            if (character is null)
+            {
+                return;
+            }
+
+            character.LastPositionX = PositionX;
+            character.LastPositionY = PositionY;
+            db.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Échec de la sauvegarde de la position pour {CharacterId}.", CharacterId);
+        }
     }
 
     /// <summary>
