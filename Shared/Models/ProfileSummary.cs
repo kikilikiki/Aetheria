@@ -8,6 +8,8 @@ public sealed class ProfileSummary
     public required string CharacterName { get; init; }
     public required string Description { get; init; }
     public int Level { get; init; }
+    /// <summary>Voir retour utilisateur — "ajoute l'or que l'on a sur notre profil".</summary>
+    public long Gold { get; init; }
     public UserRank Rank { get; init; }
     public int? ShowcaseItemId { get; init; }
     public string? ShowcaseItemName { get; init; }
