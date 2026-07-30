@@ -564,6 +564,12 @@ var encyclopediaCursor = 0;
 EndGameStatus? endGameStatus = null;
 Task<EndGameStatus?>? endGameStatusTask = null;
 
+/// <summary>Voir GDD/demande utilisateur — "ajoute un UI pour les montures" : deuxième onglet du panneau Encyclopédie (touche Tab).</summary>
+var encyclopediaShowMounts = false;
+var encyclopediaMountCursor = 0;
+ProfileSummary? encyclopediaMountProfile = null;
+Task<ProfileSummary?>? encyclopediaMountProfileTask = null;
+
 // Arène classée (voir GDD — formats 1v1/2v2/3v3/4v4, ligues ELO). File d'attente serveur
 // (ArenaQueueService), sondée régulièrement tant que le joueur attend un appairage.
 var arenaFormats = Enum.GetValues<ArenaFormat>();
@@ -2570,7 +2576,11 @@ void UpdateEncyclopediaPanel()
         endGameStatusTask = null;
     }
 
-    var speciesList = speciesById.Values.OrderBy(s => s.BaseRarity).ThenBy(s => s.Name).ToList();
+    if (encyclopediaMountProfileTask is { IsCompleted: true } mountProfileTask)
+    {
+        encyclopediaMountProfile = mountProfileTask.IsFaulted ? null : mountProfileTask.Result;
+        encyclopediaMountProfileTask = null;
+    }
 
     if (keyboard.WasJustPressed(Key.Escape))
     {
@@ -2578,6 +2588,25 @@ void UpdateEncyclopediaPanel()
         return;
     }
 
+    if (keyboard.WasJustPressed(Key.Tab))
+    {
+        encyclopediaShowMounts = !encyclopediaShowMounts;
+        if (encyclopediaShowMounts && encyclopediaMountProfile is null && encyclopediaMountProfileTask is null && chosenCharacterId is not null)
+        {
+            encyclopediaMountProfileTask = gameDataApi?.GetProfileAsync(chosenCharacterId.Value);
+        }
+
+        return;
+    }
+
+    if (encyclopediaShowMounts)
+    {
+        if (keyboard.WasJustPressed(Key.Down)) encyclopediaMountCursor = Math.Min(encyclopediaMountCursor + 1, MountCatalog.All.Count - 1);
+        else if (keyboard.WasJustPressed(Key.Up)) encyclopediaMountCursor = Math.Max(encyclopediaMountCursor - 1, 0);
+        return;
+    }
+
+    var speciesList = speciesById.Values.OrderBy(s => s.BaseRarity).ThenBy(s => s.Name).ToList();
     if (speciesList.Count == 0)
     {
         return;
@@ -2596,54 +2625,102 @@ void DrawEncyclopediaPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.07f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.55f, 0.75f, 0.95f, 1f));
 
-    var speciesList = speciesById.Values.OrderBy(s => s.BaseRarity).ThenBy(s => s.Name).ToList();
-    var ownedSpeciesIds = ownedMonsters.Select(m => m.SpeciesId).ToHashSet();
-    var knownCount = speciesList.Count(s => ownedSpeciesIds.Contains(s.Id));
-
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENCYCLOPEDIE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{knownCount} / {speciesList.Count} ESPECES DECOUVERTES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-
-    if (speciesList.Count == 0)
+    if (encyclopediaShowMounts)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-    }
-    else
-    {
-        const int visibleRows = 12;
-        var scrollStart = Math.Clamp(encyclopediaCursor - visibleRows / 2, 0, Math.Max(0, speciesList.Count - visibleRows));
-        var y = topLeft.Y + 88f;
-        for (var i = scrollStart; i < Math.Min(speciesList.Count, scrollStart + visibleRows); i++)
-        {
-            var species = speciesList[i];
-            var isKnown = ownedSpeciesIds.Contains(species.Id);
-            var isSelected = i == encyclopediaCursor;
-            var prefix = isSelected ? "> " : "  ";
-            var color = !isKnown ? new Vector4(0.45f, 0.45f, 0.5f, 1f) : isSelected ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
-            var label = isKnown ? species.Name : "???";
-            var rowText = $"{prefix}{label.ToUpperInvariant()} - {species.BaseRarity.ToString().ToUpperInvariant()}{(isKnown ? $" - {species.Element}".ToUpperInvariant() : "")}";
-            if (DrawClickableRow(rowText, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
-            {
-                encyclopediaCursor = i;
-            }
+        // Voir GDD/demande utilisateur — "ajoute un UI pour les montures" : galerie de toutes les
+        // montures du catalogue (voir MountCatalog), possédées ou non (voir CollectionEntity,
+        // categorie "Monture") — lecture seule ici, l'équipement se fait depuis le Profil (U).
+        var ownedMountKeys = (encyclopediaMountProfile?.OwnedMountKeys ?? []).ToHashSet();
+        var activeMountKey = encyclopediaMountProfile?.ActiveMountKey;
 
-            y += 28f;
-        }
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONTURES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{ownedMountKeys.Count} / {MountCatalog.All.Count} MONTURES POSSEDEES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
-        var selectedSpecies = speciesList[encyclopediaCursor];
-        var detailY = topLeft.Y + boxHeight - 96f;
-        if (ownedSpeciesIds.Contains(selectedSpecies.Id))
+        if (encyclopediaMountProfileTask is not null)
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, selectedSpecies.Lore, new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, "Capturez cette espèce pour révéler sa fiche.", new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+            var y = topLeft.Y + 88f;
+            for (var i = 0; i < MountCatalog.All.Count; i++)
+            {
+                var mount = MountCatalog.All[i];
+                var isOwned = ownedMountKeys.Contains(mount.Key);
+                var isEquipped = activeMountKey == mount.Key;
+                var isSelected = i == encyclopediaMountCursor;
+                var prefix = isSelected ? "> " : "  ";
+                var color = !isOwned ? new Vector4(0.45f, 0.45f, 0.5f, 1f) : isSelected ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
+                var label = isOwned ? mount.Name : "???";
+                var equippedTag = isEquipped ? " [EQUIPEE]" : "";
+                var rowText = $"{prefix}{label.ToUpperInvariant()} - {mount.Kind.ToString().ToUpperInvariant()}{equippedTag}";
+                if (DrawClickableRow(rowText, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+                {
+                    encyclopediaMountCursor = i;
+                }
+
+                y += 28f;
+            }
+
+            var selectedMount = MountCatalog.All[encyclopediaMountCursor];
+            var mountDetailY = topLeft.Y + boxHeight - 96f;
+            var mountDetailText = ownedMountKeys.Contains(selectedMount.Key)
+                ? $"Monture de type {selectedMount.Kind}. Equipez-la depuis le Profil (touche U)."
+                : $"Debloquee via le succes \"{AchievementCatalog.Find(selectedMount.UnlockedByAchievementKey)?.Name ?? selectedMount.UnlockedByAchievementKey}\".";
+            TextRenderer.Draw(spriteBatch, whiteTexture, mountDetailText, new Vector2(topLeft.X + 26f, mountDetailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        }
+    }
+    else
+    {
+        var speciesList = speciesById.Values.OrderBy(s => s.BaseRarity).ThenBy(s => s.Name).ToList();
+        var ownedSpeciesIds = ownedMonsters.Select(m => m.SpeciesId).ToHashSet();
+        var knownCount = speciesList.Count(s => ownedSpeciesIds.Contains(s.Id));
+
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENCYCLOPEDIE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{knownCount} / {speciesList.Count} ESPECES DECOUVERTES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        if (speciesList.Count == 0)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            const int visibleRows = 12;
+            var scrollStart = Math.Clamp(encyclopediaCursor - visibleRows / 2, 0, Math.Max(0, speciesList.Count - visibleRows));
+            var y = topLeft.Y + 88f;
+            for (var i = scrollStart; i < Math.Min(speciesList.Count, scrollStart + visibleRows); i++)
+            {
+                var species = speciesList[i];
+                var isKnown = ownedSpeciesIds.Contains(species.Id);
+                var isSelected = i == encyclopediaCursor;
+                var prefix = isSelected ? "> " : "  ";
+                var color = !isKnown ? new Vector4(0.45f, 0.45f, 0.5f, 1f) : isSelected ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
+                var label = isKnown ? species.Name : "???";
+                var rowText = $"{prefix}{label.ToUpperInvariant()} - {species.BaseRarity.ToString().ToUpperInvariant()}{(isKnown ? $" - {species.Element}".ToUpperInvariant() : "")}";
+                if (DrawClickableRow(rowText, new Vector2(topLeft.X + 30f, y), boxWidth - 60f, 1.8f, color))
+                {
+                    encyclopediaCursor = i;
+                }
+
+                y += 28f;
+            }
+
+            var selectedSpecies = speciesList[encyclopediaCursor];
+            var detailY = topLeft.Y + boxHeight - 96f;
+            if (ownedSpeciesIds.Contains(selectedSpecies.Id))
+            {
+                TextRenderer.Draw(spriteBatch, whiteTexture, selectedSpecies.Lore, new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            }
+            else
+            {
+                TextRenderer.Draw(spriteBatch, whiteTexture, "Capturez cette espèce pour révéler sa fiche.", new Vector2(topLeft.X + 26f, detailY), 1.3f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+            }
         }
     }
 
     // Voir GDD/demande utilisateur — "contenu end-game", gated behind owning every monster at max
     // level + every achievement.
-    if (endGameStatus is { } status)
+    if (!encyclopediaShowMounts && endGameStatus is { } status)
     {
         var endGameColor = status.IsEligible ? new Vector4(0.6f, 0.95f, 0.6f, 1f) : new Vector4(0.6f, 0.6f, 0.65f, 1f);
         var endGameLabel = status.IsEligible
@@ -2652,7 +2729,7 @@ void DrawEncyclopediaPanel(int w, int h)
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, endGameLabel, new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.4f, endGameColor);
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - TAB : especes/montures - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
