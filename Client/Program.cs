@@ -334,9 +334,10 @@ var myIsAdmin = false;
 /// Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin...
 /// on lance on est en mode joueur, on a pas les champs reservé au admin et avec un combo de
 /// touche on passe en admin on a les champs" : même compte admin/Fondateur, mais toutes les
-/// affordances admin restent masquées tant que ce mode n'est pas activé explicitement (touches
-/// CTRL+MAJ+A, voir la boucle Outdoor) — évite d'afficher des boutons admin en permanence à
-/// l'écran pendant une session de jeu normale.
+/// affordances admin restent masquées tant que ce mode n'est pas activé explicitement (commande
+/// de tchat "/admin", voir UpdateChatPanel — les combos clavier CTRL+ALT/CTRL+MAJ se sont avérés
+/// peu fiables selon le clavier/système, voir retour utilisateur) — évite d'afficher des boutons
+/// admin en permanence à l'écran pendant une session de jeu normale.
 /// </summary>
 var adminModeActive = false;
 bool IsAdminModeReady() => (myIsAdmin || myRank == UserRank.Fondateur) && adminModeActive;
@@ -444,6 +445,12 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
         "DONNER DES PALIERS DE PASSE (perso;niveaux)",
         "DONNER UNE MONTURE (perso;cleMonture)",
+        // Voir retour utilisateur — "les combos de touches CTRL+ALT/CTRL+MAJ ne fonctionnent
+        // pas, fait en sorte que ce soit la commande /admin" : le panneau Signalements se
+        // rejoint désormais depuis ici plutôt qu'un raccourci clavier séparé (peu fiable, voir
+        // /admin dans UpdateChatPanel) — avant-dernier élément (voir Length-2 ci-dessous), même
+        // motif que "DESACTIVER LES COMBATS" toujours en dernier.
+        "SIGNALEMENTS DE JOUEURS (aucune saisie)",
         // Voir retour utilisateur — "ajouter un admin pour desactiver les combats" : toujours le
         // DERNIER élément de la liste (voir UpdateAdminGamePanel/DrawAdminGamePanel/
         // SubmitAdminPanelCommand, qui calculent son index via Length-1 plutôt qu'un nombre en
@@ -468,6 +475,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
+        "SIGNALEMENTS DE JOUEURS (aucune saisie)",
         "DESACTIVER/REACTIVER LES COMBATS (aucune saisie)",
     ];
 
@@ -1190,39 +1198,18 @@ host.Update += deltaTime =>
         return;
     }
 
-    // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin
-    // example on lance on est en mode joueur on a pas les champs reservé au admin et avec un
-    // combo de touche on passe en admin on a les champs" : CTRL+MAJ+A bascule le mode admin (les
-    // affordances admin restent masquées tant qu'il n'est pas actif, voir IsAdminModeReady/
-    // adminModeActive) ; CTRL+MAJ+R ouvre le nouveau panneau Signalements (voir PanelKind.Reports)
-    // une fois le mode admin actif. Voir retour utilisateur — "le combo CTRL+ALT ne fonctionne
-    // pas" : ALT génère des messages système (WM_SYSKEYDOWN) que GLFW/Silk.NET remontent de
-    // façon peu fiable sous Windows (combos Alt classiquement casse-pieds pour les jeux) — MAJ
-    // (Shift) n'a pas ce problème.
-    var adminComboDown = (keyboard.IsDown(Key.ControlLeft) || keyboard.IsDown(Key.ControlRight))
-        && (keyboard.IsDown(Key.ShiftLeft) || keyboard.IsDown(Key.ShiftRight));
-
-    if (adminComboDown && keyboard.WasJustPressed(Key.A) && (myIsAdmin || myRank == UserRank.Fondateur))
-    {
-        adminModeActive = !adminModeActive;
-        PushSystemToast(adminModeActive ? "Mode admin active" : "Mode admin desactive", new Vector4(0.95f, 0.5f, 0.45f, 1f));
-        if (!adminModeActive)
-        {
-            isAdminPanelOpen = false;
-            if (activePanel == PanelKind.Reports)
-            {
-                activePanel = PanelKind.None;
-            }
-        }
-    }
-    else if (adminComboDown && keyboard.WasJustPressed(Key.R) && IsAdminModeReady())
-    {
-        OpenPanel(PanelKind.Reports);
-    }
+    // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin" :
+    // toutes les affordances admin restent masquées tant que ce mode n'est pas actif (voir
+    // IsAdminModeReady/adminModeActive). Voir retour utilisateur — "les combos CTRL+ALT/CTRL+MAJ
+    // ne fonctionnent toujours pas, fait en sorte que ce soit la touche ! ou la commande /admin" :
+    // combos clavier abandonnés (peu fiables selon la disposition clavier/le système, voir
+    // AZERTY/QWERTY plus haut dans le fichier) au profit de la commande de tchat "/admin" (voir
+    // UpdateChatPanel), qui passe par la saisie de texte déjà fiable quel que soit le clavier —
+    // le panneau Signalements se rejoint ensuite depuis le panel admin F2 (voir AdminPanelCommands).
     // Voir GDD/demande utilisateur — "ajoute un bâtiment marchand au lieu de l'UI Boutique en
     // haut à droite" : plus de raccourci B, la Boutique ne s'ouvre plus qu'en visitant le
     // bâtiment "Boutique" ou en parlant à la Marchande (voir InteractionKind.Building/Npc).
-    else if (keyboard.WasJustPressed(Key.I)) OpenPanel(PanelKind.Inventory);
+    if (keyboard.WasJustPressed(Key.I)) OpenPanel(PanelKind.Inventory);
     else if (keyboard.WasJustPressed(Key.G)) OpenPanel(PanelKind.Guild);
     else if (keyboard.WasJustPressed(Key.P)) OpenPanel(PanelKind.Party);
     else if (keyboard.WasJustPressed(Key.V)) OpenPanel(PanelKind.Arena);
@@ -3739,6 +3726,13 @@ void UpdateAdminGamePanel()
         {
             adminPanelMessage = null;
             adminPanelActionTask = gameDataApi!.ToggleCombatsDisabledAsync(options.SessionToken!);
+        }
+        else if (adminPanelCursor == commands.Length - 2)
+        {
+            // Voir retour utilisateur — accès au panneau Signalements depuis ici (voir
+            // AdminPanelCommands) plutôt qu'un raccourci clavier séparé.
+            isAdminPanelOpen = false;
+            OpenPanel(PanelKind.Reports);
         }
         else
         {
@@ -7045,7 +7039,31 @@ void UpdateChatPanel()
     }
     else if (keyboard.WasJustPressed(Key.Enter) && chatTextInput.Trim().Length > 0)
     {
-        if (chatWhisperTarget is { } target)
+        // Voir retour utilisateur — "les combos de touches ne fonctionnent pas, fait en sorte
+        // que ce soit la commande /admin" : bascule purement locale (adminModeActive n'est pas
+        // un état serveur), traitée ici avant l'envoi plutôt que via un aller-retour serveur
+        // inutile — même esprit que /report, mais sans réseau.
+        if (chatTextInput.Trim().Equals("/admin", StringComparison.OrdinalIgnoreCase))
+        {
+            if (myIsAdmin || myRank == UserRank.Fondateur)
+            {
+                adminModeActive = !adminModeActive;
+                PushSystemToast(adminModeActive ? "Mode admin active" : "Mode admin desactive", new Vector4(0.95f, 0.5f, 0.45f, 1f));
+                if (!adminModeActive)
+                {
+                    isAdminPanelOpen = false;
+                    if (activePanel == PanelKind.Reports)
+                    {
+                        activePanel = PanelKind.None;
+                    }
+                }
+            }
+            else
+            {
+                PushSystemToast("Commande reservee aux admin/fondateur.", new Vector4(0.9f, 0.4f, 0.4f, 1f));
+            }
+        }
+        else if (chatWhisperTarget is { } target)
         {
             connection?.SendChatMessage(chatTextInput.Trim(), ChatChannel.Prive, target);
         }
@@ -8559,7 +8577,7 @@ bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
     // s'affiche que le mode admin déjà actif ; sinon un indice discret rappelle le combo.
     if (myIsAdmin || myRank == UserRank.Fondateur)
     {
-        labels.Add(adminModeActive ? "ADMIN (F2)" : "MODE ADMIN (CTRL+MAJ+A)");
+        labels.Add(adminModeActive ? "ADMIN (F2)" : "MODE ADMIN (/admin)");
     }
 
     var maxWidth = labels.Count > 0 ? labels.Max(l => TextRenderer.MeasureWidth(l, pixelSize)) : 0f;
@@ -8663,7 +8681,7 @@ void DrawOutdoorHudButtons(int w, int h)
     // admin en haut à droite" : bouton dédié en plus du raccourci F2 (voir plus haut dans le
     // gestionnaire d'entrée outdoor), réservé aux comptes admin/Fondateur comme le panel lui-même.
     // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin" :
-    // bouton masqué tant que le mode admin n'est pas actif (voir adminModeActive, CTRL+MAJ+A).
+    // bouton masqué tant que le mode admin n'est pas actif (voir adminModeActive, commande /admin).
     if (adminModeActive && (myIsAdmin || myRank == UserRank.Fondateur))
     {
         const string adminLabel = "ADMIN (F2)";
