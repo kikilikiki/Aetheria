@@ -1,3 +1,4 @@
+using System.Linq;
 using Aetheria.Shared.Settings;
 
 namespace Aetheria.Shared.Localization;
@@ -23,12 +24,35 @@ public static class Localization
             return text;
         }
 
-        return English.TryGetValue(text, out var translated) ? translated : text;
+        if (English.TryGetValue(text, out var exact))
+        {
+            return exact;
+        }
+
+        // Voir retour utilisateur — "quand on choisis anglais il n'y a quasiment rien en
+        // anglais, remplace tout les texte" : beaucoup de textes du jeu sont construits par
+        // interpolation ($"...{valeurDynamique}...") — leur forme finale ne correspond jamais
+        // exactement à une entrée du dictionnaire ci-dessus (voir Client/Program.cs). Repli sur
+        // un remplacement de sous-chaînes : chaque fragment français statique connu (voir
+        // EnglishFragments, longueur décroissante pour ne pas laisser un fragment court amputer
+        // un fragment plus long qui le contient) est remplacé où qu'il apparaisse dans le texte,
+        // le contenu dynamique entre les fragments reste inchangé.
+        var result = text;
+        foreach (var fragment in FragmentKeysByDescendingLength)
+        {
+            if (result.Contains(fragment, StringComparison.Ordinal))
+            {
+                result = result.Replace(fragment, EnglishFragments[fragment]);
+            }
+        }
+
+        return result;
     }
 
     private static readonly Dictionary<string, string> English = new()
     {
         // Panneaux / titres.
+        ["PARAMETRES"] = "SETTINGS",
         ["AMIS"] = "FRIENDS",
         ["ARENE CLASSEE"] = "RANKED ARENA",
         ["BOSS MONDIAL"] = "WORLD BOSS",
@@ -255,5 +279,116 @@ public static class Localization
         [" Capturer (nécessite une Carte de capture)."] = " Capture (requires a Capture Card).",
         [" viser une case en surbrillance."] = " to aim at a highlighted tile.",
         [" avancer de salle en salle une fois la salle nettoyée."] = " to move room to room once the room is cleared.",
+
+        // Panneau Paramètres (voir DrawSettingsPanel).
+        ["HAUT/BAS : CHOISIR - GAUCHE/DROITE : CHANGER - ECHAP : FERMER"] = "UP/DOWN: CHOOSE - LEFT/RIGHT: CHANGE - ESCAPE: CLOSE",
+        ["JAPONAIS : BIENTOT (police non supportee)"] = "JAPANESE: COMING SOON (font not supported)",
+
+        // Complément (voir retour utilisateur — "quasiment rien en anglais, traduit tout").
+        ["ECHAP : ANNULER"] = "ESCAPE: CANCEL",
+        ["ENTREE : PRET - ECHAP : FERMER"] = "ENTER: READY - ESCAPE: CLOSE",
+        ["ESPECE INCONNUE"] = "UNKNOWN SPECIES",
+        ["BOUTIQUE - VENTE"] = "SHOP - SELL",
+        ["BOUTIQUE - ACHAT"] = "SHOP - BUY",
+        ["HOTEL DES VENTES - DEPOSER"] = "AUCTION HOUSE - DEPOSIT",
+        ["HOTEL DES VENTES"] = "AUCTION HOUSE",
+        ["APPUYEZ SUR E POUR CONTINUER"] = "PRESS E TO CONTINUE",
+        ["APPUYEZ SUR E POUR FERMER"] = "PRESS E TO CLOSE",
+        ["APPUYEZ SUR ENTREE POUR AFFRONTER UN MONSTRE SAUVAGE"] = "PRESS ENTER TO FIGHT A WILD MONSTER",
+        ["VICTOIRE !"] = "VICTORY!",
+        ["DEFAITE..."] = "DEFEAT...",
+        ["CHOISISSEZ LA PREMIERE CREATURE (ENTREE)"] = "CHOOSE THE FIRST CREATURE (ENTER)",
+        ["CHOISISSEZ LE PREMIER PARENT (ENTREE)"] = "CHOOSE THE FIRST PARENT (ENTER)",
+        ["CONTENU END-GAME DEBLOQUE (donjon mythique Sanctuaire Ultime)"] = "END-GAME CONTENT UNLOCKED (Ultimate Sanctuary mythic dungeon)",
+        ["Grade au palier maximum (Légende)."] = "Grade at maximum tier (Legend).",
+        ["APPUYEZ SUR E POUR ENTRER DANS LE DONJON"] = "PRESS E TO ENTER THE DUNGEON",
+        ["ECHAP : RETOUR"] = "ESCAPE: BACK",
+        ["P : PRESTIGE (reinitialise le niveau, +5% de stats permanent) - ECHAP : RETOUR"] = "P: PRESTIGE (resets level, +5% permanent stats) - ESCAPE: BACK",
     };
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — couverture des textes construits par interpolation (voir
+    /// <see cref="Translate"/>) : fragments français statiques extraits des chaînes $"..." du
+    /// client (portions entre/autour des {valeurs dynamiques}), avec leur traduction anglaise.
+    /// Volontairement limité aux fragments d'au moins quelques caractères significatifs — les
+    /// fragments trop courts/génériques (ponctuation seule, une lettre...) sont exclus : un
+    /// remplacement de sous-chaîne sur un fragment aussi court que "s" ou ")" corromprait la
+    /// quasi-totalité du texte du jeu (voir Translate, Contains/Replace).
+    /// </summary>
+    private static readonly Dictionary<string, string> EnglishFragments = new()
+    {
+        [" (NIV. "] = " (LVL. ",
+        [" (Nv."] = " (Lvl.",
+        [" (TAB POUR ANNULER)"] = " (TAB TO CANCEL)",
+        [" - NIV. "] = " - LVL. ",
+        [" - Nv."] = " - Lvl.",
+        [" : SE DEPLACER - F9 : CLAVIER - F1 : AIDE"] = ": MOVE - F9: KEYBOARD - F1: HELP",
+        [" ESPECES DECOUVERTES"] = " SPECIES DISCOVERED",
+        [" EST EN INCUBATION"] = " IS INCUBATING",
+        [" FUSIONNE AVEC "] = " FUSED WITH ",
+        [" JOUEURS"] = " PLAYERS",
+        [" MEMBRES)"] = " MEMBERS)",
+        [" MONTURES POSSEDEES"] = " MOUNTS OWNED",
+        [" OR (GAUCHE/DROITE POUR AJUSTER)"] = " GOLD (LEFT/RIGHT TO ADJUST)",
+        [" POINTS DE GUERRE CETTE SEMAINE"] = " WAR POINTS THIS WEEK",
+        [" SERA CONSOMMEE"] = " WILL BE CONSUMED",
+        [" SURVIVRA (NIV. "] = " WILL SURVIVE (LVL. ",
+        [" VOUS DEFIE EN DUEL !"] = " CHALLENGES YOU TO A DUEL!",
+        [" XP DE GUILDE"] = " GUILD XP",
+        [" degats"] = " damage",
+        [" joueurs) doit accepter."] = " players) must accept.",
+        [" possedee(s))"] = " owned)",
+        ["Ailes actives : "] = "Active wings: ",
+        ["CONTROLE PAR : "] = "CONTROLLED BY: ",
+        ["CONTROLEE PAR : "] = "CONTROLLED BY: ",
+        ["EN COURS... ("] = "IN PROGRESS... (",
+        ["EN FILE : "] = "IN QUEUE: ",
+        ["ENCHERE ACTUELLE : "] = "CURRENT BID: ",
+        ["ENCHERIR SUR "] = "BID ON ",
+        ["EQUIPER "] = "EQUIP ",
+        ["ETAGE "] = "FLOOR ",
+        ["GUILDE PRIVEE - CODE D'INVITATION : "] = "PRIVATE GUILD - INVITE CODE: ",
+        ["Gemmes : "] = "Gems: ",
+        ["MESSAGE PRIVE A "] = "PRIVATE MESSAGE TO ",
+        ["Monture active : "] = "Active mount: ",
+        ["NIVEAU FINAL : "] = "FINAL LEVEL: ",
+        ["NIVEAU "] = "LEVEL ",
+        ["Niveau "] = "Level ",
+        ["Or : "] = "Gold: ",
+        ["RAISON : "] = "REASON: ",
+        ["ROYAUME VAINQUEUR : "] = "WINNING KINGDOM: ",
+        ["S RESTANT)"] = "S LEFT)",
+        ["SALLES NETTOYEES : "] = "ROOMS CLEARED: ",
+        ["VAINCU PAR "] = "DEFEATED BY ",
+        ["VOTRE OFFRE : "] = "YOUR BID: ",
+        ["Votre groupe entier ("] = "Your entire party (",
+        [" PV"] = " HP",
+        [" OR"] = " GOLD",
+        ["CODE : "] = "CODE: ",
+        ["Discord : "] = "Discord: ",
+        ["Twitch : "] = "Twitch: ",
+        ["YouTube : "] = "YouTube: ",
+        ["TAB : "] = "TAB: ",
+        ["PAGE "] = "PAGE ",
+        ["VERSION "] = "VERSION ",
+
+        // Complément (voir retour utilisateur — "quasiment rien en anglais, traduit tout").
+        ["PREMIERE : "] = "FIRST: ",
+        [" - CHOISISSEZ LA SECONDE"] = " - CHOOSE THE SECOND",
+        ["PREMIER PARENT : "] = "FIRST PARENT: ",
+        [" - CHOISISSEZ LE SECOND"] = " - CHOOSE THE SECOND",
+        ["END-GAME : "] = "END-GAME: ",
+        [" especes niv. max - "] = " max-level species - ",
+        [" succes"] = " achievements",
+        ["[G] Passer "] = "[G] Move to ",
+        [" gemmes"] = " gems",
+        ["APPUYEZ SUR E POUR PARLER A "] = "PRESS E TO TALK TO ",
+        ["APPUYEZ SUR E POUR ENTRER : "] = "PRESS E TO ENTER: ",
+        ["Tour de "] = "Turn: ",
+        [" (vous)"] = " (you)",
+        ["DISPOSITION CLAVIER : "] = "KEYBOARD LAYOUT: ",
+    };
+
+    private static readonly List<string> FragmentKeysByDescendingLength =
+        [.. EnglishFragments.Keys.OrderByDescending(k => k.Length)];
 }
