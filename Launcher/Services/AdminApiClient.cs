@@ -87,6 +87,24 @@ public sealed class AdminApiClient : IDisposable
     public async Task<ApiResult<bool>> ResetProfileAsync(Guid userId, string sessionToken)
         => await PostAsync($"/api/admin/users/{userId}/reset-profile", new AdminSessionRequest { SessionToken = sessionToken });
 
+    /// <summary>Voir GDD/demande utilisateur — "les admin peut voir les report sur une page sur le launcher". Contrairement à GetUsersAsync ci-dessus, revérifié côté serveur (voir AdminAuthService), d'où le sessionToken requis ici.</summary>
+    public async Task<ApiResult<IReadOnlyList<ReportSummary>>> GetReportsAsync(string sessionToken)
+    {
+        try
+        {
+            var url = $"/api/admin/reports?sessionToken={Uri.EscapeDataString(sessionToken)}";
+            var reports = await _http.GetFromJsonAsync<List<ReportSummary>>(url, JsonOptions);
+            return ApiResult<IReadOnlyList<ReportSummary>>.Success(reports ?? []);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ApiResult<IReadOnlyList<ReportSummary>>.Failure($"Impossible de contacter le serveur : {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResult<bool>> ResolveReportAsync(string sessionToken, Guid reportId)
+        => await PostAsync($"/api/admin/reports/{reportId}/resolve", new AdminSessionRequest { SessionToken = sessionToken });
+
     private async Task<ApiResult<bool>> PostAsync<T>(string url, T body)
     {
         try

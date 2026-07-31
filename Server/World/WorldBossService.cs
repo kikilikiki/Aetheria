@@ -28,10 +28,16 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
     private static readonly ConcurrentDictionary<Guid, DateTime> LastAttackAtUtc = new();
     private static readonly TimeSpan AttackCooldown = TimeSpan.FromSeconds(8);
 
-    public async Task<WorldBossEntity> SpawnAsync(int speciesId, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
+    /// <summary>Voir GDD/demande utilisateur — "retire le champ espece et royaume pour le boss monde" : l'espèce est tirée au sort dans le catalogue plutôt que choisie par l'admin, et aucun royaume n'est ciblé.</summary>
+    public async Task<WorldBossEntity> SpawnAsync(int maxHealth, CancellationToken ct = default)
     {
-        var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == speciesId, ct)
-            ?? throw new AccountOperationException("Espèce introuvable pour ce boss mondial.");
+        var allSpecies = await db.MonsterSpecies.ToListAsync(ct);
+        if (allSpecies.Count == 0)
+        {
+            throw new AccountOperationException("Aucune espèce disponible pour ce boss mondial.");
+        }
+
+        var species = allSpecies[Random.Shared.Next(allSpecies.Count)];
 
         var previouslyAlive = await db.WorldBosses.Where(b => b.IsAlive).ToListAsync(ct);
         foreach (var previous in previouslyAlive)
@@ -47,7 +53,6 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
             BossElement = species.Element,
             MaxHealth = Math.Max(1, maxHealth),
             CurrentHealth = Math.Max(1, maxHealth),
-            TargetKingdom = targetKingdom,
         };
 
         db.WorldBosses.Add(boss);
@@ -116,7 +121,7 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
                 if (cosmeticSpecies.Count > 0)
                 {
                     var species = cosmeticSpecies[Random.Shared.Next(cosmeticSpecies.Count)];
-                    db.Monsters.Add(new MonsterEntity
+                    var rewardMonster = new MonsterEntity
                     {
                         Id = Guid.NewGuid(),
                         OwnerCharacterId = character.Id,
@@ -124,7 +129,9 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
                         Nickname = species.Name,
                         Level = 1,
                         PassiveTalent = PassiveTalentCatalog.RollRandom(Random.Shared),
-                    });
+                    };
+                    MonsterIvRoller.RollInto(rewardMonster, Random.Shared);
+                    db.Monsters.Add(rewardMonster);
                 }
             }
 

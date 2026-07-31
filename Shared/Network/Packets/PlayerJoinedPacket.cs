@@ -20,6 +20,9 @@ public sealed class PlayerJoinedPacket : IPacket
     public required int PositionY { get; init; }
     public UserRank Rank { get; init; } = UserRank.Joueur;
 
+    /// <summary>Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour que en multijoueur on puisse voir le niveau des autres".</summary>
+    public int Level { get; init; } = 1;
+
     public void Write(BinaryWriter writer)
     {
         writer.Write(CharacterId.ToByteArray());
@@ -27,6 +30,7 @@ public sealed class PlayerJoinedPacket : IPacket
         writer.Write(PositionX);
         writer.Write(PositionY);
         writer.Write((byte)Rank);
+        writer.Write(Level);
     }
 
     public static IPacket Read(BinaryReader reader) => new PlayerJoinedPacket
@@ -36,5 +40,6 @@ public sealed class PlayerJoinedPacket : IPacket
         PositionX = reader.ReadInt32(),
         PositionY = reader.ReadInt32(),
         Rank = (UserRank)reader.ReadByte(),
+        Level = reader.ReadInt32(),
     };
 }

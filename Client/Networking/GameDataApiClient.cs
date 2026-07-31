@@ -529,6 +529,22 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<WeeklyChestStatus>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "le coffre de la semaine doit etre cache sur la map" : le client ne connait que le royaume du personnage (KingdomType).</summary>
+    public async Task<WeeklyChestStatus?> GetWeeklyChestByKingdomAsync(KingdomType kingdom, CancellationToken ct = default)
+    {
+        return await _http.GetFromJsonAsync<WeeklyChestStatus>($"/api/kingdoms/by-type/{kingdom}/weekly-chest", JsonOptions, ct);
+    }
+
+    public async Task<WeeklyChestStatus?> ClaimWeeklyChestByKingdomAsync(string sessionToken, Guid characterId, KingdomType kingdom, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/kingdoms/by-type/{kingdom}/weekly-chest/claim?characterId={characterId}", new AdminSessionRequest
+        {
+            SessionToken = sessionToken,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<WeeklyChestStatus>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "Exploration : îles volantes/aquatiques + montures dédiées".</summary>
     public async Task<string?> VisitIslandAsync(string sessionToken, Guid characterId, MountKind islandKind, CancellationToken ct = default)
     {
@@ -670,6 +686,19 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un item pour changer les iv" (Pierre de Réinitialisation).</summary>
+    public async Task<MonsterInstanceData?> RerollIvAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/monsters/reroll-iv", new RerollIvRequest
+        {
+            SessionToken = sessionToken,
+            MonsterId = monsterId,
+            ItemId = itemId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos monstres".</summary>
     public async Task<MonsterInstanceData?> EquipItemAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
     {
@@ -705,6 +734,14 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> ToggleAdminAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/toggle-admin", new AdminToggleAdminRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute une commande et un champ admin pour donner des palier a un joueur" (paliers du Passe de Niveau).</summary>
+    public async Task<AdminGameActionResponse> GiveBattlePassLevelAsync(string sessionToken, string targetCharacterName, int levels, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-battlepass-level", new AdminGiveBattlePassLevelRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, Levels = levels }, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute une commande pour give des montures".</summary>
+    public async Task<AdminGameActionResponse> GiveMountAsync(string sessionToken, string targetCharacterName, string mountKey, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-mount", new AdminGiveMountRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, MountKey = mountKey }, ct);
+
     public async Task<AdminGameActionResponse> LevelUpMonsterAsync(string sessionToken, Guid monsterId, int levels, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/level-up-monster", new AdminLevelUpMonsterRequest { SessionToken = sessionToken, MonsterId = monsterId, Levels = levels }, ct);
 
@@ -714,8 +751,8 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> TransformPlayerAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/transform", new AdminTransformRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, DurationSeconds = 60 }, ct);
 
-    public async Task<AdminGameActionResponse> GiveMonsterToPlayerAsync(string sessionToken, string targetCharacterName, string speciesName, CancellationToken ct = default)
-        => await PostAdminActionAsync("/api/admin/game/give-monster", new AdminGiveMonsterRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, SpeciesName = speciesName }, ct);
+    public async Task<AdminGameActionResponse> GiveMonsterToPlayerAsync(string sessionToken, string targetCharacterName, int speciesId, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-monster", new AdminGiveMonsterRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, SpeciesId = speciesId }, ct);
 
     public async Task<AdminGameActionResponse> MaxLevelTeamAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/max-level-team", new AdminMaxLevelTeamRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);
@@ -922,9 +959,9 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "refonte du spawn de boss mondial par ID", réservé aux admins/fondateur (le serveur revérifie de toute façon).</summary>
-    public async Task<AdminGameActionResponse> SpawnWorldBossAsync(string sessionToken, int speciesId, int maxHealth, KingdomType? targetKingdom = null, CancellationToken ct = default)
-        => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, SpeciesId = speciesId, MaxHealth = maxHealth, TargetKingdom = targetKingdom }, ct);
+    /// <summary>Voir GDD/demande utilisateur — "retire le champ espece et royaume pour le boss monde" : espece tiree au sort cote serveur, plus de royaume cible. Reserve aux admins/fondateur (le serveur reverifie de toute facon).</summary>
+    public async Task<AdminGameActionResponse> SpawnWorldBossAsync(string sessionToken, int maxHealth, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, MaxHealth = maxHealth }, ct);
 
     // Voir GDD/demande utilisateur — "commandes admin abuse : double XP, double butin, invasion de monstres".
     public async Task<AdminGameActionResponse> ActivateDoubleXpAsync(string sessionToken, int durationMinutes, CancellationToken ct = default)
@@ -939,6 +976,20 @@ public sealed class GameDataApiClient : IDisposable
     /// <summary>Voir retour utilisateur — "ajouter un admin pour desactiver les combats".</summary>
     public async Task<AdminGameActionResponse> ToggleCombatsDisabledAsync(string sessionToken, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/toggle-combats", new AdminToggleCombatsRequest { SessionToken = sessionToken }, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — "les admin peut voir les report... sur un ui que seul les admin peuvent voir".</summary>
+    public async Task<List<ReportSummary>> GetReportsAsync(string sessionToken, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<List<ReportSummary>>($"/api/admin/reports?sessionToken={Uri.EscapeDataString(sessionToken)}", JsonOptions, ct) ?? [];
+
+    public async Task<AdminGameActionResponse> ResolveReportAsync(string sessionToken, Guid reportId, CancellationToken ct = default)
+        => await PostAdminActionAsync($"/api/admin/reports/{reportId}/resolve", new AdminSessionRequest { SessionToken = sessionToken }, ct);
+
+    /// <summary>Voir GDD/demande utilisateur — "la possibilité de se téléporter a la personne qui a report et a la personne qui a été report".</summary>
+    public async Task<PlayerLocationSummary?> LocatePlayerAsync(string sessionToken, string characterName, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/admin/locate/{Uri.EscapeDataString(characterName)}?sessionToken={Uri.EscapeDataString(sessionToken)}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<PlayerLocationSummary>(JsonOptions, ct) : null;
+    }
 
     public void Dispose() => _http.Dispose();
 }

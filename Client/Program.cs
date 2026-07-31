@@ -18,6 +18,7 @@ using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Models.WorldBoss;
 using Aetheria.Shared.Network.Packets;
+using Aetheria.Shared.World;
 using Aetheria.Shared.Settings;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
@@ -46,7 +47,7 @@ const int StarterColumns = 5;
 const int PartyMaxMembers = 4;
 
 /// <summary>Probabilité de rencontre sauvage par case franchie en zone sauvage (voir GDD, StartWildEncounterOutdoorAsync). Simplification assumée : constante plutôt que dépendante du biome/terrain.</summary>
-const double WildEncounterChance = 0.08;
+const double WildEncounterChance = 0.11;
 
 var stateLock = new object();
 var gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
@@ -139,6 +140,23 @@ var dungeonEncounterPreviewRoomIndex = -1;
 // actions Move/Attack/Pass/Capture, IA gérée côté serveur entre deux tours joueur.
 CombatApiClient? combatApi = null;
 CombatSessionState? combatState = null;
+
+/// <summary>Voir GDD/demande utilisateur — "ajoute de la lumière autour des monstre qui lvl up pour faire une petit animation" : anneau lumineux qui s'estompe pendant <see cref="LevelUpGlowDuration"/> secondes derrière le combattant, voir DrawCombatPanel.</summary>
+var activeLevelUpGlows = new List<(Guid CombatantId, float Elapsed)>();
+const float LevelUpGlowDuration = 2.5f;
+
+void ApplyCombatState(CombatSessionState? state)
+{
+    combatState = state;
+    if (state?.LeveledUpMonsterIds is { Count: > 0 } leveledUp)
+    {
+        foreach (var id in leveledUp)
+        {
+            activeLevelUpGlows.RemoveAll(g => g.CombatantId == id);
+            activeLevelUpGlows.Add((id, 0f));
+        }
+    }
+}
 
 /// <summary>Scène à laquelle revenir une fois le combat (et son butin éventuel) terminé — Interior pour le donjon, Outdoor pour une rencontre sauvage en extérieur (voir GDD).</summary>
 var combatReturnScene = SceneMode.Interior;
@@ -311,6 +329,17 @@ var myRank = UserRank.Joueur;
 
 /// <summary>Voir GDD/demande utilisateur — "le panel admin en jeu est pour les admins" : flag technique IsAdmin, distinct du grade Fondateur, donnant lui aussi accès au panel admin en jeu (F2).</summary>
 var myIsAdmin = false;
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin...
+/// on lance on est en mode joueur, on a pas les champs reservé au admin et avec un combo de
+/// touche on passe en admin on a les champs" : même compte admin/Fondateur, mais toutes les
+/// affordances admin restent masquées tant que ce mode n'est pas activé explicitement (touches
+/// CTRL+ALT+A, voir la boucle Outdoor) — évite d'afficher des boutons admin en permanence à
+/// l'écran pendant une session de jeu normale.
+/// </summary>
+var adminModeActive = false;
+bool IsAdminModeReady() => (myIsAdmin || myRank == UserRank.Fondateur) && adminModeActive;
 var chatChannel = ChatChannel.Global;
 var chatTextInput = string.Empty;
 var chatMessages = new List<ChatLine>();
@@ -376,6 +405,8 @@ var isDungeonSelectOpen = false;
 var dungeonSelectCursor = 0;
 List<DungeonData> dungeonSelectOptions = [];
 Task<(List<DungeonData> Dungeons, List<KingdomData> Kingdoms)>? dungeonSelectTask = null;
+/// <summary>Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des dongon a part mais que l'on peut choisir hardcore ou normal" : choix fait sur l'écran de sélection (touche TAB, seulement si le donjon sélectionné le propose), porté jusqu'au combat engagé (voir StartDungeonRoomCombatAsync).</summary>
+var dungeonHardcoreRequested = false;
 
 var isAdminPanelOpen = false;
 var adminPanelCursor = 0;
@@ -399,18 +430,20 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "EXPULSER (nom du personnage)",
         "BANNIR (nom du personnage)",
         "TRANSFORMER EN PANNEAU (nom du personnage)",
-        "DONNER UN MONSTRE (perso;espece)",
+        "DONNER UN MONSTRE (perso;idEspece)",
         "NIVEAU MAX EQUIPE (nom du personnage)",
         "DONNER DE L'ARGENT (perso;montant)",
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
-        "INVOQUER BOSS MONDIAL (id espece;pv;royaume optionnel)",
+        "INVOQUER BOSS MONDIAL (pv)",
         "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
         "DONNER DES GEMMES (perso;montant)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
+        "DONNER DES PALIERS DE PASSE (perso;niveaux)",
+        "DONNER UNE MONTURE (perso;cleMonture)",
         // Voir retour utilisateur — "ajouter un admin pour desactiver les combats" : toujours le
         // DERNIER élément de la liste (voir UpdateAdminGamePanel/DrawAdminGamePanel/
         // SubmitAdminPanelCommand, qui calculent son index via Length-1 plutôt qu'un nombre en
@@ -425,13 +458,13 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "EXPULSER (nom du personnage)",
         "BANNIR (nom du personnage)",
         "TRANSFORMER EN PANNEAU (nom du personnage)",
-        "DONNER UN MONSTRE (perso;espece)",
+        "DONNER UN MONSTRE (perso;idEspece)",
         "NIVEAU MAX EQUIPE (nom du personnage)",
         "DONNER DE L'ARGENT (perso;montant)",
         "DONNER DE L'XP (perso;montant)",
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
-        "INVOQUER BOSS MONDIAL (id espece;pv;royaume optionnel)",
+        "INVOQUER BOSS MONDIAL (pv)",
         "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
@@ -654,6 +687,14 @@ var challengesCursor = 0;
 string? challengesMessage = null;
 Task<ChallengeStatus>? challengeClaimTask = null;
 
+/// <summary>Voir GDD/demande utilisateur — "les admin peut voir les report... sur un ui que seul les admin peuvent voir" et "se téléporter a la personne qui a report et a la personne qui a été report".</summary>
+List<ReportSummary> reports = [];
+Task<List<ReportSummary>>? reportsTask = null;
+var reportsCursor = 0;
+string? reportsMessage = null;
+Task<AdminGameActionResponse>? reportsActionTask = null;
+Task<PlayerLocationSummary?>? reportsTeleportTask = null;
+
 /// <summary>Voir GDD/demande utilisateur — "ajoute un UI pour les montures" : deuxième onglet du panneau Encyclopédie (touche Tab).</summary>
 var encyclopediaShowMounts = false;
 var encyclopediaMountCursor = 0;
@@ -708,6 +749,8 @@ string? kingdomPoliticsMessage = null;
 WeeklyChestStatus? weeklyChest = null;
 Task<WeeklyChestStatus?>? weeklyChestTask = null;
 Task<WeeklyChestStatus?>? weeklyChestClaimTask = null;
+/// <summary>Voir GDD/demande utilisateur — "le coffre de la semaine doit etre cache sur la map" : rafraichi periodiquement pendant l'exploration, independamment du panneau Royaume (voir weeklyChestTask).</summary>
+Task<WeeklyChestStatus?>? weeklyChestMapTask = null;
 
 // Voir GDD/demande utilisateur — "Guerres de guildes".
 var guildWarReady = false;
@@ -809,6 +852,18 @@ host.Update += deltaTime =>
     mouse.Update();
     animationClock += deltaTime;
 
+    // Voir GDD/demande utilisateur — "ajoute de la lumière autour des monstre qui lvl up pour
+    // faire une petit animation" : vieillit/retire les anneaux expirés (voir DrawCombatPanel).
+    if (activeLevelUpGlows.Count > 0)
+    {
+        for (var i = 0; i < activeLevelUpGlows.Count; i++)
+        {
+            activeLevelUpGlows[i] = (activeLevelUpGlows[i].CombatantId, activeLevelUpGlows[i].Elapsed + deltaTime);
+        }
+
+        activeLevelUpGlows.RemoveAll(g => g.Elapsed >= LevelUpGlowDuration);
+    }
+
     // Voir GDD/demande utilisateur — "custom activite discord automatique avec les gens dans son
     // groupe si il est en combat en donjon etage combien etc" : recalculé à chaque frame (peu
     // coûteux — DiscordPresenceService n'envoie réellement à Discord que si le texte a changé).
@@ -851,7 +906,7 @@ host.Update += deltaTime =>
 
         if (state is not null)
         {
-            combatState = state;
+            ApplyCombatState(state);
             combatSelectedAction = null;
             combatMessage = null;
             combatReturnScene = SceneMode.Outdoor;
@@ -902,7 +957,7 @@ host.Update += deltaTime =>
     // Voir GDD/demande utilisateur — "le panel admin en jeu [est] pour les admins" : F2, ouvert
     // aux comptes IsAdmin ET au grade Fondateur (le Fondateur a en plus un bouton exclusif dans
     // le panel, voir AdminPanelCommands/UpdateAdminGamePanel), disponible hors connexion/combat.
-    if ((myIsAdmin || myRank == UserRank.Fondateur) && keyboard.WasJustPressed(Key.F2)
+    if (IsAdminModeReady() && keyboard.WasJustPressed(Key.F2)
         && sceneMode is SceneMode.Outdoor or SceneMode.Interior && activeDialogueNpc is null)
     {
         isAdminPanelOpen = !isAdminPanelOpen;
@@ -989,7 +1044,7 @@ host.Update += deltaTime =>
         }
         else if (startedTask.Result.IsSuccess)
         {
-            combatState = startedTask.Result.State;
+            ApplyCombatState(startedTask.Result.State);
             combatSelectedAction = null;
             combatMessage = null;
             combatPollClock = 0f;
@@ -1079,6 +1134,44 @@ host.Update += deltaTime =>
         {
             globalEventStatusTask = gameDataApi.GetGlobalEventStatusAsync();
         }
+
+        // Voir GDD/demande utilisateur — "le coffre de la semaine doit etre cache sur la map" :
+        // rafraichi periodiquement (comme le profil/evenements ci-dessus) pour detecter qu'un
+        // autre joueur du royaume l'a deja trouve, meme sans ouvrir le panneau Royaume.
+        if (weeklyChestMapTask is null && weeklyChestClaimTask is null)
+        {
+            weeklyChestMapTask = gameDataApi.GetWeeklyChestByKingdomAsync(currentKingdom);
+        }
+    }
+
+    if (weeklyChestMapTask is { IsCompleted: true } chestMapTask)
+    {
+        weeklyChest = chestMapTask.IsFaulted ? weeklyChest : chestMapTask.Result;
+        weeklyChestMapTask = null;
+    }
+
+    if (weeklyChestClaimTask is { IsCompleted: true } outdoorChestClaimTask)
+    {
+        if (!outdoorChestClaimTask.IsFaulted && outdoorChestClaimTask.Result is { } claimedMapChest)
+        {
+            weeklyChest = claimedMapChest;
+            PushSystemToast($"Coffre cache trouve : +{claimedMapChest.RewardGold} or !", new Vector4(0.95f, 0.85f, 0.4f, 1f));
+        }
+
+        weeklyChestClaimTask = null;
+    }
+    else if (weeklyChest is { IsClaimed: false } && weeklyChestClaimTask is null && chosenCharacterId is not null && gameDataApi is not null)
+    {
+        Vector2 currentGridPosition;
+        lock (stateLock)
+        {
+            currentGridPosition = gridPosition;
+        }
+
+        if ((int)MathF.Round(currentGridPosition.X) == weeklyChest.PositionX && (int)MathF.Round(currentGridPosition.Y) == weeklyChest.PositionY)
+        {
+            weeklyChestClaimTask = gameDataApi.ClaimWeeklyChestByKingdomAsync(options.SessionToken!, chosenCharacterId.Value, currentKingdom);
+        }
     }
 
     if (UpdateActiveDialogueIfAny())
@@ -1097,10 +1190,36 @@ host.Update += deltaTime =>
         return;
     }
 
+    // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin
+    // example on lance on est en mode joueur on a pas les champs reservé au admin et avec un
+    // combo de touche on passe en admin on a les champs" : CTRL+ALT+A bascule le mode admin (les
+    // affordances admin restent masquées tant qu'il n'est pas actif, voir IsAdminModeReady/
+    // adminModeActive) ; CTRL+ALT+R ouvre le nouveau panneau Signalements (voir PanelKind.Reports)
+    // une fois le mode admin actif.
+    var adminComboDown = (keyboard.IsDown(Key.ControlLeft) || keyboard.IsDown(Key.ControlRight))
+        && (keyboard.IsDown(Key.AltLeft) || keyboard.IsDown(Key.AltRight));
+
+    if (adminComboDown && keyboard.WasJustPressed(Key.A) && (myIsAdmin || myRank == UserRank.Fondateur))
+    {
+        adminModeActive = !adminModeActive;
+        PushSystemToast(adminModeActive ? "Mode admin active" : "Mode admin desactive", new Vector4(0.95f, 0.5f, 0.45f, 1f));
+        if (!adminModeActive)
+        {
+            isAdminPanelOpen = false;
+            if (activePanel == PanelKind.Reports)
+            {
+                activePanel = PanelKind.None;
+            }
+        }
+    }
+    else if (adminComboDown && keyboard.WasJustPressed(Key.R) && IsAdminModeReady())
+    {
+        OpenPanel(PanelKind.Reports);
+    }
     // Voir GDD/demande utilisateur — "ajoute un bâtiment marchand au lieu de l'UI Boutique en
     // haut à droite" : plus de raccourci B, la Boutique ne s'ouvre plus qu'en visitant le
     // bâtiment "Boutique" ou en parlant à la Marchande (voir InteractionKind.Building/Npc).
-    if (keyboard.WasJustPressed(Key.I)) OpenPanel(PanelKind.Inventory);
+    else if (keyboard.WasJustPressed(Key.I)) OpenPanel(PanelKind.Inventory);
     else if (keyboard.WasJustPressed(Key.G)) OpenPanel(PanelKind.Guild);
     else if (keyboard.WasJustPressed(Key.P)) OpenPanel(PanelKind.Party);
     else if (keyboard.WasJustPressed(Key.V)) OpenPanel(PanelKind.Arena);
@@ -1383,6 +1502,7 @@ host.Update += deltaTime =>
                 dungeonSelectCursor = 0;
                 dungeonSelectOptions = [];
                 dungeonSelectTask = LoadDungeonSelectDataAsync();
+                dungeonHardcoreRequested = false;
                 break;
         }
     }
@@ -1416,6 +1536,16 @@ host.Render += _ =>
             for (var x = 0; x < worldMap.Size; x++)
             {
                 DrawIsoDiamond(new Vector2(x, y), 1f, worldMap.TileColors[x, y]);
+
+                // Voir GDD/demande utilisateur — "la case en jaune quand il y a un coffre" : le
+                // coffre de la semaine (voir weeklyChest, rafraichi periodiquement) est cache sur
+                // la carte plutot que reclame depuis un panneau - cette case jaune est l'unique
+                // indice de sa position tant qu'il n'a pas ete trouve.
+                if (weeklyChest is { IsClaimed: false } chestHighlight && chestHighlight.PositionX == x && chestHighlight.PositionY == y)
+                {
+                    var pulse = 0.65f + 0.35f * MathF.Sin(animationClock * 3f);
+                    DrawIsoDiamond(new Vector2(x, y), 1f, new Vector4(0.95f, 0.85f, 0.2f, pulse));
+                }
             }
         }
 
@@ -1598,7 +1728,12 @@ Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, int Y) to
 /// Le seuil de proximité d'interaction (1.6 case, voir ComputeNearbyInteraction) reste largement
 /// suffisant pour entrer dans un bâtiment sans jamais avoir à se tenir sur sa case exacte.
 /// </summary>
-bool IsBuildingBlocking(int gridX, int gridY) => worldMap.Buildings.Any(b => b.GridX == gridX && b.GridY == gridY);
+// Voir GDD/demande utilisateur — "en combat on peut encore traverser les mur" : ne bloquait que
+// la case exacte d'un bâtiment (voir BuildOrthogonalPath), pas les cases voisines que ses murs
+// dessinés recouvrent visuellement — d'où l'impression de pouvoir "traverser les murs" en marchant
+// juste à côté du centre du bâtiment. Utilise désormais la même emprise au sol (rayon 1) que la
+// validation autoritaire côté serveur (voir Shared/World/TownLayout.cs, PlayerSession.HandlePlayerMove).
+bool IsBuildingBlocking(int gridX, int gridY) => !TownLayout.IsWalkable(gridX, gridY, worldMap.Size);
 
 NearbyInteraction? ComputeNearbyInteraction(Vector2 position)
 {
@@ -2438,9 +2573,9 @@ void DrawBattlePassPanel(int w, int h)
 
             var levelPrefix = tier.IsReached ? "✓" : " ";
             TextRenderer.Draw(spriteBatch, whiteTexture, $"{levelPrefix} {tier.Level}", new Vector2(topLeft.X + 24f, y), 1.5f, rowColor);
-            TextRenderer.Draw(spriteBatch, whiteTexture, tier.FreeReward, new Vector2(topLeft.X + 120f, y), 1.4f, rowColor);
+            TextRenderer.Draw(spriteBatch, whiteTexture, TruncateToWidth(tier.FreeReward, 248f, 1.4f), new Vector2(topLeft.X + 120f, y), 1.4f, rowColor);
             var premiumRowColor = !tier.IsReached ? new Vector4(0.5f, 0.5f, 0.55f, 1f) : status.HasPremium ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.55f, 0.5f, 0.35f, 1f);
-            TextRenderer.Draw(spriteBatch, whiteTexture, tier.PremiumReward, new Vector2(topLeft.X + 380f, y), 1.4f, premiumRowColor);
+            TextRenderer.Draw(spriteBatch, whiteTexture, TruncateToWidth(tier.PremiumReward, boxWidth - 380f - 34f, 1.4f), new Vector2(topLeft.X + 380f, y), 1.4f, premiumRowColor);
 
             y += rowHeight;
         }
@@ -3387,6 +3522,150 @@ void DrawChallengesPanel(int w, int h)
 }
 
 /// <summary>
+/// Voir GDD/demande utilisateur — "les admin peut voir les report sur une page... et sur un ui que
+/// seul les admin peuvent voir avec les report + la possibilité de se téléporter a la personne qui
+/// a report et a la personne qui a été report". Accessible uniquement en mode admin (voir
+/// adminModeActive), touche R (voir la liste des raccourcis outdoor).
+/// </summary>
+void UpdateReportsPanel()
+{
+    if (reportsTask is { IsCompleted: true } loadTask)
+    {
+        reports = loadTask.IsFaulted ? [] : loadTask.Result;
+        reportsCursor = Math.Clamp(reportsCursor, 0, Math.Max(0, reports.Count - 1));
+        reportsTask = null;
+        return;
+    }
+
+    if (reportsActionTask is { IsCompleted: true } actionTask)
+    {
+        reportsMessage = actionTask.IsFaulted ? "Action impossible." : actionTask.Result.Message;
+        reportsActionTask = null;
+        reportsTask = gameDataApi?.GetReportsAsync(options.SessionToken!);
+        return;
+    }
+
+    if (reportsTeleportTask is { IsCompleted: true } teleportTask)
+    {
+        if (!teleportTask.IsFaulted && teleportTask.Result is { } location)
+        {
+            TeleportTo(location);
+            reportsMessage = $"Téléporté(e) vers {location.CharacterName}{(location.IsOnline ? "" : " (hors ligne, derniere position connue)")}.";
+        }
+        else
+        {
+            reportsMessage = "Personnage introuvable.";
+        }
+
+        reportsTeleportTask = null;
+        return;
+    }
+
+    if (reportsTask is not null || reportsActionTask is not null || reportsTeleportTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (reports.Count == 0)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) reportsCursor = Math.Min(reportsCursor + 1, reports.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) reportsCursor = Math.Max(reportsCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Enter))
+    {
+        reportsMessage = null;
+        reportsActionTask = gameDataApi!.ResolveReportAsync(options.SessionToken!, reports[reportsCursor].Id);
+    }
+    else if (keyboard.WasJustPressed(Key.T))
+    {
+        reportsMessage = null;
+        reportsTeleportTask = gameDataApi!.LocatePlayerAsync(options.SessionToken!, reports[reportsCursor].ReporterCharacterName);
+    }
+    else if (keyboard.WasJustPressed(Key.Y))
+    {
+        reportsMessage = null;
+        reportsTeleportTask = gameDataApi!.LocatePlayerAsync(options.SessionToken!, reports[reportsCursor].ReportedCharacterName);
+    }
+}
+
+/// <summary>Voir GDD/demande utilisateur — "se téléporter a la personne" : change de royaume si besoin (même mécanisme que le bâtiment Téléporteur, voir RebuildWorldMapForKingdom) puis synchronise la position au serveur.</summary>
+void TeleportTo(PlayerLocationSummary location)
+{
+    if (location.Kingdom != currentKingdom)
+    {
+        RebuildWorldMapForKingdom(location.Kingdom);
+    }
+
+    lock (stateLock)
+    {
+        gridPosition = new Vector2(location.PositionX, location.PositionY);
+    }
+
+    connection?.SendMove(location.PositionX, location.PositionY);
+}
+
+void DrawReportsPanel(int w, int h)
+{
+    const float boxWidth = 640f;
+    const float boxHeight = 460f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.05f, 0.05f, 0.96f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.35f, 0.3f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "SIGNALEMENTS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.5f, 0.45f, 1f));
+
+    if (reportsTask is not null)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (reports.Count == 0)
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN SIGNALEMENT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else
+    {
+        var y = topLeft.Y + 58f;
+        const int visibleRows = 10;
+        var scrollStart = Math.Clamp(reportsCursor - visibleRows / 2, 0, Math.Max(0, reports.Count - visibleRows));
+        for (var i = scrollStart; i < Math.Min(reports.Count, scrollStart + visibleRows); i++)
+        {
+            var report = reports[i];
+            var isSelected = i == reportsCursor;
+            var prefix = isSelected ? "> " : "  ";
+            var color = report.Resolved ? new Vector4(0.5f, 0.5f, 0.55f, 1f) : isSelected ? new Vector4(0.95f, 0.6f, 0.55f, 1f) : Vector4.One;
+            var statusTag = report.Resolved ? " [TRAITE]" : "";
+            var rowText = $"{prefix}{report.ReportedCharacterName.ToUpperInvariant()} signale par {report.ReporterCharacterName.ToUpperInvariant()}{statusTag}";
+            if (DrawClickableRow(rowText, new Vector2(topLeft.X + 24f, y), boxWidth - 48f, 1.6f, color))
+            {
+                reportsCursor = i;
+            }
+
+            y += 24f;
+        }
+
+        var selected = reports[reportsCursor];
+        var detailY = topLeft.Y + boxHeight - 96f;
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"RAISON : {selected.Reason}", new Vector2(topLeft.X + 20f, detailY), 1.4f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        TextRenderer.Draw(spriteBatch, whiteTexture, $"{selected.CreatedAtUtc:yyyy-MM-dd HH:mm} UTC", new Vector2(topLeft.X + 20f, detailY + 20f), 1.3f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+    }
+
+    if (reportsMessage is { Length: > 0 })
+    {
+        TextRenderer.DrawCentered(spriteBatch, whiteTexture, reportsMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.5f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+    }
+
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "T : TP VERS LE RAPPORTEUR - Y : TP VERS LE SIGNALE - ENTREE : MARQUER TRAITE - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
 /// Voir GDD/demande utilisateur — "panel admin en jeu... peuvent afficher un message en haut de
 /// l'écran, donner des items, transformer le skin de tout les joueurs en panneau, ban/mute/kick" :
 /// ban/mute existent déjà via les commandes de tchat <c>/ban</c>/<c>/mute</c> (voir
@@ -3501,13 +3780,13 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
         case 6:
         {
             var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 2)
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var giveMonsterSpeciesId))
             {
-                adminPanelActionTask = gameDataApi!.GiveMonsterToPlayerAsync(options.SessionToken!, parts[0], parts[1]);
+                adminPanelActionTask = gameDataApi!.GiveMonsterToPlayerAsync(options.SessionToken!, parts[0], giveMonsterSpeciesId);
             }
             else
             {
-                adminPanelMessage = "Format attendu : personnage;espece";
+                adminPanelMessage = "Format attendu : personnage;idEspece";
             }
 
             break;
@@ -3562,21 +3841,17 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             break;
         case 12:
         {
-            // Voir GDD/demande utilisateur — "refonte du spawn de boss mondial (par ID, meme
-            // boss/pv pour tous les royaumes, recompense au royaume qui inflige le plus de
-            // degats)" : invoque desormais a partir de l'ID d'une espece deja existante du
-            // catalogue (voir Server/Persistence/MonsterCatalogSeeder) plutot qu'un nom libre. Le
-            // royaume cible reste optionnel (purement informatif, voir WorldBossEntity.TargetKingdom)
-            // - la barre de vie et les degats restent deja partages entre tous les royaumes.
-            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 2 && int.TryParse(parts[0], out var bossSpeciesId) && int.TryParse(parts[1], out var bossHealth))
+            // Voir GDD/demande utilisateur — "retire le champ espece et royaume pour le boss
+            // monde" : l'espece est tiree au sort cote serveur (voir WorldBossService.SpawnAsync)
+            // et le boss ne cible plus de royaume - la barre de vie et les degats restent deja
+            // partages entre tous les royaumes.
+            if (int.TryParse(input.Trim(), out var bossHealth))
             {
-                KingdomType? targetKingdom = parts.Length >= 3 && Enum.TryParse<KingdomType>(parts[2], true, out var bossKingdom) ? bossKingdom : null;
-                adminPanelActionTask = gameDataApi!.SpawnWorldBossAsync(options.SessionToken!, bossSpeciesId, bossHealth, targetKingdom);
+                adminPanelActionTask = gameDataApi!.SpawnWorldBossAsync(options.SessionToken!, bossHealth);
             }
             else
             {
-                adminPanelMessage = "Format attendu : id espece;pv;royaume (optionnel)";
+                adminPanelMessage = "Format attendu : pv";
             }
 
             break;
@@ -3632,6 +3907,39 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             // de toute façon le grade de l'appelant (voir /api/admin/game/toggle-admin).
             adminPanelActionTask = gameDataApi!.ToggleAdminAsync(options.SessionToken!, input);
             break;
+        case 18:
+        {
+            // Voir GDD/demande utilisateur — "ajoute une commande et un champ admin pour donner
+            // des palier a un joueur" : exclusif au Fondateur, meme motif que gemmes/promotion
+            // ci-dessus ; le serveur revérifie de toute façon (voir /api/admin/game/give-battlepass-level).
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var palierLevels))
+            {
+                adminPanelActionTask = gameDataApi!.GiveBattlePassLevelAsync(options.SessionToken!, parts[0], palierLevels);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;niveaux";
+            }
+
+            break;
+        }
+        case 19:
+        {
+            // Voir GDD/demande utilisateur — "ajoute une commande pour give des montures" ;
+            // exclusif au Fondateur, meme motif que les autres commandes economiques ci-dessus.
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                adminPanelActionTask = gameDataApi!.GiveMountAsync(options.SessionToken!, parts[0], parts[1]);
+            }
+            else
+            {
+                adminPanelMessage = "Format attendu : personnage;cleMonture";
+            }
+
+            break;
+        }
     }
 }
 
@@ -3992,7 +4300,7 @@ void UpdateWarRoomPanel(float deltaTime)
 
         if (state is not null)
         {
-            combatState = state;
+            ApplyCombatState(state);
             combatSelectedAction = null;
             combatMessage = null;
             combatReturnScene = SceneMode.Outdoor;
@@ -4209,7 +4517,7 @@ void UpdateKingdomPanel()
 
     if (kingdomVoteTask is { IsCompleted: true } voteTask)
     {
-        kingdomPoliticsMessage = !voteTask.IsFaulted && voteTask.Result ? "Vote enregistre." : "Vote impossible.";
+        kingdomPoliticsMessage = !voteTask.IsFaulted && voteTask.Result ? "Vous avez deja vote." : "Vote impossible.";
         kingdomVoteMode = false;
         kingdomVoteInput = string.Empty;
         kingdomVoteTask = null;
@@ -4281,11 +4589,6 @@ void UpdateKingdomPanel()
         kingdomPoliticsMessage = null;
         kingdomConstructTask = gameDataApi!.ConstructKingdomBuildingAsync(options.SessionToken!, chosenCharacterId!.Value);
     }
-    else if (keyboard.WasJustPressed(Key.H) && weeklyChest is { IsClaimed: false } && kingdomPolitics is not null)
-    {
-        kingdomPoliticsMessage = null;
-        weeklyChestClaimTask = gameDataApi!.ClaimWeeklyChestAsync(options.SessionToken!, chosenCharacterId!.Value, kingdomPolitics.KingdomId);
-    }
 }
 
 void DrawKingdomPanel(int w, int h)
@@ -4341,10 +4644,12 @@ void DrawKingdomPanel(int w, int h)
                     new Vector2(topLeft.X + 34f, y), 1.4f, new Vector4(0.9f, 0.8f, 0.5f, 1f));
                 y += 26f;
 
-                // Voir GDD/demande utilisateur — "Exploration : coffres cachés hebdomadaires par royaume".
+                // Voir GDD/demande utilisateur — "le coffre de la semaine doit etre cache sur la
+                // map" : plus reclamable depuis ce panneau, juste une info - il faut le trouver sur
+                // la carte (case en jaune, voir DrawOutdoorMap) et marcher dessus.
                 if (weeklyChest is { } chest)
                 {
-                    var chestLabel = chest.IsClaimed ? $"Coffre cache : deja trouve par {chest.ClaimedByCharacterName}" : $"Coffre cache : NON TROUVE CETTE SEMAINE (H pour le chercher, +{chest.RewardGold} or)";
+                    var chestLabel = chest.IsClaimed ? $"Coffre cache : deja trouve par {chest.ClaimedByCharacterName}" : $"Coffre cache : quelque part sur la carte (case en jaune, +{chest.RewardGold} or)";
                     var chestColor = chest.IsClaimed ? new Vector4(0.6f, 0.6f, 0.65f, 1f) : new Vector4(0.95f, 0.85f, 0.4f, 1f);
                     TextRenderer.Draw(spriteBatch, whiteTexture, chestLabel.ToUpperInvariant(), new Vector2(topLeft.X + 34f, y), 1.3f, chestColor);
                     y += 24f;
@@ -4421,59 +4726,62 @@ bool UpdateTutorial()
     return true;
 }
 
-static (string Title, string[] Lines)[] TutorialPages() =>
+static (string Title, TutorialStep[] Steps)[] TutorialPages() =>
 [
     ("BIENVENUE DANS AETHERIA",
     [
-        "Ce tutoriel explique les bases du jeu.",
-        "Flèches G/D ou Entrée pour avancer, Echap pour fermer.",
-        "Rouvrable à tout moment avec F1.",
+        new("", "Ce tutoriel explique les bases du jeu."),
+        new("FLECHES G/D OU ENTREE", "avancer dans ce tutoriel."),
+        new("ECHAP", "fermer ce tutoriel (F1 pour le rouvrir à tout moment)."),
     ]),
     ("SE DEPLACER",
     [
-        "WASD (ou ZQSD en clavier AZERTY) pour se déplacer,",
-        "ou cliquez sur la carte pour tracer un chemin.",
-        "F9 change la disposition clavier détectée.",
+        new("W A S D (OU Z Q S D)", "se déplacer sur la carte."),
+        new("CLIC SUR LA CARTE", "tracer un chemin jusqu'à la case cliquée."),
+        new("F9", "changer la disposition clavier détectée."),
     ]),
     ("INTERAGIR",
     [
-        "Approchez-vous d'un PNJ, d'un bâtiment ou d'un donjon :",
-        "un message apparaît en bas de l'écran.",
-        "Appuyez sur E pour parler ou entrer.",
+        new("", "Approchez-vous d'un PNJ, d'un bâtiment ou d'un donjon :"),
+        new("", "un message apparaît en bas de l'écran."),
+        new("E", "parler au PNJ ou entrer dans le bâtiment/donjon."),
     ]),
     ("PANNEAUX EN JEU",
     [
-        "I : Inventaire   M : Monstres   P : Groupe",
-        "G : Guilde   V : Arène classée",
-        "Ou cliquez les boutons en haut à droite de l'écran.",
-        "Boutique, Hôtel des ventes, Forge, Mine, Pension et",
-        "Téléporteur s'ouvrent en visitant leur bâtiment en ville.",
+        new("I", "ouvrir l'Inventaire."),
+        new("M", "ouvrir la liste de vos Monstres."),
+        new("P", "ouvrir le Groupe."),
+        new("G", "ouvrir la Guilde."),
+        new("V", "ouvrir l'Arène classée."),
+        new("", "Boutique, Hôtel des ventes, Forge, Mine, Pension et"),
+        new("", "Téléporteur s'ouvrent en visitant leur bâtiment en ville."),
     ]),
     ("COMBAT",
     [
-        "Choisissez une action : 1 Déplacer, 2 Attaquer,",
-        "3 Passer, 4 Capturer (avec une Carte de capture).",
-        "Visez avec les flèches + Entrée, ou cliquez",
-        "directement une case en surbrillance sur la grille.",
+        new("1", "Déplacer votre créature sur la grille."),
+        new("2", "Attaquer une cible à portée."),
+        new("3", "Passer votre tour."),
+        new("4", "Capturer (nécessite une Carte de capture)."),
+        new("FLECHES + ENTREE OU CLIC", "viser une case en surbrillance."),
     ]),
     ("DONJONS",
     [
-        "Un donjon apparaît à un endroit aléatoire de la carte",
-        "et change de position toutes les heures.",
-        "À l'intérieur : avancez de salle en salle avec Entrée",
-        "(combats, coffres d'or, et autres événements).",
+        new("", "Un donjon apparaît à un endroit aléatoire de la carte"),
+        new("", "et change de position toutes les heures."),
+        new("ENTREE", "avancer de salle en salle une fois la salle nettoyée."),
+        new("", "(combats, coffres d'or, et autres événements)."),
     ]),
     // Voir GDD/demande utilisateur — "menu F1 : liste des types, efficace/inefficace face à
     // quoi" : même triangle de types que CombatEngine.StrongAgainst côté serveur (dupliqué ici,
     // c'est de la donnée de game design statique, pas une raison d'exposer une API dédiée).
     ("TYPES ELEMENTAIRES",
     [
-        "Feu > Nature, Glace   Eau > Feu, Terre",
-        "Nature > Eau, Terre   Glace > Nature, Air",
-        "Foudre > Eau, Air     Terre > Foudre, Feu",
-        "Air > Terre, Nature   Lumière > Ombre",
-        "Ombre > Lumière       Neutre : sans avantage",
-        "'>' = 1.5x dégâts infligés, 0.67x dégâts subis en retour.",
+        new("", "Feu > Nature, Glace   Eau > Feu, Terre"),
+        new("", "Nature > Eau, Terre   Glace > Nature, Air"),
+        new("", "Foudre > Eau, Air     Terre > Foudre, Feu"),
+        new("", "Air > Terre, Nature   Lumière > Ombre"),
+        new("", "Ombre > Lumière       Neutre : sans avantage"),
+        new("", "'>' = 1.5x dégâts infligés, 0.67x dégâts subis en retour."),
     ]),
 ];
 
@@ -4487,15 +4795,63 @@ void DrawTutorialOverlay(int w, int h)
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, page.Title.ToUpperInvariant(), new Vector2(w / 2f, h * 0.24f), 3.4f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
+    // Voir GDD/demande utilisateur — "une petite main et un petit texte qui te dit quoi faire,
+    // ça fait quoi" : une étape avec une touche/action associée affiche une petite main animée
+    // pointant vers la touche (en évidence), suivie de l'effet ; une étape purement informative
+    // (Action vide) reste un simple texte centré, comme avant.
+    const float pixelSize = 2.2f;
     var lineY = h * 0.40f;
-    foreach (var line in page.Lines)
+    foreach (var step in page.Steps)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, line, new Vector2(w / 2f, lineY), 2.2f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
-        lineY += TextRenderer.LineHeight(2.2f) + 8f;
+        if (step.Action.Length == 0)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, step.Effect, new Vector2(w / 2f, lineY), pixelSize, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+        }
+        else
+        {
+            var actionText = $"[{step.Action}]";
+            var effectText = $" {step.Effect}";
+            var actionWidth = TextRenderer.MeasureWidth(actionText, pixelSize);
+            var effectWidth = TextRenderer.MeasureWidth(effectText, pixelSize);
+            var totalWidth = actionWidth + effectWidth;
+            var handTipX = w / 2f - totalWidth / 2f - 14f;
+
+            DrawTutorialHand(new Vector2(handTipX, lineY + TextRenderer.LineHeight(pixelSize) / 2f - 3f));
+
+            var textLeft = w / 2f - totalWidth / 2f;
+            TextRenderer.Draw(spriteBatch, whiteTexture, actionText, new Vector2(textLeft, lineY), pixelSize, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+            TextRenderer.Draw(spriteBatch, whiteTexture, effectText, new Vector2(textLeft + actionWidth, lineY), pixelSize, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+        }
+
+        lineY += TextRenderer.LineHeight(pixelSize) + 8f;
     }
 
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"PAGE {tutorialPage + 1}/{pages.Length}", new Vector2(w / 2f, h * 0.78f), 1.7f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES : NAVIGUER - ECHAP OU F1 : FERMER", new Vector2(w / 2f, h - 40f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "une petite main... pour t'expliquer comment jouer" : petite
+/// main stylisée (paume + doigt pointeur), pas d'assets image dans ce projet (rendu 100% en
+/// primitives, voir DrawStarterPortrait pour le même principe) — un léger va-et-vient horizontal
+/// (animationClock) attire l'oeil vers la touche qu'elle désigne.
+/// </summary>
+void DrawTutorialHand(Vector2 tip)
+{
+    var bob = MathF.Sin(animationClock * 4f) * 4f;
+    var tipPos = tip + new Vector2(bob, 0f);
+    const float fingerLength = 16f;
+    const float fingerHeight = 6f;
+    var color = new Vector4(0.92f, 0.78f, 0.6f, 1f);
+
+    // Doigt pointeur : un triangle (quad dégénéré) pointant vers la droite, vers le texte.
+    var fingerBaseTop = tipPos + new Vector2(-fingerLength, -fingerHeight / 2f);
+    var fingerBaseBottom = tipPos + new Vector2(-fingerLength, fingerHeight / 2f);
+    spriteBatch.DrawQuad(whiteTexture, fingerBaseTop, tipPos, tipPos, fingerBaseBottom, color);
+
+    // Paume : petit carré derrière le doigt.
+    var palmCenter = tipPos + new Vector2(-fingerLength - 7f, 0f);
+    DrawPanel(palmCenter - new Vector2(7f, 6f), new Vector2(14f, 12f), color);
 }
 
 static string[] BuildingFlavor(string name) => name switch
@@ -4668,7 +5024,7 @@ void ConnectAndEnterWorld(Guid characterId)
 
         lock (stateLock)
         {
-            remotePlayers[packet.CharacterId] = new RemotePlayer(packet.Name, new Vector2(packet.PositionX, packet.PositionY), packet.Rank);
+            remotePlayers[packet.CharacterId] = new RemotePlayer(packet.Name, new Vector2(packet.PositionX, packet.PositionY), packet.Rank, packet.Level);
         }
     };
     connection.PlayerLeft += packet =>
@@ -4845,6 +5201,23 @@ static List<string> WrapTextToLines(string text, float maxWidth, float pixelSize
     return lines;
 }
 
+/// <summary>Raccourcit un texte sur une seule ligne avec "..." s'il dépasse <paramref name="maxWidth"/> (voir GDD/demande utilisateur — "le texte dans le pass dépasse vers la droite", DrawBattlePassPanel).</summary>
+static string TruncateToWidth(string text, float maxWidth, float pixelSize)
+{
+    if (TextRenderer.MeasureWidth(text, pixelSize) <= maxWidth)
+    {
+        return text;
+    }
+
+    var truncated = text;
+    while (truncated.Length > 1 && TextRenderer.MeasureWidth(truncated + "..", pixelSize) > maxWidth)
+    {
+        truncated = truncated[..^1];
+    }
+
+    return truncated + "..";
+}
+
 /// <summary>
 /// Voir GDD/demande utilisateur — "il y a une touche pour masquer la quête mais pas la
 /// réafficher" : Q (ou un clic, voir DrawOutdoorHudButtons/DrawQuestPanel) bascule maintenant
@@ -5012,13 +5385,29 @@ void UpdateDungeonSelectPanel()
         return;
     }
 
-    if (keyboard.WasJustPressed(Key.Down)) dungeonSelectCursor = Math.Min(dungeonSelectCursor + 1, dungeonSelectOptions.Count - 1);
-    else if (keyboard.WasJustPressed(Key.Up)) dungeonSelectCursor = Math.Max(dungeonSelectCursor - 1, 0);
+    if (keyboard.WasJustPressed(Key.Down))
+    {
+        dungeonSelectCursor = Math.Min(dungeonSelectCursor + 1, dungeonSelectOptions.Count - 1);
+        dungeonHardcoreRequested = false;
+    }
+    else if (keyboard.WasJustPressed(Key.Up))
+    {
+        dungeonSelectCursor = Math.Max(dungeonSelectCursor - 1, 0);
+        dungeonHardcoreRequested = false;
+    }
+    // Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des dongon
+    // a part mais que l'on peut choisir hardcore ou normal" : bascule uniquement si le donjon
+    // sélectionné propose le mode hardcore (voir DungeonEntity.IsHardcore, repris tel quel).
+    else if (keyboard.WasJustPressed(Key.Tab) && dungeonSelectOptions[dungeonSelectCursor].IsHardcore)
+    {
+        dungeonHardcoreRequested = !dungeonHardcoreRequested;
+    }
     else if (keyboard.WasJustPressed(Key.Enter))
     {
-        // Voir GDD/demande utilisateur — "niveau min pour rentrer" : déjà vérifié côté serveur
-        // au premier combat engagé dans ce donjon (voir CombatService.StartFromDungeonAsync),
-        // pas ici — l'écran d'étage lui-même reste consultable sous le niveau requis.
+        // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon
+        // c'est le niveau des monstres, pas celui du personnage" : plus aucun garde-fou de
+        // niveau de personnage ici ni côté serveur (voir CombatService.StartFromDungeonAsync) —
+        // MinLevel/MaxMonsterLevel décrivent seulement le niveau des monstres rencontrés.
         isDungeonSelectOpen = false;
         EnterDungeonInterior(dungeonSelectOptions[dungeonSelectCursor]);
     }
@@ -5051,8 +5440,16 @@ void DrawDungeonSelectPanel(int w, int h)
             var isSelected = i == dungeonSelectCursor;
             var prefix = isSelected ? "> " : "  ";
             var color = isSelected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
-            var tags = (dungeon.IsMythic ? " [MYTHIQUE]" : "") + (dungeon.IsHardcore ? " [HARDCORE]" : "");
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{dungeon.Name.ToUpperInvariant()} - NIV. {dungeon.MinLevel}+{tags}", new Vector2(topLeft.X + 24f, y), 1.8f, color);
+            // Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des
+            // dongon a part mais que l'on peut choisir hardcore ou normal" : le choix (TAB) ne
+            // s'applique qu'au donjon actuellement sélectionné.
+            var hardcoreTag = !dungeon.IsHardcore ? "" : isSelected && dungeonHardcoreRequested ? " [HARDCORE ACTIVE - TAB]" : " [HARDCORE DISPONIBLE - TAB]";
+            var tags = (dungeon.IsMythic ? " [MYTHIQUE]" : "") + hardcoreTag;
+            // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon
+            // c'est le niveau des monstres" : plage affichee (etage 1 -> dernier etage) plutot
+            // qu'un simple "niveau min pour rentrer".
+            var levelLabel = dungeon.MaxMonsterLevel > dungeon.MinLevel ? $"NIV. {dungeon.MinLevel}-{dungeon.MaxMonsterLevel}" : $"NIV. {dungeon.MinLevel}";
+            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{dungeon.Name.ToUpperInvariant()} - {levelLabel}{tags}", new Vector2(topLeft.X + 24f, y), 1.8f, color);
             y += 28f;
         }
 
@@ -5066,7 +5463,7 @@ void DrawDungeonSelectPanel(int w, int h)
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : entrer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - TAB : hardcore/normal - ENTREE : entrer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Voir GDD/demande utilisateur — extrait de l'ex-<c>case InteractionKind.Dungeon</c> pour être réutilisable depuis <see cref="UpdateDungeonSelectPanel"/>.</summary>
@@ -5658,6 +6055,12 @@ void OpenPanel(PanelKind kind)
             challenges = [];
             challengesTask = chosenCharacterId is null ? null : gameDataApi?.GetChallengesAsync(chosenCharacterId.Value);
             break;
+        case PanelKind.Reports:
+            reportsCursor = 0;
+            reportsMessage = null;
+            reports = [];
+            reportsTask = gameDataApi?.GetReportsAsync(options.SessionToken!);
+            break;
     }
 }
 
@@ -5864,7 +6267,7 @@ void UpdateGuildPanel(float deltaTime)
 
         if (state is not null)
         {
-            combatState = state;
+            ApplyCombatState(state);
             combatSelectedAction = null;
             combatMessage = null;
             combatReturnScene = SceneMode.Outdoor;
@@ -6392,7 +6795,7 @@ void UpdateMonstersPanel()
             monsterMessage = "Rien à retirer sur cette créature.";
         }
     }
-    else if (keyboard.WasJustPressed(Key.L) && myRank == UserRank.Fondateur && gameDataApi is not null)
+    else if (keyboard.WasJustPressed(Key.L) && myRank == UserRank.Fondateur && adminModeActive && gameDataApi is not null)
     {
         // Voir GDD/demande utilisateur — "ajoute au admin la possibilité d'augmenter le niveau de
         // ces monstres" : +5 niveaux d'un coup sur la créature sélectionnée, outil admin/debug,
@@ -6448,7 +6851,7 @@ void UpdateArenaPanel(float deltaTime)
 
         if (state is not null)
         {
-            combatState = state;
+            ApplyCombatState(state);
             combatSelectedAction = null;
             combatMessage = null;
             combatReturnScene = SceneMode.Outdoor;
@@ -6777,6 +7180,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Challenges)
     {
         UpdateChallengesPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.Reports)
+    {
+        UpdateReportsPanel();
         return;
     }
 
@@ -7153,6 +7562,23 @@ void UpdateDungeonCorridor(float deltaTime)
     // Voir retour utilisateur — "plafonne à 10 étages" : un parcours recommence à l'étage 1
     // (nouveau tirage, nouveau butin) une fois DungeonProgression.MaxFloor nettoyé, au lieu de
     // continuer indéfiniment.
+    // Voir GDD/demande utilisateur — "ajoute une touche dans les dongon que seul les admin
+    // peuvent faire pour monter d'étage... sans avoir a visité toute les salle" : F3, seulement
+    // en mode admin (voir IsAdminModeReady), même logique de montée d'étage que ci-dessous mais
+    // sans exiger allCleared.
+    if (IsAdminModeReady() && keyboard.WasJustPressed(Key.F3))
+    {
+        var wasFinalFloorAdmin = dungeonFloorNumber >= DungeonProgression.MaxFloor;
+        dungeonFloorNumber = wasFinalFloorAdmin ? 1 : dungeonFloorNumber + 1;
+        dungeonFloor = null;
+        dungeonRoomMessage = "(ADMIN) Etage suivant sans avoir tout nettoye.";
+        dungeonEncounterPreview = null;
+        dungeonEncounterPreviewTask = null;
+        dungeonEncounterPreviewRoomIndex = -1;
+        dungeonFloorTask = gameDataApi!.GetDungeonFloorAsync(worldMap.DungeonId, dungeonFloorNumber);
+        return;
+    }
+
     if (allCleared && keyboard.WasJustPressed(Key.E))
     {
         var wasFinalFloor = dungeonFloorNumber >= DungeonProgression.MaxFloor;
@@ -7301,7 +7727,7 @@ async Task<CombatResult> StartDungeonRoomCombatAsync(int floorNumber, int roomIn
         var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
         var monsterIds = SelectActiveTeamIds(monsters);
 
-        return await combatApi.StartDungeonCombatAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, worldMap.DungeonId, floorNumber, roomIndex);
+        return await combatApi.StartDungeonCombatAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, worldMap.DungeonId, floorNumber, roomIndex, dungeonHardcoreRequested);
     }
     catch (HttpRequestException)
     {
@@ -7389,7 +7815,7 @@ void UpdateCombat(float deltaTime)
         // plus ancienne plutôt que d'écraser l'état frais qu'elle vient de renvoyer.
         if (!pollTask.IsFaulted && pollTask.Result is { } freshState && combatActionTask is null)
         {
-            combatState = freshState;
+            ApplyCombatState(freshState);
         }
 
         combatPollTask = null;
@@ -7858,7 +8284,7 @@ void DrawPortal(Vector2 gridPos, float animClock)
     DrawIsoDiamond(gridPos, 0.46f, Vector4.Lerp(WorldMap.PortalMidColorBright, WorldMap.PortalCoreColor, pulse));
 }
 
-void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wallLeftColor, Vector4 wallRightColor, Vector4 headColor, float bobPixels, string? label = null)
+void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wallLeftColor, Vector4 wallRightColor, Vector4 headColor, float bobPixels, string? label = null, string? sublabel = null)
 {
     const float footprint = 0.40f;
 
@@ -7916,6 +8342,14 @@ void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wa
     {
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, label.ToUpperInvariant(),
             new Vector2(headCenter.X, headTop.Y - 14f), 1.6f, new Vector4(1f, 1f, 1f, 0.92f));
+
+        // Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour
+        // que en multijoueur on puisse voir le niveau des autres".
+        if (sublabel is not null)
+        {
+            TextRenderer.DrawCentered(spriteBatch, whiteTexture, sublabel.ToUpperInvariant(),
+                new Vector2(headCenter.X, headTop.Y - 2f), 1.2f, new Vector4(0.85f, 0.85f, 0.75f, 0.85f));
+        }
     }
 }
 
@@ -7951,7 +8385,7 @@ void DrawRemotePlayerFigure(RemotePlayer remote, float animClock)
     DrawFigure(
         remote.Position, 0.55f,
         new Vector4(0.35f, 0.62f, 0.88f, 1f), new Vector4(0.20f, 0.38f, 0.58f, 1f), new Vector4(0.28f, 0.50f, 0.72f, 1f),
-        new Vector4(0.88f, 0.78f, 0.68f, 1f), bob, remote.Name);
+        new Vector4(0.88f, 0.78f, 0.68f, 1f), bob, remote.Name, $"Niv. {remote.Level}");
 }
 
 void DrawNpcFigure(Npc npc, float animClock)
@@ -8005,6 +8439,7 @@ void DrawOutdoorHud()
             case PanelKind.Hatchery: DrawHatcheryPanel(w, h); break;
             case PanelKind.Encyclopedia: DrawEncyclopediaPanel(w, h); break;
             case PanelKind.Challenges: DrawChallengesPanel(w, h); break;
+            case PanelKind.Reports: DrawReportsPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -8116,9 +8551,12 @@ bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
         labels.Add(questTitle is not null ? "QUETE (Q)" : "QUETE (Q) [MASQUEE]");
     }
 
+    // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin...
+    // avec un combo de touche on passe en admin on a les champs" : le bouton ADMIN (F2) ne
+    // s'affiche que le mode admin déjà actif ; sinon un indice discret rappelle le combo.
     if (myIsAdmin || myRank == UserRank.Fondateur)
     {
-        labels.Add("ADMIN (F2)");
+        labels.Add(adminModeActive ? "ADMIN (F2)" : "MODE ADMIN (CTRL+ALT+A)");
     }
 
     var maxWidth = labels.Count > 0 ? labels.Max(l => TextRenderer.MeasureWidth(l, pixelSize)) : 0f;
@@ -8221,7 +8659,9 @@ void DrawOutdoorHudButtons(int w, int h)
     // Voir GDD/demande utilisateur — "il n'y a toujours pas de bouton pour le fondateur et les
     // admin en haut à droite" : bouton dédié en plus du raccourci F2 (voir plus haut dans le
     // gestionnaire d'entrée outdoor), réservé aux comptes admin/Fondateur comme le panel lui-même.
-    if (myIsAdmin || myRank == UserRank.Fondateur)
+    // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin" :
+    // bouton masqué tant que le mode admin n'est pas actif (voir adminModeActive, CTRL+ALT+A).
+    if (adminModeActive && (myIsAdmin || myRank == UserRank.Fondateur))
     {
         const string adminLabel = "ADMIN (F2)";
         var adminWidth = TextRenderer.MeasureWidth(adminLabel, pixelSize);
@@ -8645,9 +9085,7 @@ void DrawMonstersPanel(int w, int h)
             // de caractère "✦" dans la police à points 3x5 maison, voir TextRenderer — un tag
             // entre crochets comme les autres reste lisible avec le même rendu).
             var cosmeticLabel = species is { IsCosmetic: true } ? " [COSMETIQUE]" : "";
-            // Voir GDD/demande utilisateur — bâtiment pour "déplacer ce que l'on a dans notre team".
-            var teamLabel = monster.IsInActiveTeam ? " [EQUIPE]" : "";
-            var rowText = $"{prefix}{name.ToUpperInvariant()}{cosmeticLabel}{variantLabel}{typeLabel}{teamLabel} - NIV. {monster.Level}";
+            var rowText = $"{prefix}{name.ToUpperInvariant()}{cosmeticLabel}{variantLabel}{typeLabel} - NIV. {monster.Level}";
             if (monster.PassiveTalent.Length > 0)
             {
                 rowText += $" - {monster.PassiveTalent.ToUpperInvariant()}";
@@ -8685,7 +9123,7 @@ void DrawMonstersPanel(int w, int h)
         // Voir GDD/demande utilisateur — "pour les indications de touche, fais comme Amis/Profil"
         // : bannière pulsante en bas (DrawPromptBanner) plutôt qu'un texte simple dans la boîte,
         // pour rester cohérent avec les panneaux plus récents.
-        var hint = myRank == UserRank.Fondateur
+        var hint = myRank == UserRank.Fondateur && adminModeActive
             ? "I:DETAILS - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
             : "I:DETAILS - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
         TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
@@ -8715,8 +9153,8 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
 {
     DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0f, 0f, 0f, 0.65f));
 
-    const float boxWidth = 420f;
-    const float boxHeight = 380f;
+    const float boxWidth = 480f;
+    const float boxHeight = 460f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.07f, 0.08f, 0.07f, 0.97f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.9f, 0.6f, 1f));
@@ -8729,16 +9167,20 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
     TextRenderer.DrawCentered(spriteBatch, whiteTexture, subtitle, new Vector2(w / 2f, topLeft.Y + 56f), 1.5f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
 
     var baseStats = species?.BaseStats ?? StatBlock.Zero;
+    // Voir GDD/demande utilisateur — "fait en sorte que dans le detail du pokemon on puisse les
+    // voir" (IV/EV/prest) : affichés en suffixe de chaque statistique plutôt qu'en lignes
+    // séparées, pour rester lisible sans faire exploser la hauteur du panneau.
+    string StatSuffix(int iv, int ev, int prest) => $" (IV {iv} / EV {ev} / PREST {prest})";
     var lines = new List<(string Label, string Value)>
     {
         ("Niveau", monster.PrestigeLevel > 0 ? $"{monster.Level} (prestige {monster.PrestigeLevel})" : $"{monster.Level}"),
         ("Variante", MonsterVariantCatalog.Get(monster.Variant).DisplayName),
-        ("PV max", $"{ClientScaledStat(baseStats.Health, monster.Level, monster.Variant)}"),
-        ("Attaque", $"{ClientScaledStat(baseStats.Attack, monster.Level, monster.Variant)}"),
-        ("Defense", $"{ClientScaledStat(baseStats.Defense, monster.Level, monster.Variant)}"),
-        ("Vitesse", $"{ClientScaledStat(baseStats.Speed, monster.Level, monster.Variant)}"),
-        ("Intelligence", $"{ClientScaledStat(baseStats.Intelligence, monster.Level, monster.Variant)}"),
-        ("Resistance", $"{ClientScaledStat(baseStats.Resistance, monster.Level, monster.Variant)}"),
+        ("PV max", $"{ClientScaledStat(baseStats.Health, monster.Level, monster.Variant)}{StatSuffix(monster.IvHealth, monster.EvHealth, monster.PrestHealth)}"),
+        ("Attaque", $"{ClientScaledStat(baseStats.Attack, monster.Level, monster.Variant)}{StatSuffix(monster.IvAttack, monster.EvAttack, monster.PrestAttack)}"),
+        ("Defense", $"{ClientScaledStat(baseStats.Defense, monster.Level, monster.Variant)}{StatSuffix(monster.IvDefense, monster.EvDefense, monster.PrestDefense)}"),
+        ("Vitesse", $"{ClientScaledStat(baseStats.Speed, monster.Level, monster.Variant)}{StatSuffix(monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed)}"),
+        ("Intelligence", $"{ClientScaledStat(baseStats.Intelligence, monster.Level, monster.Variant)}{StatSuffix(monster.IvIntelligence, monster.EvIntelligence, monster.PrestIntelligence)}"),
+        ("Resistance", $"{ClientScaledStat(baseStats.Resistance, monster.Level, monster.Variant)}{StatSuffix(monster.IvResistance, monster.EvResistance, monster.PrestResistance)}"),
         ("Passif", monster.PassiveTalent.Length > 0 ? monster.PassiveTalent : "Aucun"),
     };
 
@@ -8746,7 +9188,7 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
     foreach (var (label, value) in lines)
     {
         TextRenderer.Draw(spriteBatch, whiteTexture, $"{label.ToUpperInvariant()} :", new Vector2(topLeft.X + 26f, y), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, value.ToUpperInvariant(), new Vector2(topLeft.X + 190f, y), 1.7f, Vector4.One);
+        TextRenderer.Draw(spriteBatch, whiteTexture, TruncateToWidth(value.ToUpperInvariant(), boxWidth - 190f - 20f, 1.35f), new Vector2(topLeft.X + 190f, y), 1.35f, Vector4.One);
         y += 26f;
     }
 
@@ -10135,6 +10577,17 @@ void DrawCombat()
 
         var center = new Vector2(originX + combatant.PositionX * cellSize + cellSize / 2f, originY + combatant.PositionY * cellSize + cellSize / 2f);
 
+        // Voir GDD/demande utilisateur — "ajoute de la lumière autour des monstre qui lvl up pour
+        // faire une petit animation" : anneau dore qui s'estompe, derriere le portrait.
+        var levelUpGlow = activeLevelUpGlows.FirstOrDefault(g => g.CombatantId == combatant.Id);
+        if (levelUpGlow.CombatantId == combatant.Id)
+        {
+            var glowAlpha = Math.Max(0f, 1f - levelUpGlow.Elapsed / LevelUpGlowDuration);
+            var glowPulse = 0.7f + 0.3f * MathF.Sin(animationClock * 8f);
+            var glowRadius = cellSize / 2f + 6f + 4f * (1f - glowAlpha);
+            DrawPanel(center - new Vector2(glowRadius, glowRadius), new Vector2(glowRadius * 2f, glowRadius * 2f), new Vector4(0.98f, 0.85f, 0.35f, glowAlpha * glowPulse * 0.55f));
+        }
+
         if (combatant.Id == combatState.CurrentTurnCombatantId)
         {
             // Voir retour utilisateur — "ameliore la surbrillance pour dire a qui le tour" :
@@ -10867,6 +11320,15 @@ enum InteractionKind
     Npc,
 }
 
+/// <summary>
+/// Voir GDD/demande utilisateur — "améliore le tuto avec une petite main et un petit texte qui te
+/// dit quoi faire, ça fait quoi, pour t'expliquer comment jouer" : chaque étape sépare la touche/
+/// action à faire (<see cref="Action"/>, affichée à côté d'une petite main animée, voir
+/// DrawTutorialHand) de ce que ça déclenche (<see cref="Effect"/>) — vide quand la ligne est
+/// purement informative (pas d'action associée, pas de main affichée).
+/// </summary>
+readonly record struct TutorialStep(string Action, string Effect);
+
 enum PanelKind
 {
     None,
@@ -10907,6 +11369,9 @@ enum PanelKind
 
     /// <summary>Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec une UI dédiée.</summary>
     Challenges,
+
+    /// <summary>Voir GDD/demande utilisateur — "les admin peut voir les report... sur un ui que seul les admin peuvent voir" : accessible uniquement en mode admin (voir adminModeActive).</summary>
+    Reports,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
@@ -10933,7 +11398,8 @@ enum GuildPanelMode
 }
 
 /// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe). Porte son grade pour la liste des joueurs en ligne.</summary>
-record RemotePlayer(string Name, Vector2 Position, UserRank Rank = UserRank.Joueur);
+/// <summary>Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour que en multijoueur on puisse voir le niveau des autres" (voir Level, DrawFigure).</summary>
+record RemotePlayer(string Name, Vector2 Position, UserRank Rank = UserRank.Joueur, int Level = 1);
 
 /// <summary>Un message affiché dans le panneau Tchat (voir GDD — tchat global/tchat de guilde).</summary>
 record ChatLine(ChatChannel Channel, string SenderName, UserRank Rank, string Message, int SenderGradeTier = 0);

@@ -413,6 +413,12 @@ public static class MonsterCatalogSeeder
                 Name = "Parchemin de Compétence", Description = "Change aléatoirement la compétence passive d'une créature.",
                 ItemType = ItemType.Consommable, Rarity = Rarity.Epique, IsStackable = true, MaxStackSize = 20, Price = 400,
             },
+            // Voir GDD/demande utilisateur — "ajoute un item pour changer les iv".
+            new()
+            {
+                Name = "Pierre de Réinitialisation", Description = "Retire un nouveau jeu d'IV (0-31) au hasard pour une créature.",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Epique, IsStackable = true, MaxStackSize = 20, Price = 400,
+            },
             // Voir retour utilisateur — "ajoute des items exclusifs que l'on peut avoir que en
             // donjon" : ni en boutique (Price = 0) ni dans le butin de combat aléatoire normal
             // (IsObtainable = false, voir LootService) - distribués uniquement par

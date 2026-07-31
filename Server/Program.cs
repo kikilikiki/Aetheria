@@ -421,6 +421,22 @@ app.MapPost("/api/monsters/reroll-passive", async (RerollPassiveTalentRequest re
     }
 });
 
+// Voir GDD/demande utilisateur — "ajoute un item pour changer les iv".
+app.MapPost("/api/monsters/reroll-iv", async (RerollIvRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var careService = new MonsterCareService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await careService.RerollIvAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Voir GDD/demande utilisateur — "Prestige après niveau maximum".
 app.MapPost("/api/monsters/{monsterId:guid}/prestige", async (Guid monsterId, PrestigeMonsterRequest request) =>
 {
@@ -634,6 +650,7 @@ app.MapPost("/api/dungeons", async (DungeonData dungeon) =>
         Description = dungeon.Description,
         Seed = dungeon.Seed,
         MinLevel = Math.Max(1, dungeon.MinLevel),
+        MaxMonsterLevel = Math.Max(Math.Max(1, dungeon.MinLevel), dungeon.MaxMonsterLevel),
         IsHardcore = dungeon.IsHardcore,
     };
 
@@ -656,6 +673,7 @@ app.MapPut("/api/dungeons/{id:int}", async (int id, DungeonData updated) =>
     existing.Description = updated.Description;
     existing.Seed = updated.Seed;
     existing.MinLevel = Math.Max(1, updated.MinLevel);
+    existing.MaxMonsterLevel = Math.Max(Math.Max(1, updated.MinLevel), updated.MaxMonsterLevel);
     existing.IsHardcore = updated.IsHardcore;
 
     await db.SaveChangesAsync();
@@ -1910,6 +1928,37 @@ app.MapPost("/api/kingdoms/{kingdomId:int}/weekly-chest/claim", async (int kingd
     }
 });
 
+// Voir GDD/demande utilisateur — "le coffre de la semaine doit etre cache sur la map" : le client
+// ne connait que le royaume du personnage (KingdomType), pas l'id interne du royaume.
+app.MapGet("/api/kingdoms/by-type/{kingdomType}/weekly-chest", async (KingdomType kingdomType) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var chestService = new WeeklyChestService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await chestService.GetStatusByKingdomTypeAsync(kingdomType));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.NotFound(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/kingdoms/by-type/{kingdomType}/weekly-chest/claim", async (KingdomType kingdomType, AdminSessionRequest request, Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var chestService = new WeeklyChestService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await chestService.ClaimByKingdomTypeAsync(request.SessionToken, characterId, kingdomType));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 app.MapGet("/api/seasons/current", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
@@ -1974,6 +2023,91 @@ app.MapGet("/api/admin/users", async (string? search) =>
         // personnages a une session de jeu active (voir WorldSessionRegistry.IsOnline).
         IsOnline = u.Characters.Any(c => registry.IsOnline(c.Id)),
     }));
+});
+
+// Voir GDD/demande utilisateur — "les admin peut voir les report sur une page sur le launcher et
+// sur un ui que seul les admin peuvent voir" : contrairement à /api/admin/users ci-dessus (ouvert,
+// incohérence assumée historique), celui-ci revérifie explicitement le grade admin/fondateur côté
+// serveur (voir AdminAuthService) plutôt que de se reposer sur le seul gate visuel du Launcher/Client.
+app.MapGet("/api/admin/reports", async (string sessionToken) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var reports = await db.Reports.OrderByDescending(r => r.CreatedAtUtc).ToListAsync();
+    return Results.Ok(reports.Select(r => new ReportSummary
+    {
+        Id = r.Id,
+        ReporterCharacterId = r.ReporterCharacterId,
+        ReporterCharacterName = r.ReporterCharacterName,
+        ReportedCharacterId = r.ReportedCharacterId,
+        ReportedCharacterName = r.ReportedCharacterName,
+        Reason = r.Reason,
+        CreatedAtUtc = r.CreatedAtUtc,
+        Resolved = r.Resolved,
+    }));
+});
+
+app.MapPost("/api/admin/reports/{reportId:guid}/resolve", async (Guid reportId, AdminSessionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var report = await db.Reports.FirstOrDefaultAsync(r => r.Id == reportId);
+    if (report is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Signalement introuvable." });
+    }
+
+    report.Resolved = true;
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = "Signalement marqué comme traité." });
+});
+
+// Voir GDD/demande utilisateur — "la possibilité de se téléporter a la personne qui a report et a
+// la personne qui a été report" : position live si le personnage est connecté (voir
+// WorldSessionRegistry/PlayerSession.PositionX/Y), sinon dernière position connue en base.
+app.MapGet("/api/admin/locate/{characterName}", async (string characterName, string sessionToken) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, characterName));
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    var session = app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterName(target.Name);
+    return Results.Ok(new PlayerLocationSummary
+    {
+        CharacterName = target.Name,
+        Kingdom = target.Kingdom,
+        PositionX = session?.PositionX ?? target.LastPositionX,
+        PositionY = session?.PositionY ?? target.LastPositionY,
+        IsOnline = session is not null,
+    });
 });
 
 // Suppression/restauration/modification/permissions de compte : actions destructives, réservées
@@ -2435,7 +2569,9 @@ app.MapPost("/api/admin/game/toggle-admin", async (AdminToggleAdminRequest reque
         return Results.Json(new ApiError { Message = "Action réservée au grade Fondateur." }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin" :
+    // recherche insensible à la casse/accents (voir TextMatching), comme give-item/give-monster.
+    var target = (await db.Characters.Include(c => c.User).ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target?.User is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2468,7 +2604,8 @@ app.MapPost("/api/admin/game/ban", async (AdminBanRequest request) =>
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin".
+    var target = (await db.Characters.Include(c => c.User).ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target?.User is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2560,7 +2697,9 @@ app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest reque
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
     }
 
-    var species = (await db.MonsterSpecies.ToListAsync()).FirstOrDefault(s => TextMatching.NamesMatch(s.Name, request.SpeciesName));
+    // Voir GDD/demande utilisateur — "le don de monstre doit se faire avec l'id pas l'espece" :
+    // recherche par identifiant exact plutôt que par nom (ambigu en cas d'accents/orthographe).
+    var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == request.SpeciesId);
     if (species is null)
     {
         return Results.NotFound(new ApiError { Message = "Espèce introuvable." });
@@ -2575,11 +2714,75 @@ app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest reque
         Nickname = species.Name,
         Level = 1,
     };
+    MonsterIvRoller.RollInto(monster, Random.Shared);
 
     db.Monsters.Add(monster);
     await db.SaveChangesAsync();
 
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{species.Name} donné à {target.Name}." });
+});
+
+// Voir GDD/demande utilisateur — "ajoute une commande et un champ admin pour donner des palier a un joueur" (paliers du Passe de Niveau).
+app.MapPost("/api/admin/game/give-battlepass-level", async (AdminGiveBattlePassLevelRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    var levels = Math.Max(1, request.Levels);
+    await BattlePassService.GrantLevelsAsync(db, target, levels);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{levels} palier(s) de Passe de Niveau donné(s) à {target.Name} (niveau {target.BattlePassLevel})." });
+});
+
+// Voir GDD/demande utilisateur — "ajoute une commande pour give des montures" : les montures sont liees au compte (voir CollectionEntity/AchievementService), pas au personnage.
+app.MapPost("/api/admin/game/give-mount", async (AdminGiveMountRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    var mount = MountCatalog.Find(request.MountKey);
+    if (mount is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Monture introuvable." });
+    }
+
+    var alreadyOwned = await db.Collections.AnyAsync(c => c.UserId == target.UserId && c.Category == "Monture" && c.CollectionKey == mount.Key);
+    if (alreadyOwned)
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{target.Name} possède déjà {mount.Name}." });
+    }
+
+    db.Collections.Add(new CollectionEntity { Id = Guid.NewGuid(), UserId = target.UserId, CollectionKey = mount.Key, Category = "Monture" });
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{mount.Name} donnée à {target.Name}." });
 });
 
 // Voir GDD/demande utilisateur — "une touche pour mettre niveau max toute son équipe ou celle
@@ -2597,7 +2800,8 @@ app.MapPost("/api/admin/game/max-level-team", async (AdminMaxLevelTeamRequest re
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin".
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2630,7 +2834,8 @@ app.MapPost("/api/admin/game/give-money", async (AdminGiveMoneyRequest request) 
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin".
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2653,7 +2858,8 @@ app.MapPost("/api/admin/game/give-xp", async (AdminGiveXpRequest request) =>
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin".
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2676,7 +2882,8 @@ app.MapPost("/api/admin/game/set-level", async (AdminSetLevelRequest request) =>
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin".
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2700,7 +2907,8 @@ app.MapPost("/api/admin/game/unban", async (AdminUnbanCharacterRequest request) 
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin".
+    var target = (await db.Characters.Include(c => c.User).ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target?.User is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2728,7 +2936,8 @@ app.MapPost("/api/admin/game/give-gems", async (AdminGiveGemsRequest request) =>
         return Results.Json(new ApiError { Message = "Action réservée au grade Fondateur." }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var target = await db.Characters.Include(c => c.User).FirstOrDefaultAsync(c => c.Name == request.TargetCharacterName);
+    // Voir GDD/demande utilisateur — "le champ perso ne fonctionne pas dans la page admin".
+    var target = (await db.Characters.Include(c => c.User).ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
     if (target?.User is null)
     {
         return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
@@ -2757,21 +2966,20 @@ app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest req
     WorldBossEntity boss;
     try
     {
-        boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.SpeciesId, request.MaxHealth, request.TargetKingdom);
+        boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.MaxHealth);
     }
     catch (AccountOperationException ex)
     {
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
     }
 
-    var kingdomSuffix = request.TargetKingdom is { } kingdom ? $" au royaume {kingdom}" : "";
     app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
     {
         Kind = AdminEffectKind.Broadcast,
-        Message = $"Un boss mondial est apparu{kingdomSuffix} : {boss.Name} ({boss.MaxHealth} PV) !",
+        Message = $"Un boss mondial est apparu : {boss.Name} ({boss.MaxHealth} PV) !",
     });
 
-    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{boss.Name} a été invoqué avec {boss.MaxHealth} PV{kingdomSuffix}." });
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{boss.Name} a été invoqué avec {boss.MaxHealth} PV." });
 });
 
 // Voir GDD/demande utilisateur — "commandes admin abuse : double XP, double butin, invasion de
@@ -2965,6 +3173,12 @@ static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnly
     EquippedAccessoryName = entity.EquippedAccessoryItemId is { } accessoryId ? itemNames?.GetValueOrDefault(accessoryId) : null,
     CapturedAtUtc = entity.CapturedAtUtc,
     PrestigeLevel = entity.PrestigeLevel,
+    IvHealth = entity.IvHealth, IvAttack = entity.IvAttack, IvDefense = entity.IvDefense,
+    IvSpeed = entity.IvSpeed, IvIntelligence = entity.IvIntelligence, IvResistance = entity.IvResistance,
+    EvHealth = entity.EvHealth, EvAttack = entity.EvAttack, EvDefense = entity.EvDefense,
+    EvSpeed = entity.EvSpeed, EvIntelligence = entity.EvIntelligence, EvResistance = entity.EvResistance,
+    PrestHealth = entity.PrestHealth, PrestAttack = entity.PrestAttack, PrestDefense = entity.PrestDefense,
+    PrestSpeed = entity.PrestSpeed, PrestIntelligence = entity.PrestIntelligence, PrestResistance = entity.PrestResistance,
 };
 
 // Voir retour utilisateur — "ajoute autre chose que du blé pour les champs et du fer pour la
@@ -3011,6 +3225,7 @@ static DungeonData ToDungeonData(DungeonEntity entity) => new()
     WorldX = entity.WorldX,
     WorldY = entity.WorldY,
     MinLevel = entity.MinLevel,
+    MaxMonsterLevel = entity.MaxMonsterLevel,
     IsHardcore = entity.IsHardcore,
     IsMythic = entity.IsMythic,
     MythicModifierDescription = entity.MythicModifierDescription,

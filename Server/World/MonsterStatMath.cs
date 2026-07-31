@@ -18,4 +18,17 @@ public static class MonsterStatMath
     /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : +5% permanent par palier de prestige, cumulé par-dessus le bonus de variante.</summary>
     public static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel) =>
         Math.Max(1, (int)Math.Round(ScaledStat(baseStat, level, variant) * (1.0 + prestigeLevel * 0.05)));
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon", "ajoute aussi des ev" et
+    /// "après un prestige ajoute un nouveau champ que on va appelé prest". Uniquement pour les
+    /// créatures possédées (jamais les monstres sauvages/boss, qui n'ont pas ces colonnes) :
+    /// IV et EV s'ajoutent en flat AVANT la mise à l'échelle par niveau/variante/prestige (donc
+    /// ils en profitent aussi, comme une vraie composante de la statistique de base) ; EV est
+    /// divisé par 4 comme dans Pokémon (252 EV -> +63 points avant mise à l'échelle). Prest
+    /// s'ajoute APRÈS, en flat pur (un bonus de prestige ne doit pas se remultiplier par le
+    /// prestige suivant).
+    /// </summary>
+    public static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel, int iv, int ev, int prest) =>
+        Math.Max(1, ScaledStat(baseStat + iv + ev / 4, level, variant, prestigeLevel) + prest);
 }

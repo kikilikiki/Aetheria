@@ -27,4 +27,6 @@ public sealed record CombatSessionState(
     /// </summary>
     DateTime TurnStartedAtUtc = default,
     /// <summary>Voir GDD/demande utilisateur — "pièges, cases destructibles, cases de lave, cases glacées" (voir CombatEngine.ScatterTileEffects) : vide en PvP/Arène.</summary>
-    IReadOnlyList<TileEffectEntry>? TileEffects = null);
+    IReadOnlyList<TileEffectEntry>? TileEffects = null,
+    /// <summary>Voir GDD/demande utilisateur — "ajoute de la lumière autour des monstre qui lvl up pour faire une petit animation" : identifiants des créatures alliées ayant gagné un niveau lors de la dernière action, pour déclencher une animation client-side (voir DrawCombatPanel).</summary>
+    IReadOnlyList<Guid>? LeveledUpMonsterIds = null);

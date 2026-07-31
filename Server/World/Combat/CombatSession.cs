@@ -22,6 +22,12 @@ public sealed class CombatSession
     /// <summary>Vrai pour un combat déclenché dans un donjon mythique (voir GDD/demande utilisateur — "contenu end-game... reliques uniques") : voir <c>CombatService.ApplyPveVictoryRewardsAsync</c>, récompense garantie à la victoire.</summary>
     public bool IsMythic { get; init; }
 
+    /// <summary>Donjon d'origine (voir GDD/demande utilisateur — "les dongon normal on est 3 vie") : <c>null</c> hors combat de donjon.</summary>
+    public int? DungeonId { get; init; }
+
+    /// <summary>Vrai si le mode hardcore a été choisi pour ce combat de donjon (voir <c>StartDungeonCombatRequest.HardcoreRequested</c>) — le hardcore/mythique ne consomme pas de vie (voir <c>ApplyPveVictoryRewardsAsync</c>).</summary>
+    public bool IsHardcoreCombat { get; init; }
+
     /// <summary>
     /// Groupe à l'origine de ce combat PvE (voir GDD/demande utilisateur — "en groupe, les 2
     /// doivent voir le même combat, pas deux combats séparés") : un membre du groupe qui engage
@@ -52,6 +58,9 @@ public sealed class CombatSession
     /// contre la cible, ça ne fonctionne pas") ne verrait jamais ce butin.
     /// </summary>
     public Guid? LootId { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute de la lumière autour des monstre qui lvl up pour faire une petit animation" : identifiants des créatures alliées ayant gagné un niveau à la dernière action (voir CombatService.ApplyPveVictoryRewardsAsync), remis à zéro implicitement à chaque nouvel état renvoyé (une seule victoire par combat de toute façon).</summary>
+    public List<Guid> LeveledUpMonsterIds { get; init; } = [];
 
     /// <summary>
     /// Renseigné dès que le combat se termine (voir <see cref="CombatSessionStore"/>) : la

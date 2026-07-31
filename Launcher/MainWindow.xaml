@@ -537,6 +537,15 @@
                         <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
                     </Button>
+                    <!-- Voir GDD/demande utilisateur — "les admin peut voir les report sur une page
+                         sur le launcher" : réservé aux comptes admin/fondateur, même logique que le
+                         bouton Communauté ci-dessus. -->
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Signalements de joueurs"
+                            Command="{Binding ToggleReportsPanelCommand}"
+                            Visibility="{Binding IsAdminAccount, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
+                    </Button>
                     <!-- Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher". -->
                     <Button Style="{StaticResource SidebarIconButton}" ToolTip="Classement" Command="{Binding ToggleLeaderboardCommand}">
                         <TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
@@ -965,6 +974,46 @@
                                     HorizontalAlignment="Center" Margin="0,12,0,0" />
                         </Grid>
                     </Grid>
+                </Border>
+            </Border>
+
+            <!-- Panneau "Signalements" : voir GDD/demande utilisateur — "les admin peut voir les
+                 report sur une page sur le launcher", réservé aux comptes admin/fondateur (bouton
+                 masqué sinon, voir IsAdminAccount). Lecture seule ici (pas de téléportation
+                 possible depuis le Launcher, contrairement au panneau en jeu — voir
+                 DrawReportsPanel côté Client) : seulement la liste et le marquage "traité".-->
+            <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
+                    Visibility="{Binding IsReportsPanelOpen, Converter={StaticResource BoolToVis}}">
+                <Border Style="{StaticResource OverlayCard}" Width="760" Height="540" behaviors:FadeInBehavior.Enable="True"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Padding="22">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="Signalements de joueurs" FontSize="18" FontWeight="Bold"
+                                   Foreground="#E7E5E3" Margin="0,0,0,12" />
+                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleReportsPanelCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,12,0,0" />
+                        <TextBlock DockPanel.Dock="Bottom" Text="{Binding ReportsStatusMessage}"
+                                   Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <TextBlock DockPanel.Dock="Bottom" Text="Chargement..." Foreground="{StaticResource TextMutedBrush}"
+                                   Visibility="{Binding ReportsIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
+                        <DataGrid ItemsSource="{Binding Reports}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Signalé" Binding="{Binding ReportedCharacterName}" Width="130" />
+                                <DataGridTextColumn Header="Signalé par" Binding="{Binding ReporterCharacterName}" Width="130" />
+                                <DataGridTextColumn Header="Raison" Binding="{Binding Reason}" Width="*" />
+                                <DataGridTextColumn Header="Date (UTC)" Binding="{Binding CreatedAtUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" Width="130" />
+                                <DataGridCheckBoxColumn Header="Traité" Binding="{Binding Resolved}" Width="55" />
+                                <DataGridTemplateColumn Header="" Width="100">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Marquer traité" Style="{StaticResource LinkButton}"
+                                                    Command="{Binding DataContext.ResolveReportCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
                 </Border>
             </Border>
 

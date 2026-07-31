@@ -77,6 +77,28 @@ public static class BattlePassService
         }
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute une commande et un champ admin pour donner des palier a un joueur" : octroie directement des niveaux de palier (et leurs recompenses, comme une progression naturelle) plutot que de l'XP a convertir.</summary>
+    public static async Task GrantLevelsAsync(AetheriaDbContext db, CharacterEntity character, int levels, CancellationToken ct = default)
+    {
+        for (var i = 0; i < levels; i++)
+        {
+            character.BattlePassLevel++;
+            character.BattlePassXp = 0;
+
+            if (character.BattlePassLevel > MaxRewardLevel)
+            {
+                continue;
+            }
+
+            await GrantFreeRewardAsync(db, character, character.BattlePassLevel, ct);
+            if (character.BattlePassHasPremium)
+            {
+                await GrantPremiumRewardAsync(db, character, character.BattlePassLevel, ct);
+                character.BattlePassLastPremiumRewardLevel = character.BattlePassLevel;
+            }
+        }
+    }
+
     /// <summary>
     /// Débloque le pass premium contre des gemmes et rattrape immédiatement les récompenses
     /// premium des paliers déjà atteints (voir GDD/demande utilisateur) — sans quoi acheter le

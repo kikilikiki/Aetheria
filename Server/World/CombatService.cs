@@ -20,7 +20,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 {
     /// <summary>XP de base accordée à la victoire PvE (voir GDD — partagée en groupe via <see cref="PartyService"/>). Simplification assumée : montant fixe plutôt que calculé sur le niveau/rareté exacte de la créature vaincue.</summary>
     private const long PveVictoryExperience = 30;
-    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false, bool isMythic = false)
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute aussi des ev" : montant fixe par victoire (même simplification que PveVictoryExperience ci-dessus), plafonné à 252 par statistique (voir MonsterEntity.EvHealth etc.).</summary>
+    private const int EvGainPerVictory = 4;
+    private const int MaxEv = 252;
+    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false, bool isMythic = false, int wildLevel = 1, int? dungeonId = null)
     {
         // Voir retour utilisateur — "ajouter un admin pour desactiver les combats".
         if (GlobalEventService.AreCombatsDisabled)
@@ -102,23 +106,27 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             var hardcoreMultiplier = isMythic ? 3.0 : isHardcore ? 1.5 : 1.0;
             var invasionMultiplier = isInvasion ? 1.3 : 1.0;
             var namePrefix = (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + (isMythic ? "[MYTHIQUE] " : "") + (isInvasion ? "[INVASION] " : "") + (isHardcore ? "[HARDCORE] " : "");
-            var wildMaxHealth = Math.Max(1, (int)Math.Round(wildSpecies.BaseHealth * variantDefinition.StatMultiplier * hardcoreMultiplier * invasionMultiplier));
+            // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon
+            // c'est le niveau des monstres" (voir DungeonMonsterLevel) : les monstres sauvages
+            // n'étaient auparavant jamais mis à l'échelle par niveau (toujours niveau 1 de fait),
+            // seule la variante/difficulté/invasion majorait leurs stats brutes.
+            var wildMaxHealth = Math.Max(1, (int)Math.Round(MonsterStatMath.ScaledStat(wildSpecies.BaseHealth, wildLevel, variant) * hardcoreMultiplier * invasionMultiplier));
             combatants.Add(new Combatant
             {
                 Id = Guid.NewGuid(),
                 Name = enemyCount > 1 ? $"{namePrefix}{wildSpecies.Name} {i + 1}" : $"{namePrefix}{wildSpecies.Name}",
                 Team = 1, X = x, Y = y,
                 MaxHealth = wildMaxHealth, CurrentHealth = wildMaxHealth,
-                Attack = Math.Max(1, (int)Math.Round(wildSpecies.BaseAttack * variantDefinition.StatMultiplier * hardcoreMultiplier * invasionMultiplier)),
-                Defense = Math.Max(1, (int)Math.Round(wildSpecies.BaseDefense * variantDefinition.StatMultiplier * hardcoreMultiplier * invasionMultiplier)),
-                Speed = Math.Max(1, (int)Math.Round(wildSpecies.BaseSpeed * variantDefinition.StatMultiplier)),
+                Attack = Math.Max(1, (int)Math.Round(MonsterStatMath.ScaledStat(wildSpecies.BaseAttack, wildLevel, variant) * hardcoreMultiplier * invasionMultiplier)),
+                Defense = Math.Max(1, (int)Math.Round(MonsterStatMath.ScaledStat(wildSpecies.BaseDefense, wildLevel, variant) * hardcoreMultiplier * invasionMultiplier)),
+                Speed = Math.Max(1, MonsterStatMath.ScaledStat(wildSpecies.BaseSpeed, wildLevel, variant)),
                 MovementRange = 2, AttackRange = BaseAttackRange(wildSpecies.Type), IsPlayerControlled = false,
                 Type = wildSpecies.Type, Element = wildSpecies.Element, SpeciesId = wildSpecies.Id,
-                Variant = variant,
+                Variant = variant, Level = wildLevel,
             });
         }
 
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat, IsMythic = isMythic, PartyId = party?.Id };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat, IsMythic = isMythic, PartyId = party?.Id, DungeonId = dungeonId, IsHardcoreCombat = isHardcore };
         session.TeamOwnerUserId[0] = userId;
         session.TeamCharacterId[0] = character.Id;
 
@@ -191,6 +199,9 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
     /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : bonus permanent supplémentaire, uniquement pour les créatures possédées (pas les monstres sauvages, qui n'ont pas de prestige).</summary>
     private static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel) => MonsterStatMath.ScaledStat(baseStat, level, variant, prestigeLevel);
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon", "ajoute aussi des ev", "après un prestige ajoute un nouveau champ que on va appelé prest".</summary>
+    private static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel, int iv, int ev, int prest) => MonsterStatMath.ScaledStat(baseStat, level, variant, prestigeLevel, iv, ev, prest);
 
     /// <summary>Voir GDD/demande utilisateur — "l'archer doit pouvoir attaquer à distance" : portée de base plutôt que réservée à la capacité spéciale (qui garde son propre bonus de portée, voir CombatEngine.ResolveSpecialAbility).</summary>
     private static int BaseAttackRange(MonsterType type) => type == MonsterType.Archer ? 3 : 1;
@@ -305,20 +316,14 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
         }
 
-        // Voir GDD/demande utilisateur — "donjons hardcore (niv 15+) et en dessous il n'y aura pas
-        // de hardcore" : bloqué avant même de tirer l'espèce rencontrée.
         var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId, ct)
             ?? throw new AccountOperationException("Donjon introuvable.");
 
-        if (dungeon.MinLevel > 1)
-        {
-            var enteringCharacter = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId, ct)
-                ?? throw new AccountOperationException("Personnage introuvable.");
-            if (enteringCharacter.Level < dungeon.MinLevel)
-            {
-                throw new AccountOperationException($"Ce donjon requiert le niveau {dungeon.MinLevel} (vous êtes niveau {enteringCharacter.Level}).");
-            }
-        }
+        // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon c'est
+        // le niveau des monstres, pas celui du personnage" : plus de garde-fou sur le niveau du
+        // personnage ici — dungeon.MinLevel décrit désormais le niveau des monstres rencontrés
+        // (voir DungeonMonsterLevel), pas un prérequis d'entrée. Le joueur s'auto-sélectionne via
+        // l'aperçu de la rencontre (voir GetDungeonEncounterPreviewAsync, "comme Pokémon Épée").
 
         // Voir GDD/demande utilisateur — "contenu end-game... donjons mythiques", réservé aux
         // comptes ayant déjà tout complété (voir EndGameService).
@@ -328,6 +333,30 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             if (!endGameStatus.IsEligible)
             {
                 throw new AccountOperationException("Ce donjon mythique requiert de posséder chaque espèce au niveau maximum et chaque succès de jeu.");
+            }
+        }
+
+        // Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des
+        // dongon a part mais que l'on peut choisir hardcore ou normal" : IsHardcore décrit
+        // désormais si le donjon PROPOSE le mode hardcore, le joueur choisit de l'activer ou non
+        // à l'entrée (voir StartDungeonCombatRequest.HardcoreRequested) plutôt que de tirer un
+        // donjon fixe côté serveur.
+        if (request.HardcoreRequested && !dungeon.IsHardcore)
+        {
+            throw new AccountOperationException("Ce donjon ne propose pas de mode hardcore.");
+        }
+
+        var effectiveHardcore = dungeon.IsHardcore && request.HardcoreRequested;
+
+        // Voir GDD/demande utilisateur — "fait en sorte que les dongon normal on est 3 vie" :
+        // uniquement en mode normal (hardcore/mythique n'en consomment pas, plus risqués par
+        // ailleurs). Bloqué avant même de tirer l'espèce rencontrée, comme les autres gardes.
+        if (!effectiveHardcore && !dungeon.IsMythic)
+        {
+            var lives = await GetOrResetDungeonLivesAsync(request.CharacterId, dungeonId, ct);
+            if (lives.LivesRemaining <= 0)
+            {
+                throw new AccountOperationException("Plus de vie pour ce donjon aujourd'hui (mode normal) — revenez demain, ou tentez le mode hardcore s'il est disponible.");
             }
         }
 
@@ -344,13 +373,35 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             await db.SaveChangesAsync(ct);
         }
 
+        var wildLevel = DungeonMonsterLevel.ForFloor(dungeon, floorNumber);
+
         return await StartAsync(new StartCombatRequest
         {
             SessionToken = request.SessionToken,
             CharacterId = request.CharacterId,
             MonsterIds = request.MonsterIds,
             WildSpeciesId = species.Id,
-        }, ct, isDungeonCombat: true, isHardcore: dungeon.IsHardcore, isMythic: dungeon.IsMythic);
+        }, ct, isDungeonCombat: true, isHardcore: effectiveHardcore, isMythic: dungeon.IsMythic, wildLevel: wildLevel, dungeonId: dungeonId);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "fait en sorte que les dongon normal on est 3 vie" : réinitialisation paresseuse une fois par jour UTC, vérifiée à chaque lecture plutôt que via un job planifié.</summary>
+    private async Task<DungeonLivesEntity> GetOrResetDungeonLivesAsync(Guid characterId, int dungeonId, CancellationToken ct)
+    {
+        var lives = await db.DungeonLives.FirstOrDefaultAsync(l => l.CharacterId == characterId && l.DungeonId == dungeonId, ct);
+        if (lives is null)
+        {
+            lives = new DungeonLivesEntity { Id = Guid.NewGuid(), CharacterId = characterId, DungeonId = dungeonId };
+            db.DungeonLives.Add(lives);
+            await db.SaveChangesAsync(ct);
+        }
+        else if (DateTime.UtcNow.Date > lives.LastResetUtc.Date)
+        {
+            lives.LivesRemaining = DungeonLivesEntity.MaxLives;
+            lives.LastResetUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+
+        return lives;
     }
 
     /// <summary>
@@ -563,6 +614,16 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         const int playerTeam = 0;
         if (session.WinningTeam != playerTeam || !session.TeamCharacterId.TryGetValue(playerTeam, out var winnerCharacterId))
         {
+            // Voir GDD/demande utilisateur — "fait en sorte que les dongon normal on est 3 vie" :
+            // consommée uniquement sur une défaite en donjon normal (pas hardcore/mythique).
+            if (session.IsDungeonCombat && session.DungeonId is { } lostDungeonId && !session.IsHardcoreCombat && !session.IsMythic
+                && session.TeamCharacterId.TryGetValue(playerTeam, out var loserCharacterId))
+            {
+                var lives = await GetOrResetDungeonLivesAsync(loserCharacterId, lostDungeonId, ct);
+                lives.LivesRemaining = Math.Max(0, lives.LivesRemaining - 1);
+                await db.SaveChangesAsync(ct);
+            }
+
             return null;
         }
 
@@ -591,12 +652,26 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             var evolvedNames = new List<string>();
             foreach (var monster in allyMonsters)
             {
+                var levelBeforeGrant = monster.Level;
                 MonsterProgressionService.GrantExperience(monster, (int)PveVictoryExperience);
+                if (monster.Level > levelBeforeGrant)
+                {
+                    // Voir GDD/demande utilisateur — "ajoute de la lumière autour des monstre qui
+                    // lvl up pour faire une petit animation".
+                    session.LeveledUpMonsterIds.Add(monster.Id);
+                }
+
                 var evolvedInto = await MonsterEvolutionService.CheckAndApplyAsync(db, monster, ct);
                 if (evolvedInto is not null)
                 {
                     evolvedNames.Add(evolvedInto.Name);
                 }
+
+                // Voir GDD/demande utilisateur — "ajoute aussi des ev".
+                monster.EvHealth = Math.Min(MaxEv, monster.EvHealth + EvGainPerVictory);
+                monster.EvAttack = Math.Min(MaxEv, monster.EvAttack + EvGainPerVictory);
+                monster.EvDefense = Math.Min(MaxEv, monster.EvDefense + EvGainPerVictory);
+                monster.EvSpeed = Math.Min(MaxEv, monster.EvSpeed + EvGainPerVictory);
             }
 
             if (allyMonsters.Count > 0)
@@ -759,16 +834,21 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // emplacements d'équipement (arme/armure/accessoire) ajoutés par-dessus les stats
             // mises à l'échelle du niveau.
             var equipBonus = await GetEquipmentBonusAsync(monster, ct);
-            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Health;
+            // Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon", "ajoute aussi des
+            // ev", "après un prestige ajoute un nouveau champ que on va appelé prest" : Intelligence
+            // et Resistance ne sont pas consommées par le moteur de combat (pas de champ Combatant
+            // correspondant), donc leurs IV/EV/Prest ne sont pas exploités ici — juste visibles/
+            // modifiables via le détail de la créature (voir MonsterInstanceData).
+            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant, monster.PrestigeLevel, monster.IvHealth, monster.EvHealth, monster.PrestHealth) + equipBonus.Health;
             var type = species?.Type ?? MonsterType.Guerrier;
 
             combatants.Add(new Combatant
             {
                 Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
                 MaxHealth = maxHealth, CurrentHealth = maxHealth,
-                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Attack,
-                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Defense,
-                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant, monster.PrestigeLevel) + equipBonus.Speed,
+                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvAttack, monster.EvAttack, monster.PrestAttack) + equipBonus.Attack,
+                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvDefense, monster.EvDefense, monster.PrestDefense) + equipBonus.Defense,
+                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed) + equipBonus.Speed,
                 MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
                 Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
@@ -964,5 +1044,6 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         session.LootId,
         session.IsDungeonCombat,
         session.TurnStartedAtUtc,
-        session.TileEffects.Select(kv => new TileEffectEntry(kv.Key.X, kv.Key.Y, kv.Value)).ToList());
+        session.TileEffects.Select(kv => new TileEffectEntry(kv.Key.X, kv.Key.Y, kv.Value)).ToList(),
+        session.LeveledUpMonsterIds);
 }

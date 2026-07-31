@@ -7,10 +7,6 @@ public sealed class SpawnWorldBossRequest
 {
     public required string SessionToken { get; init; }
 
-    /// <summary>Voir GDD/demande utilisateur — "refonte du spawn de boss mondial par ID" : identifiant d'une espèce déjà existante du catalogue (voir Server/Persistence/MonsterCatalogSeeder) plutôt qu'un nom libre.</summary>
-    public required int SpeciesId { get; init; }
+    /// <summary>Voir GDD/demande utilisateur — "retire le champ espece et royaume pour le boss monde" : l'espèce est désormais tirée au sort côté serveur (voir WorldBossService.SpawnAsync) plutôt que choisie par l'admin, et le boss ne cible plus un royaume en particulier.</summary>
     public required int MaxHealth { get; init; }
-
-    /// <summary>Voir GDD/demande utilisateur — "boss geant mondial [invoque] a un royaume".</summary>
-    public KingdomType? TargetKingdom { get; init; }
 }

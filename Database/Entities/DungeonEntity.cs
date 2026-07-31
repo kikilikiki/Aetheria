@@ -21,8 +21,18 @@ public sealed class DungeonEntity
     public int WorldY { get; set; }
     public long PositionHourBucket { get; set; } = -1;
 
-    /// <summary>Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour rentrer" : 1 = accessible à tout le monde (voir GDD — "toujours 1 donjon de niveau 1 min pour les débutants").</summary>
+    /// <summary>
+    /// Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon c'est le
+    /// niveau des monstres, pas celui du personnage" : décrit désormais le niveau des monstres à
+    /// l'étage 1 (plus un niveau de personnage requis pour entrer — voir
+    /// CombatService.StartFromDungeonAsync, qui ne garde plus aucun garde-fou sur ce champ).
+    /// Interpolé linéairement jusqu'à <see cref="MaxMonsterLevel"/> au dernier étage (voir
+    /// DungeonMonsterLevel.ForFloor).
+    /// </summary>
     public int MinLevel { get; set; } = 1;
+
+    /// <summary>Niveau des monstres au dernier étage (voir DungeonProgression.MaxFloor) — voir <see cref="MinLevel"/>. Egal à MinLevel pour un donjon "plat" (pas de progression de niveau par étage).</summary>
+    public int MaxMonsterLevel { get; set; } = 1;
 
     /// <summary>Voir GDD/demande utilisateur — "des donjons hardcore (niv 15+) et en dessous il n'y aura pas de hardcore" : monstres à statistiques majorées (voir CombatService.StartFromDungeonAsync). Toujours accompagné de <see cref="MinLevel"/> ≥ 15.</summary>
     public bool IsHardcore { get; set; }

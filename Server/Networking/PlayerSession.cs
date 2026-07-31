@@ -8,6 +8,7 @@ using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
+using Aetheria.Shared.World;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -40,6 +41,9 @@ public sealed class PlayerSession(
     public bool IsAdmin { get; private set; }
     public int PositionX { get; private set; }
     public int PositionY { get; private set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour que en multijoueur on puisse voir le niveau des autres" : capturé à l'entrée dans le monde (voir HandleEnterWorld), pas re-synchronisé en direct si le joueur monte de niveau en cours de session (se rafraîchit à la prochaine reconnexion).</summary>
+    public int Level { get; private set; } = 1;
 
     /// <summary>Mis à jour immédiatement par la commande <c>/nick</c> (voir <see cref="HandleChatCommand"/>) — sans attendre une reconnexion.</summary>
     public void UpdateCharacterName(string newName) => CharacterName = newName;
@@ -172,16 +176,19 @@ public sealed class PlayerSession(
 
         CharacterId = character.Id;
         CharacterName = character.Name;
+        Level = character.Level;
         UserId = userId;
         var user = db.Users.FirstOrDefault(u => u.Id == userId);
         Rank = user?.Rank ?? UserRank.Joueur;
         IsAdmin = user?.IsAdmin ?? false;
 
         // Voir GDD/demande utilisateur — "restaurer la position du joueur en quittant/revenant" :
-        // reprend la dernière position sauvegardée (voir Run, bloc finally), (0,0) — la capitale —
-        // pour un personnage qui n'a encore jamais été sauvegardé.
-        PositionX = character.LastPositionX;
-        PositionY = character.LastPositionY;
+        // reprend la dernière position sauvegardée (voir Run, bloc finally). (0,0) n'est PAS la
+        // capitale (c'est le coin en haut à gauche de la carte, voir WorldMap.cs) — un personnage
+        // jamais sauvegardé (0,0) doit spawn au centre du village (voir WorldMap.SpawnPosition,
+        // taille de carte 50 côté client → (25,27)) plutôt que dans ce coin.
+        PositionX = character.LastPositionX == 0 && character.LastPositionY == 0 ? 25 : character.LastPositionX;
+        PositionY = character.LastPositionX == 0 && character.LastPositionY == 0 ? 27 : character.LastPositionY;
 
         SendPacket(new EnterWorldAcceptedPacket
         {
@@ -204,6 +211,7 @@ public sealed class PlayerSession(
                 PositionX = other.PositionX,
                 PositionY = other.PositionY,
                 Rank = other.Rank,
+                Level = other.Level,
             });
         }
 
@@ -215,6 +223,7 @@ public sealed class PlayerSession(
             PositionX = PositionX,
             PositionY = PositionY,
             Rank = Rank,
+            Level = Level,
         });
 
         logger.LogInformation("{CharacterName} est entré dans le monde.", character.Name);
@@ -227,10 +236,17 @@ public sealed class PlayerSession(
             return;
         }
 
-        // Pas encore de validation de portée/obstacles côté serveur (voir GDD — Phase G pour un
-        // monde partagé complet) : la position envoyée par le client est acceptée telle quelle,
-        // puis diffusée à tous — y compris à l'émetteur, pour rester la seule source de vérité
-        // sur sa propre position affichée (comportement autoritaire déjà en place côté Client).
+        // Voir GDD/demande utilisateur — "en combat on peut encore traverser les mur" : validation
+        // d'emprise au sol des bâtiments (voir TownLayout, partagé avec le Client) — la seule
+        // collision qui existait nulle part jusqu'ici. Portée de déplacement encore non vérifiée
+        // (voir GDD — Phase G pour un monde partagé complet) : un mouvement hors bâtiment/hors
+        // carte est simplement ignoré (la position précédente reste affichée), pas de packet de
+        // rejet dédié.
+        if (!TownLayout.IsWalkable(move.TargetX, move.TargetY, TownLayout.DefaultSize))
+        {
+            return;
+        }
+
         PositionX = move.TargetX;
         PositionY = move.TargetY;
 
@@ -518,9 +534,9 @@ public sealed class PlayerSession(
         switch (parts[0].ToLowerInvariant())
         {
             case "/help":
-                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /use /ping /version" +
-                    (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /give /givemoney /givexp /givemonster /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : "") +
-                    (rank == UserRank.Fondateur ? " — fondateur : /givegems /globalboost /globalgive /dev" : ""));
+                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /use /report /ping /version" +
+                    (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /setiv /give /givemoney /givexp /givemonster /givemount /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : "") +
+                    (rank == UserRank.Fondateur ? " — fondateur : /givegems /givepalier /globalboost /globalgive /dev" : ""));
                 break;
 
             case "/menu":
@@ -644,6 +660,19 @@ public sealed class PlayerSession(
                 }
 
                 UseConsumable(db, useItemId, Reply);
+                break;
+
+            // Voir GDD/demande utilisateur — "ajoute la possibilité de report un joueur" :
+            // commande ouverte à tout le monde (pas seulement modération), traitée ici comme
+            // /whisper /friend etc. ci-dessus.
+            case "/report":
+                if (parts.Length < 3)
+                {
+                    Reply("Usage : /report <pseudo> <raison>");
+                    break;
+                }
+
+                ReportPlayer(db, parts[1], string.Join(' ', parts[2..]), Reply);
                 break;
 
             default:
@@ -835,6 +864,34 @@ public sealed class PlayerSession(
         target.SendPacket(outgoing);
         target.RecordIncomingWhisper(CharacterName);
         SendPacket(outgoing);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute la possibilité de report un joueur" : ouvert à tout le monde (voir TryHandlePublicCommand), consultable par les admins (voir GET /api/admin/reports).</summary>
+    private void ReportPlayer(AetheriaDbContext db, string targetCharacterName, string reason, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        if (target.Id == CharacterId)
+        {
+            reply("Vous ne pouvez pas vous signaler vous-même.");
+            return;
+        }
+
+        db.Reports.Add(new ReportEntity
+        {
+            Id = Guid.NewGuid(),
+            ReporterCharacterId = CharacterId,
+            ReporterCharacterName = CharacterName,
+            ReportedCharacterId = target.Id,
+            ReportedCharacterName = target.Name,
+            Reason = reason.Length > 300 ? reason[..300] : reason,
+        });
+        db.SaveChanges();
+        reply($"{target.Name} a été signalé(e). Merci, un(e) modérateur/administrateur va l'examiner.");
     }
 
     private void HandleGuildCommand(AetheriaDbContext db, string[] args, ChatChannel replyChannel, Action<string> reply)
@@ -1071,6 +1128,18 @@ public sealed class PlayerSession(
                 SetMonsterLevelByIndex(db, parts[1], monsterIndex, targetLevel, Reply);
                 break;
 
+            // Voir GDD/demande utilisateur — "ajoute une commande pour changer les iv" : même
+            // ciblage par numéro d'ordre que /monster-lvl ci-dessus.
+            case "/setiv":
+                if (parts.Length < 5 || !int.TryParse(parts[2], out var setIvMonsterIndex) || !int.TryParse(parts[4], out var setIvValue))
+                {
+                    Reply("Usage : /setiv <pseudo> <numero> <hp|atk|def|vit|int|res> <valeur 0-31>");
+                    return;
+                }
+
+                SetMonsterIvByIndex(db, parts[1], setIvMonsterIndex, parts[3], setIvValue, Reply);
+                break;
+
             case "/give":
                 if (parts.Length < 4 || !int.TryParse(parts[2], out var giveItemId) || !int.TryParse(parts[3], out var giveQty))
                 {
@@ -1123,13 +1192,13 @@ public sealed class PlayerSession(
                 break;
 
             case "/givemonster":
-                if (parts.Length < 3)
+                if (parts.Length < 3 || !int.TryParse(parts[2], out var giveMonsterSpeciesId))
                 {
-                    Reply("Usage : /givemonster <pseudo> <espece>");
+                    Reply("Usage : /givemonster <pseudo> <idEspece>");
                     return;
                 }
 
-                GiveMonster(db, parts[1], string.Join(' ', parts[2..]), Reply);
+                GiveMonster(db, parts[1], giveMonsterSpeciesId, Reply);
                 break;
 
             case "/setlevel":
@@ -1251,6 +1320,43 @@ public sealed class PlayerSession(
                 }
 
                 GiveGems(db, parts[1], gemsAmount, Reply);
+                break;
+
+            // Voir GDD/demande utilisateur — "ajoute une commande et un champ admin pour donner
+            // des palier a un joueur" (paliers du Passe de Niveau) — reserve au Fondateur, meme
+            // logique que /givegems ci-dessus (levier economique impactant).
+            case "/givepalier":
+                if (rank != UserRank.Fondateur)
+                {
+                    Reply("Commande réservée au Fondateur.");
+                    return;
+                }
+
+                if (parts.Length < 3 || !int.TryParse(parts[2], out var palierLevels))
+                {
+                    Reply("Usage : /givepalier <pseudo> <niveaux>");
+                    return;
+                }
+
+                GiveBattlePassLevels(db, parts[1], palierLevels, Reply);
+                break;
+
+            // Voir GDD/demande utilisateur — "ajoute une commande pour give des montures" — reserve
+            // au Fondateur, meme logique que /givepalier/givegems ci-dessus.
+            case "/givemount":
+                if (rank != UserRank.Fondateur)
+                {
+                    Reply("Commande réservée au Fondateur.");
+                    return;
+                }
+
+                if (parts.Length < 3)
+                {
+                    Reply("Usage : /givemount <pseudo> <cleMonture>");
+                    return;
+                }
+
+                GiveMount(db, parts[1], parts[2], Reply);
                 break;
 
             // Voir GDD/demande utilisateur — "ajoute des commandes admin abuse comme boost de
@@ -1391,6 +1497,7 @@ public sealed class PlayerSession(
                 PositionX = targetSession.PositionX,
                 PositionY = targetSession.PositionY,
                 Rank = targetSession.Rank,
+                Level = targetSession.Level,
             });
         }
     }
@@ -1422,6 +1529,53 @@ public sealed class PlayerSession(
         monster.Experience = 0;
         db.SaveChanges();
         reply($"{(monster.Nickname.Length > 0 ? monster.Nickname : "Créature")} (#{monsterIndex} de {targetCharacterName}) est maintenant niveau {monster.Level}.");
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute une commande pour changer les iv" : même ciblage par numéro d'ordre que <see cref="SetMonsterLevelByIndex"/> ci-dessus.</summary>
+    private static void SetMonsterIvByIndex(AetheriaDbContext db, string targetCharacterName, int monsterIndex, string statName, int value, Action<string> reply)
+    {
+        var target = db.Characters.FirstOrDefault(c => c.Name == targetCharacterName);
+        if (target is null)
+        {
+            reply($"Personnage introuvable : {targetCharacterName}");
+            return;
+        }
+
+        var monsters = db.Monsters.Where(m => m.OwnerCharacterId == target.Id).OrderBy(m => m.CapturedAtUtc).ToList();
+        if (monsterIndex < 1 || monsterIndex > monsters.Count)
+        {
+            reply($"Numéro invalide : {targetCharacterName} a {monsters.Count} créature(s) (1 à {monsters.Count}).");
+            return;
+        }
+
+        var monster = monsters[monsterIndex - 1];
+        var clamped = Math.Clamp(value, 0, MonsterIvRoller.MaxIv);
+        var statLabel = statName.ToLowerInvariant() switch
+        {
+            "hp" => "PV",
+            "atk" => "Attaque",
+            "def" => "Défense",
+            "vit" => "Vitesse",
+            "int" => "Intelligence",
+            "res" => "Résistance",
+            _ => null,
+        };
+
+        switch (statName.ToLowerInvariant())
+        {
+            case "hp": monster.IvHealth = clamped; break;
+            case "atk": monster.IvAttack = clamped; break;
+            case "def": monster.IvDefense = clamped; break;
+            case "vit": monster.IvSpeed = clamped; break;
+            case "int": monster.IvIntelligence = clamped; break;
+            case "res": monster.IvResistance = clamped; break;
+            default:
+                reply("Statistique invalide : hp, atk, def, vit, int ou res.");
+                return;
+        }
+
+        db.SaveChanges();
+        reply($"{(monster.Nickname.Length > 0 ? monster.Nickname : "Créature")} (#{monsterIndex} de {targetCharacterName}) : IV {statLabel} = {clamped}.");
     }
 
     /// <summary>
@@ -1502,6 +1656,49 @@ public sealed class PlayerSession(
         target.User.Gems = Math.Max(0, target.User.Gems + amount);
         db.SaveChanges();
         reply($"{targetCharacterName} (compte {target.User.Username}) a maintenant {target.User.Gems} gemme(s).");
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute une commande et un champ admin pour donner des palier a un joueur" (paliers du Passe de Niveau).</summary>
+    private static void GiveBattlePassLevels(AetheriaDbContext db, string targetCharacterName, int levels, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var levelsClamped = Math.Max(1, levels);
+        BattlePassService.GrantLevelsAsync(db, target, levelsClamped).GetAwaiter().GetResult();
+        db.SaveChanges();
+        reply($"{levelsClamped} palier(s) de Passe de Niveau donné(s) à {target.Name} (niveau {target.BattlePassLevel}).");
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute une commande pour give des montures" : les montures sont liees au compte (voir CollectionEntity/AchievementService), pas au personnage.</summary>
+    private static void GiveMount(AetheriaDbContext db, string targetCharacterName, string mountKey, Action<string> reply)
+    {
+        var target = FindCharacter(db, targetCharacterName, reply);
+        if (target is null)
+        {
+            return;
+        }
+
+        var mount = MountCatalog.Find(mountKey);
+        if (mount is null)
+        {
+            reply($"Monture introuvable : {mountKey}");
+            return;
+        }
+
+        var alreadyOwned = db.Collections.Any(c => c.UserId == target.UserId && c.Category == "Monture" && c.CollectionKey == mount.Key);
+        if (alreadyOwned)
+        {
+            reply($"{target.Name} possède déjà {mount.Name}.");
+            return;
+        }
+
+        db.Collections.Add(new CollectionEntity { Id = Guid.NewGuid(), UserId = target.UserId, CollectionKey = mount.Key, Category = "Monture" });
+        db.SaveChanges();
+        reply($"{mount.Name} donnée à {target.Name}.");
     }
 
     /// <summary>Voir GDD/demande utilisateur — "commandes admin abuse comme boost de chance pour tout le monde".</summary>
@@ -1597,7 +1794,7 @@ public sealed class PlayerSession(
         reply($"{target.Name} : {description}.");
     }
 
-    private static void GiveMonster(AetheriaDbContext db, string targetCharacterName, string speciesName, Action<string> reply)
+    private static void GiveMonster(AetheriaDbContext db, string targetCharacterName, int speciesId, Action<string> reply)
     {
         var target = FindCharacter(db, targetCharacterName, reply);
         if (target is null)
@@ -1605,14 +1802,17 @@ public sealed class PlayerSession(
             return;
         }
 
-        var species = db.MonsterSpecies.AsEnumerable().FirstOrDefault(s => TextMatching.NamesMatch(s.Name, speciesName));
+        // Voir GDD/demande utilisateur — "le don de monstre doit se faire avec l'id pas l'espece".
+        var species = db.MonsterSpecies.FirstOrDefault(s => s.Id == speciesId);
         if (species is null)
         {
-            reply($"Espèce introuvable : {speciesName}");
+            reply($"Espèce introuvable : id {speciesId}");
             return;
         }
 
-        db.Monsters.Add(new MonsterEntity { Id = Guid.NewGuid(), OwnerCharacterId = target.Id, SpeciesId = species.Id, Variant = MonsterVariant.Normal, Nickname = species.Name, Level = 1 });
+        var monster = new MonsterEntity { Id = Guid.NewGuid(), OwnerCharacterId = target.Id, SpeciesId = species.Id, Variant = MonsterVariant.Normal, Nickname = species.Name, Level = 1 };
+        MonsterIvRoller.RollInto(monster, Random.Shared);
+        db.Monsters.Add(monster);
         db.SaveChanges();
         reply($"{species.Name} donné à {target.Name}.");
     }

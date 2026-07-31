@@ -80,6 +80,9 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
             PassiveTalent = PassiveTalentCatalog.RollRandom(Random),
         };
 
+        // Voir GDD/demande utilisateur — "ajoute un random iv" : tirées une fois pour toutes à la capture, comme le talent passif ci-dessus.
+        MonsterIvRoller.RollInto(monster, Random);
+
         db.Monsters.Add(monster);
 
         // Voir GDD/demande utilisateur — "Défis hebdomadaires" (progression dérivée de cette statistique).

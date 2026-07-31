@@ -36,6 +36,21 @@ public sealed class PrestigeService(AetheriaDbContext db, SessionTokenStore toke
         monster.Experience = 0;
         monster.PrestigeLevel++;
 
+        // Voir GDD/demande utilisateur — "après un prestige ajoute un nouveau champ que on va
+        // appelé prest ou a chaque prestige l'un des 5 [6] champs augmentera" : +1 permanent sur
+        // une statistique tirée au hasard, cumulatif, jamais remis à zéro. Les IV/EV ne sont
+        // volontairement pas touchés ici (voir GDD/demande utilisateur — "fait en sorte que les
+        // iv/ev ne change pas après le prestige").
+        switch (Random.Shared.Next(6))
+        {
+            case 0: monster.PrestHealth++; break;
+            case 1: monster.PrestAttack++; break;
+            case 2: monster.PrestDefense++; break;
+            case 3: monster.PrestSpeed++; break;
+            case 4: monster.PrestIntelligence++; break;
+            case 5: monster.PrestResistance++; break;
+        }
+
         await db.SaveChangesAsync(ct);
         await new AchievementService(db).UnlockAsync(character.UserId, "prestige_legendaire", ct);
 
@@ -59,5 +74,11 @@ public sealed class PrestigeService(AetheriaDbContext db, SessionTokenStore toke
         EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
         CapturedAtUtc = entity.CapturedAtUtc,
         PrestigeLevel = entity.PrestigeLevel,
+        IvHealth = entity.IvHealth, IvAttack = entity.IvAttack, IvDefense = entity.IvDefense,
+        IvSpeed = entity.IvSpeed, IvIntelligence = entity.IvIntelligence, IvResistance = entity.IvResistance,
+        EvHealth = entity.EvHealth, EvAttack = entity.EvAttack, EvDefense = entity.EvDefense,
+        EvSpeed = entity.EvSpeed, EvIntelligence = entity.EvIntelligence, EvResistance = entity.EvResistance,
+        PrestHealth = entity.PrestHealth, PrestAttack = entity.PrestAttack, PrestDefense = entity.PrestDefense,
+        PrestSpeed = entity.PrestSpeed, PrestIntelligence = entity.PrestIntelligence, PrestResistance = entity.PrestResistance,
     };
 }

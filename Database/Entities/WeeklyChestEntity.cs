@@ -20,4 +20,13 @@ public sealed class WeeklyChestEntity
     public string? ClaimedByCharacterName { get; set; }
     public DateTime? ClaimedAtUtc { get; set; }
     public long RewardGold { get; set; }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "le coffre de la semaine doit etre cache sur la map" : position
+    /// tiree au sort une fois par royaume x semaine (voir WeeklyChestService.GetOrCreateAsync), a
+    /// trouver en explorant la carte (case en jaune, voir WorldMap cote client) plutot que reclame
+    /// depuis un panneau.
+    /// </summary>
+    public int PositionX { get; set; }
+    public int PositionY { get; set; }
 }
