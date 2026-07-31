@@ -335,7 +335,7 @@ var myIsAdmin = false;
 /// on lance on est en mode joueur, on a pas les champs reservé au admin et avec un combo de
 /// touche on passe en admin on a les champs" : même compte admin/Fondateur, mais toutes les
 /// affordances admin restent masquées tant que ce mode n'est pas activé explicitement (touches
-/// CTRL+ALT+A, voir la boucle Outdoor) — évite d'afficher des boutons admin en permanence à
+/// CTRL+MAJ+A, voir la boucle Outdoor) — évite d'afficher des boutons admin en permanence à
 /// l'écran pendant une session de jeu normale.
 /// </summary>
 var adminModeActive = false;
@@ -1192,12 +1192,15 @@ host.Update += deltaTime =>
 
     // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin
     // example on lance on est en mode joueur on a pas les champs reservé au admin et avec un
-    // combo de touche on passe en admin on a les champs" : CTRL+ALT+A bascule le mode admin (les
+    // combo de touche on passe en admin on a les champs" : CTRL+MAJ+A bascule le mode admin (les
     // affordances admin restent masquées tant qu'il n'est pas actif, voir IsAdminModeReady/
-    // adminModeActive) ; CTRL+ALT+R ouvre le nouveau panneau Signalements (voir PanelKind.Reports)
-    // une fois le mode admin actif.
+    // adminModeActive) ; CTRL+MAJ+R ouvre le nouveau panneau Signalements (voir PanelKind.Reports)
+    // une fois le mode admin actif. Voir retour utilisateur — "le combo CTRL+ALT ne fonctionne
+    // pas" : ALT génère des messages système (WM_SYSKEYDOWN) que GLFW/Silk.NET remontent de
+    // façon peu fiable sous Windows (combos Alt classiquement casse-pieds pour les jeux) — MAJ
+    // (Shift) n'a pas ce problème.
     var adminComboDown = (keyboard.IsDown(Key.ControlLeft) || keyboard.IsDown(Key.ControlRight))
-        && (keyboard.IsDown(Key.AltLeft) || keyboard.IsDown(Key.AltRight));
+        && (keyboard.IsDown(Key.ShiftLeft) || keyboard.IsDown(Key.ShiftRight));
 
     if (adminComboDown && keyboard.WasJustPressed(Key.A) && (myIsAdmin || myRank == UserRank.Fondateur))
     {
@@ -8556,7 +8559,7 @@ bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
     // s'affiche que le mode admin déjà actif ; sinon un indice discret rappelle le combo.
     if (myIsAdmin || myRank == UserRank.Fondateur)
     {
-        labels.Add(adminModeActive ? "ADMIN (F2)" : "MODE ADMIN (CTRL+ALT+A)");
+        labels.Add(adminModeActive ? "ADMIN (F2)" : "MODE ADMIN (CTRL+MAJ+A)");
     }
 
     var maxWidth = labels.Count > 0 ? labels.Max(l => TextRenderer.MeasureWidth(l, pixelSize)) : 0f;
@@ -8660,7 +8663,7 @@ void DrawOutdoorHudButtons(int w, int h)
     // admin en haut à droite" : bouton dédié en plus du raccourci F2 (voir plus haut dans le
     // gestionnaire d'entrée outdoor), réservé aux comptes admin/Fondateur comme le panel lui-même.
     // Voir GDD/demande utilisateur — "pour faire les truc admin il faut passer en mode admin" :
-    // bouton masqué tant que le mode admin n'est pas actif (voir adminModeActive, CTRL+ALT+A).
+    // bouton masqué tant que le mode admin n'est pas actif (voir adminModeActive, CTRL+MAJ+A).
     if (adminModeActive && (myIsAdmin || myRank == UserRank.Fondateur))
     {
         const string adminLabel = "ADMIN (F2)";
