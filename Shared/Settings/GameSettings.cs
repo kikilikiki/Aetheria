@@ -10,12 +10,31 @@ public enum KeyboardLayoutPreference
 }
 
 /// <summary>
+/// Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... francais
+/// (actuel), japonais, anglais" : <see cref="Japonais"/> existe dans l'énumération (pour ne pas
+/// avoir à retoucher ce type plus tard) mais reste désactivé/grisé côté UI — le rendu de texte du
+/// jeu est une police pixel 3x5 codée à la main (voir Engine/Rendering/TextRenderer.cs) qui ne
+/// couvre que l'alphabet latin/chiffres/ponctuation de base, aucun glyphe japonais n'existe. Voir
+/// retour utilisateur explicite — "laisse tomber le japonais pour l'instant" (nécessiterait un
+/// vrai système de police avec atlas de glyphes, hors scope de cette demande).
+/// </summary>
+public enum Language
+{
+    Francais,
+    Anglais,
+    Japonais,
+}
+
+/// <summary>
 /// Préférences partagées entre le Launcher et le Client, persistées dans un fichier JSON commun
 /// (voir GDD — disposition clavier détectée automatiquement mais réglable dans les deux).
 /// </summary>
 public sealed class GameSettings
 {
     public KeyboardLayoutPreference KeyboardLayout { get; set; } = KeyboardLayoutPreference.Auto;
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue" (voir <see cref="Language"/>) : réglable depuis le Launcher et en jeu (voir PanelKind.Settings côté Client), partagé entre les deux comme le reste de ce fichier.</summary>
+    public Language Language { get; set; } = Language.Francais;
 
     /// <summary>
     /// Adresse (IP publique ou nom de domaine) du serveur Aetheria — voir GDD/demande utilisateur

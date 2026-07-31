@@ -753,7 +753,7 @@
             <!-- Panneau Paramètres : superposé à tout le reste tant qu'ouvert, avec fondu d'apparition. -->
             <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
                     Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVis}}">
-                <Border Style="{StaticResource OverlayCard}" Width="440" Height="360" behaviors:FadeInBehavior.Enable="True"
+                <Border Style="{StaticResource OverlayCard}" Width="440" Height="440" behaviors:FadeInBehavior.Enable="True"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <StackPanel>
                         <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#E7E5E3" Margin="0,0,0,18" />
@@ -762,6 +762,13 @@
                         <ComboBox ItemsSource="{Binding AvailableKeyboardLayouts}" SelectedItem="{Binding KeyboardLayoutPreference}" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding DetectedLayoutText}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,6" />
                         <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,18" />
+
+                        <!-- Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue...
+                             francais (actuel), japonais, anglais". Japonais absent de la liste (voir
+                             AvailableLanguages) — pas de police japonaise dans le jeu pour l'instant. -->
+                        <TextBlock Text="LANGUE / LANGUAGE" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                        <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding LanguagePreference}" Margin="0,0,0,6" />
+                        <TextBlock Text="Japonais bientôt disponible (police non supportée pour l'instant)." Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,18" />
 
                         <!-- Voir GDD/demande utilisateur — "quand on n'est pas modérateur, l'adresse du
                              serveur ne doit pas être affichée" : tout le bloc (pas juste l'édition,

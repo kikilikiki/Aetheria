@@ -104,6 +104,12 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private KeyboardLayoutPreference _keyboardLayoutPreference;
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... francais (actuel), japonais, anglais". Japonais volontairement absent de <see cref="AvailableLanguages"/> ci-dessous (voir retour utilisateur — pas de police japonaise, voir Shared/Localization/Localization.cs), l'énumération le garde pour ne pas retoucher le type plus tard.</summary>
+    [ObservableProperty]
+    private Language _languagePreference;
+
+    public IReadOnlyList<Language> AvailableLanguages { get; } = [Language.Francais, Language.Anglais];
+
     /// <summary>Adresse du serveur (voir GDD/demande utilisateur — jeu installé ailleurs, serveur hébergé chez l'utilisateur). Réglée par défaut sur l'IP publique du serveur (voir GameSettings.ServerHost) : fonctionne aussi bien en local que depuis un autre réseau, sans réglage ngrok supplémentaire. Écrasée par la valeur persistée dans le constructeur ; ce champ n'est qu'un défaut avant chargement.</summary>
     [ObservableProperty]
     private string _serverHost = new GameSettings().ServerHost;
@@ -132,6 +138,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         var settings = GameSettings.Load();
         _keyboardLayoutPreference = settings.KeyboardLayout;
+        _languagePreference = settings.Language;
         _serverHost = settings.ServerHost;
         _accountApi = new AccountApiClient($"http://{_serverHost}:{GameInfo.DefaultAccountApiPort}");
 
@@ -370,6 +377,14 @@ public sealed partial class MainViewModel : ObservableObject
     {
         var settings = GameSettings.Load();
         settings.KeyboardLayout = value;
+        settings.Save();
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue" — persiste immédiatement, partagé avec le Client comme la disposition clavier ci-dessus.</summary>
+    partial void OnLanguagePreferenceChanged(Language value)
+    {
+        var settings = GameSettings.Load();
+        settings.Language = value;
         settings.Save();
     }
 
