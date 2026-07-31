@@ -68,6 +68,7 @@ public sealed class PrestigeService(AetheriaDbContext db, SessionTokenStore toke
         Experience = entity.Experience,
         Personality = entity.Personality,
         PassiveTalent = entity.PassiveTalent,
+        Nature = entity.Nature,
         IsInActiveTeam = entity.IsInActiveTeam,
         EquippedWeaponItemId = entity.EquippedWeaponItemId,
         EquippedArmorItemId = entity.EquippedArmorItemId,

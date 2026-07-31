@@ -173,6 +173,7 @@ public sealed class FusionService(AetheriaDbContext db, SessionTokenStore tokenS
         Experience = entity.Experience,
         Personality = entity.Personality,
         PassiveTalent = entity.PassiveTalent,
+        Nature = entity.Nature,
         IsInActiveTeam = entity.IsInActiveTeam,
         EquippedWeaponItemId = entity.EquippedWeaponItemId,
         EquippedArmorItemId = entity.EquippedArmorItemId,

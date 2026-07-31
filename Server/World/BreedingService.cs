@@ -170,6 +170,7 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
             Nickname = offspringSpecies.Name,
             Level = 1,
             PassiveTalent = character.PendingBreedOffspringPassiveTalent ?? PassiveTalentCatalog.RollRandom(Random),
+            Nature = MonsterNatureCatalog.RollRandom(Random),
         };
 
         // Voir GDD/demande utilisateur — "ajoute un random iv".
@@ -200,6 +201,7 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
         Experience = entity.Experience,
         Personality = entity.Personality,
         PassiveTalent = entity.PassiveTalent,
+        Nature = entity.Nature,
         IsInActiveTeam = entity.IsInActiveTeam,
         EquippedWeaponItemId = entity.EquippedWeaponItemId,
         EquippedArmorItemId = entity.EquippedArmorItemId,

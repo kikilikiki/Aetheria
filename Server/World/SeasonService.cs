@@ -1,15 +1,17 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Server.Persistence;
+using Aetheria.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Aetheria.Server.World;
 
 /// <summary>
 /// Saisons (voir <c>Docs/GameDesign.md</c> — section Saisons). Ne gère que le cycle
-/// actif/inactif et la numérotation ; le contenu ajouté à chaque saison (monstres, donjons,
-/// cosmétiques, passe saison) est un travail de contenu qui reste à faire, pas une
-/// responsabilité de ce service.
+/// actif/inactif, la numérotation, et depuis peu la récompense de fin de saison (voir GDD/demande
+/// utilisateur — "Classements saisonniers avec récompenses cosmétiques (skins, titres) plutôt que
+/// power creep") ; le reste du contenu ajouté à chaque saison (monstres, donjons, passe saison)
+/// reste un travail de contenu à faire, pas une responsabilité de ce service.
 /// </summary>
 public sealed class SeasonService(AetheriaDbContext db)
 {
@@ -31,6 +33,9 @@ public sealed class SeasonService(AetheriaDbContext db)
 
         if (current is not null)
         {
+            // Voir GDD/demande utilisateur — récompense cosmétique AVANT le reset, sur le
+            // classement tel qu'il était encore à la fin de la saison qui se termine.
+            await GrantSeasonRewardsAsync(current.Number, ct);
             current.IsActive = false;
             current.EndedAtUtc = DateTime.UtcNow;
             nextNumber = current.Number + 1;
@@ -49,5 +54,41 @@ public sealed class SeasonService(AetheriaDbContext db)
         await db.SaveChangesAsync(ct);
 
         return season;
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "Classements saisonniers avec récompenses cosmétiques
+    /// (skins, titres) plutôt que power creep" : un titre par catégorie de classement pour le
+    /// premier de cette catégorie, plutôt qu'un bonus de statistiques — même mécanisme
+    /// d'attribution que <see cref="TitleCatalog.AwardForBestRankAsync"/>/
+    /// <see cref="BattlePassService.GrantTitleAsync"/> (existence check puis ajout à
+    /// <c>CharacterTitles</c>), aucun nouveau système requis.
+    /// </summary>
+    private async Task GrantSeasonRewardsAsync(int seasonNumber, CancellationToken ct)
+    {
+        var leaderboard = new LeaderboardService(db);
+        var categories = new[] { LeaderboardCategory.Richesse, LeaderboardCategory.Metiers, LeaderboardCategory.MonstresCaptures, LeaderboardCategory.Pvp, LeaderboardCategory.Donjons };
+
+        foreach (var category in categories)
+        {
+            var top = await leaderboard.GetTopAsync(category, 1, ct);
+            if (top.Count == 0 || top[0].Score <= 0)
+            {
+                continue;
+            }
+
+            var champion = await db.Characters.FirstOrDefaultAsync(c => c.Name == top[0].CharacterName, ct);
+            if (champion is null)
+            {
+                continue;
+            }
+
+            var titleKey = $"Champion {category} - Saison {seasonNumber}";
+            var alreadyOwned = await db.CharacterTitles.AnyAsync(t => t.CharacterId == champion.Id && t.TitleKey == titleKey, ct);
+            if (!alreadyOwned)
+            {
+                db.CharacterTitles.Add(new CharacterTitleEntity { Id = Guid.NewGuid(), CharacterId = champion.Id, TitleKey = titleKey });
+            }
+        }
     }
 }

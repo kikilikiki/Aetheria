@@ -419,6 +419,12 @@ public static class MonsterCatalogSeeder
                 Name = "Pierre de Réinitialisation", Description = "Retire un nouveau jeu d'IV (0-31) au hasard pour une créature.",
                 ItemType = ItemType.Consommable, Rarity = Rarity.Epique, IsStackable = true, MaxStackSize = 20, Price = 400,
             },
+            // Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon)" : même schéma que la Pierre de Réinitialisation ci-dessus.
+            new()
+            {
+                Name = "Pierre de Nature", Description = "Tire une nouvelle nature au hasard pour une créature (influence ses statistiques).",
+                ItemType = ItemType.Consommable, Rarity = Rarity.Epique, IsStackable = true, MaxStackSize = 20, Price = 400,
+            },
             // Voir retour utilisateur — "ajoute des items exclusifs que l'on peut avoir que en
             // donjon" : ni en boutique (Price = 0) ni dans le butin de combat aléatoire normal
             // (IsObtainable = false, voir LootService) - distribués uniquement par

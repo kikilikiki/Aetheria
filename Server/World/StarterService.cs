@@ -56,6 +56,7 @@ public sealed class StarterService(AetheriaDbContext db, SessionTokenStore token
             // Voir GDD/demande utilisateur — "Compétences passives" : tirée une fois pour toutes,
             // comme pour une capture (voir CaptureService.AttemptCaptureAsync).
             PassiveTalent = PassiveTalentCatalog.RollRandom(Random.Shared),
+            Nature = MonsterNatureCatalog.RollRandom(Random.Shared),
         };
 
         // Voir GDD/demande utilisateur — "ajoute un random iv".

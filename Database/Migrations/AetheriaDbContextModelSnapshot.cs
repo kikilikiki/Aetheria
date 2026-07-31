@@ -383,6 +383,26 @@ namespace Aetheria.Database.Migrations
                     b.ToTable("Collections");
                 });
 
+            modelBuilder.Entity("Aetheria.Database.Entities.DungeonCooldownEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AvailableAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DungeonId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DungeonCooldowns");
+                });
+
             modelBuilder.Entity("Aetheria.Database.Entities.DungeonEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -512,11 +532,37 @@ namespace Aetheria.Database.Migrations
                     b.ToTable("GuildChestItems");
                 });
 
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildDecorationEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DecorationKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("GuildId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("PurchasedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GuildId");
+
+                    b.ToTable("GuildDecorations");
+                });
+
             modelBuilder.Entity("Aetheria.Database.Entities.GuildEntity", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ActiveDecorationKey")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -589,6 +635,76 @@ namespace Aetheria.Database.Migrations
                     b.HasIndex("GuildId");
 
                     b.ToTable("GuildMembers");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildRaidDamageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CharacterName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("GuildRaidId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("TotalDamage")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GuildRaidId");
+
+                    b.ToTable("GuildRaidDamageEntries");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildRaidEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("BossElement")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CurrentHealth")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("GuildId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsAlive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("KilledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("KillerCharacterName")
+                        .HasColumnType("text");
+
+                    b.Property<int>("MaxHealth")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("SpawnedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SpeciesId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GuildId");
+
+                    b.ToTable("GuildRaids");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.InventoryItemEntity", b =>
@@ -829,6 +945,9 @@ namespace Aetheria.Database.Migrations
                         .HasColumnType("integer");
 
                     b.Property<int>("Level")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Nature")
                         .HasColumnType("integer");
 
                     b.Property<string>("Nickname")
@@ -1197,6 +1316,38 @@ namespace Aetheria.Database.Migrations
                     b.ToTable("Territories");
                 });
 
+            modelBuilder.Entity("Aetheria.Database.Entities.TradeOfferEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("InitiatorCharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("OfferedGold")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("OfferedMonsterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("RequestedGold")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TargetCharacterId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TradeOffers");
+                });
+
             modelBuilder.Entity("Aetheria.Database.Entities.UserEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1515,6 +1666,17 @@ namespace Aetheria.Database.Migrations
                     b.Navigation("Guild");
                 });
 
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildDecorationEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.GuildEntity", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Guild");
+                });
+
             modelBuilder.Entity("Aetheria.Database.Entities.GuildEntity", b =>
                 {
                     b.HasOne("Aetheria.Database.Entities.CharacterEntity", "LeaderCharacter")
@@ -1541,6 +1703,28 @@ namespace Aetheria.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("Character");
+
+                    b.Navigation("Guild");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildRaidDamageEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.GuildRaidEntity", "GuildRaid")
+                        .WithMany("DamageEntries")
+                        .HasForeignKey("GuildRaidId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("GuildRaid");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildRaidEntity", b =>
+                {
+                    b.HasOne("Aetheria.Database.Entities.GuildEntity", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Guild");
                 });
@@ -1914,6 +2098,11 @@ namespace Aetheria.Database.Migrations
                     b.Navigation("Statistics");
 
                     b.Navigation("Titles");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.GuildRaidEntity", b =>
+                {
+                    b.Navigation("DamageEntries");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.RecipeEntity", b =>

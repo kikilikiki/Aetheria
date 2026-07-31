@@ -25,6 +25,8 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<LeaderboardEntity> Leaderboard => Set<LeaderboardEntity>();
     public DbSet<MonsterSpeciesEntity> MonsterSpecies => Set<MonsterSpeciesEntity>();
     public DbSet<DungeonEntity> Dungeons => Set<DungeonEntity>();
+    public DbSet<DungeonCooldownEntity> DungeonCooldowns => Set<DungeonCooldownEntity>();
+    public DbSet<TradeOfferEntity> TradeOffers => Set<TradeOfferEntity>();
     public DbSet<CharacterProfessionEntity> CharacterProfessions => Set<CharacterProfessionEntity>();
     public DbSet<RecipeEntity> Recipes => Set<RecipeEntity>();
     public DbSet<RecipeIngredientEntity> RecipeIngredients => Set<RecipeIngredientEntity>();
@@ -39,6 +41,9 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<FriendshipEntity> Friendships => Set<FriendshipEntity>();
     public DbSet<WorldBossEntity> WorldBosses => Set<WorldBossEntity>();
     public DbSet<WorldBossDamageEntity> WorldBossDamageEntries => Set<WorldBossDamageEntity>();
+    public DbSet<GuildRaidEntity> GuildRaids => Set<GuildRaidEntity>();
+    public DbSet<GuildRaidDamageEntity> GuildRaidDamageEntries => Set<GuildRaidDamageEntity>();
+    public DbSet<GuildDecorationEntity> GuildDecorations => Set<GuildDecorationEntity>();
     public DbSet<GuildChestItemEntity> GuildChestItems => Set<GuildChestItemEntity>();
     public DbSet<KingdomVoteEntity> KingdomVotes => Set<KingdomVoteEntity>();
     public DbSet<WeeklyChestEntity> WeeklyChests => Set<WeeklyChestEntity>();
