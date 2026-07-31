@@ -203,6 +203,10 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// <summary>Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon", "ajoute aussi des ev", "après un prestige ajoute un nouveau champ que on va appelé prest".</summary>
     private static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel, int iv, int ev, int prest) => MonsterStatMath.ScaledStat(baseStat, level, variant, prestigeLevel, iv, ev, prest);
 
+    /// <summary>Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon, influençant les stats)".</summary>
+    private static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel, int iv, int ev, int prest, MonsterNature nature, MonsterStatKind statKind) =>
+        MonsterStatMath.ScaledStat(baseStat, level, variant, prestigeLevel, iv, ev, prest, nature, statKind);
+
     /// <summary>Voir GDD/demande utilisateur — "l'archer doit pouvoir attaquer à distance" : portée de base plutôt que réservée à la capacité spéciale (qui garde son propre bonus de portée, voir CombatEngine.ResolveSpecialAbility).</summary>
     private static int BaseAttackRange(MonsterType type) => type == MonsterType.Archer ? 3 : 1;
 
@@ -319,6 +323,15 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId, ct)
             ?? throw new AccountOperationException("Donjon introuvable.");
 
+        // Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne
+        // dans le dongon ou il vient d'aller" : le Client bloque déjà l'entrée (voir
+        // DungeonSelectPanel), ce garde-fou serveur fait foi si contourné.
+        var dungeonCooldown = await db.DungeonCooldowns.FirstOrDefaultAsync(c => c.CharacterId == request.CharacterId && c.DungeonId == dungeonId, ct);
+        if (dungeonCooldown is not null && dungeonCooldown.AvailableAtUtc > DateTime.UtcNow)
+        {
+            throw new AccountOperationException("Ce donjon est encore en recharge.");
+        }
+
         // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon c'est
         // le niveau des monstres, pas celui du personnage" : plus de garde-fou sur le niveau du
         // personnage ici — dungeon.MinLevel décrit désormais le niveau des monstres rencontrés
@@ -336,17 +349,9 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
         }
 
-        // Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des
-        // dongon a part mais que l'on peut choisir hardcore ou normal" : IsHardcore décrit
-        // désormais si le donjon PROPOSE le mode hardcore, le joueur choisit de l'activer ou non
-        // à l'entrée (voir StartDungeonCombatRequest.HardcoreRequested) plutôt que de tirer un
-        // donjon fixe côté serveur.
-        if (request.HardcoreRequested && !dungeon.IsHardcore)
-        {
-            throw new AccountOperationException("Ce donjon ne propose pas de mode hardcore.");
-        }
-
-        var effectiveHardcore = dungeon.IsHardcore && request.HardcoreRequested;
+        // Voir GDD/demande utilisateur — "le hardcore peut etre mis dans tout les dongon" : le
+        // mode hardcore est proposable sur n'importe quel donjon, plus de garde-fou IsHardcore.
+        var effectiveHardcore = request.HardcoreRequested;
 
         // Voir GDD/demande utilisateur — "fait en sorte que les dongon normal on est 3 vie" :
         // uniquement en mode normal (hardcore/mythique n'en consomment pas, plus risqués par
@@ -839,16 +844,16 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // et Resistance ne sont pas consommées par le moteur de combat (pas de champ Combatant
             // correspondant), donc leurs IV/EV/Prest ne sont pas exploités ici — juste visibles/
             // modifiables via le détail de la créature (voir MonsterInstanceData).
-            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant, monster.PrestigeLevel, monster.IvHealth, monster.EvHealth, monster.PrestHealth) + equipBonus.Health;
+            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant, monster.PrestigeLevel, monster.IvHealth, monster.EvHealth, monster.PrestHealth, monster.Nature, MonsterStatKind.Health) + equipBonus.Health;
             var type = species?.Type ?? MonsterType.Guerrier;
 
             combatants.Add(new Combatant
             {
                 Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
                 MaxHealth = maxHealth, CurrentHealth = maxHealth,
-                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvAttack, monster.EvAttack, monster.PrestAttack) + equipBonus.Attack,
-                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvDefense, monster.EvDefense, monster.PrestDefense) + equipBonus.Defense,
-                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed) + equipBonus.Speed,
+                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvAttack, monster.EvAttack, monster.PrestAttack, monster.Nature, MonsterStatKind.Attack) + equipBonus.Attack,
+                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvDefense, monster.EvDefense, monster.PrestDefense, monster.Nature, MonsterStatKind.Defense) + equipBonus.Defense,
+                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed, monster.Nature, MonsterStatKind.Speed) + equipBonus.Speed,
                 MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
                 Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,

@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Aetheria.Launcher"
         xmlns:behaviors="clr-namespace:Aetheria.Launcher.Behaviors"
+        xmlns:loc="clr-namespace:Aetheria.Launcher.Localization"
         mc:Ignorable="d"
         Title="{Binding Title}"
         Height="700" Width="1080"
@@ -524,14 +525,14 @@
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
 
-                    <Border Style="{StaticResource SidebarIcon}" ToolTip="Accueil">
+                    <Border Style="{StaticResource SidebarIcon}" ToolTip="{loc:Tr 'Accueil'}">
                         <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
                     </Border>
                     <!-- Réservé aux comptes admin/fondateur (voir GDD/demande utilisateur — panneau
                          d'administration accessible depuis le Launcher, "seulement pour les admin/
                          fonda") : masqué pour tout le monde d'autre. -->
-                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Communauté (administration)"
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="{loc:Tr 'Communauté (administration)'}"
                             Command="{Binding ToggleAdminPanelCommand}"
                             Visibility="{Binding IsAdminAccount, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
@@ -540,21 +541,21 @@
                     <!-- Voir GDD/demande utilisateur — "les admin peut voir les report sur une page
                          sur le launcher" : réservé aux comptes admin/fondateur, même logique que le
                          bouton Communauté ci-dessus. -->
-                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Signalements de joueurs"
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="{loc:Tr 'Signalements de joueurs'}"
                             Command="{Binding ToggleReportsPanelCommand}"
                             Visibility="{Binding IsAdminAccount, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
                     </Button>
                     <!-- Voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher". -->
-                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Classement" Command="{Binding ToggleLeaderboardCommand}">
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="{loc:Tr 'Classement'}" Command="{Binding ToggleLeaderboardCommand}">
                         <TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" />
                     </Button>
                     <!-- Voir demande utilisateur — "garde la partie shop mais laisse la impossible à
                          accéder" : reste un Border décoratif (jamais un Button, aucune Command) —
                          badge cadenas ajouté pour rendre ce verrouillage explicite visuellement. -->
-                    <Border Style="{StaticResource SidebarIcon}" ToolTip="Boutique (bientôt disponible ici)">
+                    <Border Style="{StaticResource SidebarIcon}" ToolTip="{loc:Tr 'Boutique (bientôt disponible ici)'}">
                         <Grid>
                             <TextBlock Text="&#xE719;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="17" Opacity="0.5" />
@@ -566,11 +567,11 @@
                             </Border>
                         </Grid>
                     </Border>
-                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="Paramètres" Command="{Binding ToggleSettingsCommand}">
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="{loc:Tr 'Paramètres'}" Command="{Binding ToggleSettingsCommand}">
                         <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="17" />
                     </Button>
                     <!-- Voir GDD/demande utilisateur — "une page sur le launcher avec un i pour accéder au à propos". -->
-                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="À propos" Command="{Binding ToggleAboutCommand}">
+                    <Button Style="{StaticResource SidebarIconButton}" ToolTip="{loc:Tr 'À propos'}" Command="{Binding ToggleAboutCommand}">
                         <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource TextMutedBrush}" FontSize="17" />
                     </Button>
                 </StackPanel>
@@ -593,7 +594,7 @@
                 </Border.RenderTransform>
                 <Grid Margin="28,0">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left">
-                        <TextBlock Text="AETHERIA" FontSize="21" FontWeight="Bold" Foreground="#E7E5E3" VerticalAlignment="Center" />
+                        <TextBlock Text="{loc:Tr 'AETHERIA'}" FontSize="21" FontWeight="Bold" Foreground="#E7E5E3" VerticalAlignment="Center" />
                         <Border Width="1" Height="18" Background="{StaticResource PanelBorderBrush}" Margin="14,0" />
                         <TextBlock Text="{Binding Title}" FontSize="12" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                     </StackPanel>
@@ -653,16 +654,16 @@
                             <!-- Écran de connexion / inscription -->
                             <StackPanel x:Name="LoginPanel" behaviors:FadeInBehavior.Enable="True"
                                         Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBoolToVis}}">
-                                <TextBlock Text="Connexion" FontSize="19" FontWeight="Bold" Foreground="#E7E5E3" Margin="0,0,0,4" />
-                                <TextBlock Text="Entrez dans le monde d'Aetheria" FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,20" />
+                                <TextBlock Text="{loc:Tr 'Connexion'}" FontSize="19" FontWeight="Bold" Foreground="#E7E5E3" Margin="0,0,0,4" />
+                                <TextBlock Text="{loc:Tr 'Entrez dans le monde d\'Aetheria'}" FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,20" />
 
-                                <TextBlock Text="PSEUDO OU EMAIL" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                                <TextBlock Text="{loc:Tr 'PSEUDO OU EMAIL'}" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                                 <TextBox Text="{Binding UsernameOrEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
 
-                                <TextBlock Text="EMAIL (INSCRIPTION UNIQUEMENT)" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                                <TextBlock Text="{loc:Tr 'EMAIL (INSCRIPTION UNIQUEMENT)'}" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                                 <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14" />
 
-                                <TextBlock Text="MOT DE PASSE" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                                <TextBlock Text="{loc:Tr 'MOT DE PASSE'}" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                                 <Grid Margin="0,0,0,22">
                                     <PasswordBox x:Name="PasswordBox" Padding="12,9,34,9" PasswordChanged="OnPasswordChanged"
                                                  Visibility="{Binding IsPasswordVisible, Converter={StaticResource InverseBoolToVis}}" />
@@ -675,8 +676,8 @@
                                 </Grid>
 
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                    <Button Content="Se connecter" Command="{Binding LoginCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0" />
-                                    <Button Content="Créer un compte" Command="{Binding RegisterCommand}" Style="{StaticResource SecondaryButton}" />
+                                    <Button Content="{loc:Tr 'Se connecter'}" Command="{Binding LoginCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0" />
+                                    <Button Content="{loc:Tr 'Créer un compte'}" Command="{Binding RegisterCommand}" Style="{StaticResource SecondaryButton}" />
                                 </StackPanel>
                             </StackPanel>
 
@@ -689,12 +690,12 @@
                                     <TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="30" Foreground="{StaticResource AccentBrush}"
                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
-                                <TextBlock Text="Compte connecté" FontSize="17" FontWeight="Bold" Foreground="#E7E5E3"
+                                <TextBlock Text="{loc:Tr 'Compte connecté'}" FontSize="17" FontWeight="Bold" Foreground="#E7E5E3"
                                            HorizontalAlignment="Center" Margin="0,0,0,10" />
-                                <TextBlock Text="La sélection et la création de personnage se font en jeu, juste après le lancement."
+                                <TextBlock Text="{loc:Tr 'La sélection et la création de personnage se font en jeu, juste après le lancement.'}"
                                            Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,22" />
 
-                                <Button Content="Déconnexion" Command="{Binding LogoutCommand}" Style="{StaticResource SecondaryButton}"
+                                <Button Content="{loc:Tr 'Déconnexion'}" Command="{Binding LogoutCommand}" Style="{StaticResource SecondaryButton}"
                                         HorizontalAlignment="Center" />
                             </StackPanel>
                         </Grid>
@@ -706,9 +707,9 @@
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
                             <TextBlock Text="&#xE7C3;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}" FontSize="15" Margin="0,0,8,0" />
-                            <TextBlock Text="ACTUALITÉS" FontSize="13" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+                            <TextBlock Text="{loc:Tr 'ACTUALITÉS'}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
                         </StackPanel>
-                        <Button DockPanel.Dock="Bottom" Content="Voir toutes les actualités" Command="{Binding ToggleAllNewsCommand}"
+                        <Button DockPanel.Dock="Bottom" Content="{loc:Tr 'Voir toutes les actualités'}" Command="{Binding ToggleAllNewsCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,4,0,0" />
                         <ItemsControl ItemsSource="{Binding RecentNews}" ItemTemplate="{StaticResource NewsCardTemplate}" />
                     </DockPanel>
@@ -725,11 +726,11 @@
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left" Orientation="Horizontal">
                         <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
                                    VerticalAlignment="Center" MaxWidth="480" />
-                        <TextBlock Text="Chargement..." Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"
+                        <TextBlock Text="{loc:Tr 'Chargement...'}" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"
                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
 
-                    <Button Content="JOUER" Command="{Binding PlayCommand}" Style="{StaticResource PrimaryActionButton}"
+                    <Button Content="{loc:Tr 'JOUER'}" Command="{Binding PlayCommand}" Style="{StaticResource PrimaryActionButton}"
                             HorizontalAlignment="Right" VerticalAlignment="Center" Width="190" Height="58"
                             Visibility="{Binding ShowPlayButton, Converter={StaticResource BoolToVis}}" />
 
@@ -756,34 +757,34 @@
                 <Border Style="{StaticResource OverlayCard}" Width="440" Height="440" behaviors:FadeInBehavior.Enable="True"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <StackPanel>
-                        <TextBlock Text="Paramètres" FontSize="18" FontWeight="Bold" Foreground="#E7E5E3" Margin="0,0,0,18" />
+                        <TextBlock Text="{loc:Tr 'Paramètres'}" FontSize="18" FontWeight="Bold" Foreground="#E7E5E3" Margin="0,0,0,18" />
 
-                        <TextBlock Text="DISPOSITION CLAVIER" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                        <TextBlock Text="{loc:Tr 'DISPOSITION CLAVIER'}" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                         <ComboBox ItemsSource="{Binding AvailableKeyboardLayouts}" SelectedItem="{Binding KeyboardLayoutPreference}" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding DetectedLayoutText}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,6" />
-                        <TextBlock Text="Réglable aussi en jeu avec la touche F9." Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,18" />
+                        <TextBlock Text="{loc:Tr 'Réglable aussi en jeu avec la touche F9.'}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,0,0,18" />
 
                         <!-- Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue...
                              francais (actuel), japonais, anglais". Japonais absent de la liste (voir
                              AvailableLanguages) — pas de police japonaise dans le jeu pour l'instant. -->
-                        <TextBlock Text="LANGUE / LANGUAGE" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                        <TextBlock Text="{loc:Tr 'LANGUE / LANGUAGE'}" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                         <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding LanguagePreference}" Margin="0,0,0,6" />
-                        <TextBlock Text="Japonais bientôt disponible (police non supportée pour l'instant)." Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,18" />
+                        <TextBlock Text="{loc:Tr 'Japonais bientôt disponible (police non supportée pour l\'instant).'}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,18" />
 
                         <!-- Voir GDD/demande utilisateur — "quand on n'est pas modérateur, l'adresse du
                              serveur ne doit pas être affichée" : tout le bloc (pas juste l'édition,
                              déjà réservée à IsAdminAccount) est masqué pour les comptes non-staff. -->
                         <StackPanel Visibility="{Binding IsStaffAccount, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="ADRESSE DU SERVEUR" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
+                            <TextBlock Text="{loc:Tr 'ADRESSE DU SERVEUR'}" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" FontSize="10.5" FontWeight="SemiBold" />
                             <TextBox Text="{Binding ServerHost, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding IsFondateurAccount}" Margin="0,0,0,6" />
-                            <TextBlock Text="IP publique ou nom de domaine du serveur — fonctionne en local comme depuis un autre réseau."
+                            <TextBlock Text="{loc:Tr 'IP publique ou nom de domaine du serveur — fonctionne en local comme depuis un autre réseau.'}"
                                        Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" />
                             <!-- Voir GDD/demande utilisateur — "seul le compte admin (grade fondateur) peut modifier l'adresse du serveur". -->
-                            <TextBlock Text="Réservé au compte Fondateur." Foreground="{StaticResource TextMutedBrush}" FontSize="11"
+                            <TextBlock Text="{loc:Tr 'Réservé au compte Fondateur.'}" Foreground="{StaticResource TextMutedBrush}" FontSize="11"
                                        Visibility="{Binding IsFondateurAccount, Converter={StaticResource InverseBoolToVis}}" Margin="0,0,0,22" />
                         </StackPanel>
 
-                        <Button Content="Fermer" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
+                        <Button Content="{loc:Tr 'Fermer'}" Command="{Binding ToggleSettingsCommand}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" />
                     </StackPanel>
                 </Border>
             </Border>
@@ -798,20 +799,20 @@
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" FontSize="18" FontWeight="Bold"
                                    Foreground="#E7E5E3" Margin="0,0,0,4" />
-                        <TextBlock DockPanel.Dock="Top" Text="Un MMORPG tactique de créatures et de royaumes."
+                        <TextBlock DockPanel.Dock="Top" Text="{loc:Tr 'Un MMORPG tactique de créatures et de royaumes.'}"
                                    Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,0,18" />
 
-                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleAboutCommand}"
+                        <Button DockPanel.Dock="Bottom" Content="{loc:Tr 'Fermer'}" Command="{Binding ToggleAboutCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,14,0,0" />
-                        <Button DockPanel.Dock="Bottom" Content="Conditions générales d'utilisation" Command="{Binding OpenTermsOfServiceCommand}"
+                        <Button DockPanel.Dock="Bottom" Content="{loc:Tr 'Conditions générales d\'utilisation'}" Command="{Binding OpenTermsOfServiceCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,10,0,0" />
 
                         <StackPanel VerticalAlignment="Top">
-                            <TextBlock Text="Créé par feelsman" Foreground="#E7E5E3" Margin="0,0,0,8" />
-                            <TextBlock Text="Code par feelsman" Foreground="#E7E5E3" Margin="0,0,0,8" />
-                            <TextBlock Text="Logo par Korbak" Foreground="#E7E5E3" Margin="0,0,0,8" />
-                            <TextBlock Text="Musique par Konss" Foreground="#E7E5E3" Margin="0,0,0,8" />
-                            <TextBlock Text="Graphisme par feelsman" Foreground="#E7E5E3" Margin="0,0,0,8" />
+                            <TextBlock Text="{loc:Tr 'Créé par feelsman'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
+                            <TextBlock Text="{loc:Tr 'Code par feelsman'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
+                            <TextBlock Text="{loc:Tr 'Logo par Korbak'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
+                            <TextBlock Text="{loc:Tr 'Musique par Konss'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
+                            <TextBlock Text="{loc:Tr 'Graphisme par feelsman'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
                         </StackPanel>
                     </DockPanel>
                 </Border>
@@ -827,7 +828,7 @@
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{Binding CreatorInfo.DisplayName}" FontSize="20" FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}" Margin="0,0,0,18" />
-                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding CloseCreatorInfoCommand}"
+                        <Button DockPanel.Dock="Bottom" Content="{loc:Tr 'Fermer'}" Command="{Binding CloseCreatorInfoCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,14,0,0" />
                         <StackPanel VerticalAlignment="Top">
                             <Button Content="{Binding CreatorInfo.Discord, StringFormat='Discord : {0}'}" Command="{Binding OpenCreatorLinkCommand}"
@@ -848,12 +849,12 @@
                 <Border Style="{StaticResource OverlayCard}" Width="420" Height="420" behaviors:FadeInBehavior.Enable="True"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="Classement" FontSize="18" FontWeight="Bold" Foreground="#E7E5E3" Margin="0,0,0,12" />
+                        <TextBlock DockPanel.Dock="Top" Text="{loc:Tr 'Classement'}" FontSize="18" FontWeight="Bold" Foreground="#E7E5E3" Margin="0,0,0,12" />
 
                         <ComboBox DockPanel.Dock="Top" ItemsSource="{Binding AvailableLeaderboardCategories}"
                                   SelectedItem="{Binding SelectedLeaderboardCategory}" Margin="0,0,0,12" />
 
-                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleLeaderboardCommand}"
+                        <Button DockPanel.Dock="Bottom" Content="{loc:Tr 'Fermer'}" Command="{Binding ToggleLeaderboardCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,12,0,0" />
 
                         <ListView ItemsSource="{Binding LeaderboardRows}" Background="Transparent" BorderThickness="0">
@@ -888,13 +889,13 @@
                         </Grid.ColumnDefinitions>
 
                         <DockPanel Grid.Column="0">
-                            <TextBlock DockPanel.Dock="Top" Text="Communauté — Administration" FontSize="18" FontWeight="Bold"
+                            <TextBlock DockPanel.Dock="Top" Text="{loc:Tr 'Communauté — Administration'}" FontSize="18" FontWeight="Bold"
                                        Foreground="#E7E5E3" Margin="0,0,0,12" />
 
                             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                                 <TextBox DockPanel.Dock="Left" Width="240" Padding="10,7"
                                          Text="{Binding AdminSearchText, UpdateSourceTrigger=PropertyChanged}" />
-                                <Button DockPanel.Dock="Left" Content="Rechercher" Command="{Binding AdminSearchCommand}"
+                                <Button DockPanel.Dock="Left" Content="{loc:Tr 'Rechercher'}" Command="{Binding AdminSearchCommand}"
                                         Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
                             </DockPanel>
 
@@ -913,7 +914,7 @@
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
                                     <!-- Voir GDD/demande utilisateur — "quand on appuie sur un pseudo on doit avoir ses réseaux et les liens pour y accéder" : bouton plutôt qu'un simple texte, mais visuellement identique (pas de style de bouton) pour ne pas laisser croire que TOUS les pseudos ont une fiche (voir ShowCreatorInfoCommand, silencieux si le pseudo n'est pas reconnu). -->
-                                    <DataGridTemplateColumn Header="Pseudo" Width="110">
+                                    <DataGridTemplateColumn Header="{loc:Tr 'Pseudo'}" Width="110">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
                                                 <Button Content="{Binding Username}" Style="{StaticResource LinkButton}"
@@ -922,11 +923,11 @@
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
-                                    <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="170" />
-                                    <DataGridTextColumn Header="Grade" Binding="{Binding Rank}" Width="90" />
-                                    <DataGridTextColumn Header="Banni" Binding="{Binding IsBanned}" Width="50" />
-                                    <DataGridTextColumn Header="Muet" Binding="{Binding IsMuted}" Width="45" />
-                                    <DataGridTextColumn Header="Derniere IP" Binding="{Binding LastKnownIp}" Width="*" />
+                                    <DataGridTextColumn Header="{loc:Tr 'Email'}" Binding="{Binding Email}" Width="170" />
+                                    <DataGridTextColumn Header="{loc:Tr 'Grade'}" Binding="{Binding Rank}" Width="90" />
+                                    <DataGridTextColumn Header="{loc:Tr 'Banni'}" Binding="{Binding IsBanned}" Width="50" />
+                                    <DataGridTextColumn Header="{loc:Tr 'Muet'}" Binding="{Binding IsMuted}" Width="45" />
+                                    <DataGridTextColumn Header="{loc:Tr 'Derniere IP'}" Binding="{Binding LastKnownIp}" Width="*" />
                                 </DataGrid.Columns>
                             </DataGrid>
                         </DockPanel>
@@ -945,39 +946,39 @@
 
                             <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Visible">
                                 <StackPanel>
-                                    <TextBlock Text="Bannissement" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBlock Text="{loc:Tr 'Bannissement'}" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
                                     <TextBox Text="{Binding AdminBanReason, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" Margin="0,0,0,8"
                                              AcceptsReturn="True" TextWrapping="Wrap" Height="44" />
-                                    <Button Content="Bannir le compte" Command="{Binding AdminBanCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
-                                    <Button Content="Débannir le compte" Command="{Binding AdminUnbanCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
-                                    <Button Content="Bannir la dernière IP" Command="{Binding AdminBanIpCommand}" Style="{StaticResource SecondaryButton}" />
+                                    <Button Content="{loc:Tr 'Bannir le compte'}" Command="{Binding AdminBanCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
+                                    <Button Content="{loc:Tr 'Débannir le compte'}" Command="{Binding AdminUnbanCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
+                                    <Button Content="{loc:Tr 'Bannir la dernière IP'}" Command="{Binding AdminBanIpCommand}" Style="{StaticResource SecondaryButton}" />
 
                                     <Separator Margin="0,14,0,10" Background="{StaticResource PanelBorderBrush}" />
 
-                                    <TextBlock Text="Grade" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBlock Text="{loc:Tr 'Grade'}" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
                                     <ComboBox ItemsSource="{Binding AdminAvailableRanks}" SelectedItem="{Binding AdminSelectedRank}" Margin="0,0,0,6" />
-                                    <Button Content="Définir le grade" Command="{Binding AdminSetRankCommand}" Style="{StaticResource SecondaryButton}" />
+                                    <Button Content="{loc:Tr 'Définir le grade'}" Command="{Binding AdminSetRankCommand}" Style="{StaticResource SecondaryButton}" />
 
                                     <Separator Margin="0,14,0,10" Background="{StaticResource PanelBorderBrush}" />
 
-                                    <TextBlock Text="Modération" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
-                                    <Button Content="Basculer mute (tchat)" Command="{Binding AdminToggleMuteCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
-                                    <Button Content="Réinitialiser le profil de jeu" Command="{Binding AdminResetProfileCommand}" Style="{StaticResource SecondaryButton}" />
+                                    <TextBlock Text="{loc:Tr 'Modération'}" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <Button Content="{loc:Tr 'Basculer mute (tchat)'}" Command="{Binding AdminToggleMuteCommand}" Style="{StaticResource SecondaryButton}" Margin="0,0,0,6" />
+                                    <Button Content="{loc:Tr 'Réinitialiser le profil de jeu'}" Command="{Binding AdminResetProfileCommand}" Style="{StaticResource SecondaryButton}" />
 
                                     <Separator Margin="0,14,0,10" Background="{StaticResource PanelBorderBrush}" />
 
-                                    <TextBlock Text="Renommer / changer l'email" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBlock Text="{loc:Tr 'Renommer / changer l\'email'}" Foreground="{StaticResource TextMutedBrush}" FontWeight="Bold" Margin="0,0,0,8" />
                                     <TextBox Text="{Binding AdminNewUsername, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" Margin="0,0,0,6" />
-                                    <TextBlock Text="Nouveau pseudo (laisser vide si inchangé)" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
+                                    <TextBlock Text="{loc:Tr 'Nouveau pseudo (laisser vide si inchangé)'}" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
                                     <TextBox Text="{Binding AdminNewEmail, UpdateSourceTrigger=PropertyChanged}" Padding="10,7" Margin="0,0,0,6" />
-                                    <TextBlock Text="Nouvel email (laisser vide si inchangé)" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
-                                    <Button Content="Enregistrer" Command="{Binding AdminModifyCommand}" Style="{StaticResource SecondaryButton}" />
+                                    <TextBlock Text="{loc:Tr 'Nouvel email (laisser vide si inchangé)'}" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,0,8" />
+                                    <Button Content="{loc:Tr 'Enregistrer'}" Command="{Binding AdminModifyCommand}" Style="{StaticResource SecondaryButton}" />
 
                                     <TextBlock Text="{Binding AdminStatusMessage}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" Margin="0,14,0,0" />
-                                    <TextBlock Text="Chargement..." Foreground="{StaticResource TextMutedBrush}" Visibility="{Binding AdminIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
+                                    <TextBlock Text="{loc:Tr 'Chargement...'}" Foreground="{StaticResource TextMutedBrush}" Visibility="{Binding AdminIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
                                 </StackPanel>
                             </ScrollViewer>
-                            <Button Grid.Row="1" Content="Fermer" Command="{Binding ToggleAdminPanelCommand}" Style="{StaticResource SecondaryButton}"
+                            <Button Grid.Row="1" Content="{loc:Tr 'Fermer'}" Command="{Binding ToggleAdminPanelCommand}" Style="{StaticResource SecondaryButton}"
                                     HorizontalAlignment="Center" Margin="0,12,0,0" />
                         </Grid>
                     </Grid>
@@ -994,25 +995,25 @@
                 <Border Style="{StaticResource OverlayCard}" Width="760" Height="540" behaviors:FadeInBehavior.Enable="True"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="22">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="Signalements de joueurs" FontSize="18" FontWeight="Bold"
+                        <TextBlock DockPanel.Dock="Top" Text="{loc:Tr 'Signalements de joueurs'}" FontSize="18" FontWeight="Bold"
                                    Foreground="#E7E5E3" Margin="0,0,0,12" />
-                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleReportsPanelCommand}"
+                        <Button DockPanel.Dock="Bottom" Content="{loc:Tr 'Fermer'}" Command="{Binding ToggleReportsPanelCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,12,0,0" />
                         <TextBlock DockPanel.Dock="Bottom" Text="{Binding ReportsStatusMessage}"
                                    Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
-                        <TextBlock DockPanel.Dock="Bottom" Text="Chargement..." Foreground="{StaticResource TextMutedBrush}"
+                        <TextBlock DockPanel.Dock="Bottom" Text="{loc:Tr 'Chargement...'}" Foreground="{StaticResource TextMutedBrush}"
                                    Visibility="{Binding ReportsIsBusy, Converter={StaticResource BoolToVis}}" Margin="0,8,0,0" />
                         <DataGrid ItemsSource="{Binding Reports}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Signalé" Binding="{Binding ReportedCharacterName}" Width="130" />
-                                <DataGridTextColumn Header="Signalé par" Binding="{Binding ReporterCharacterName}" Width="130" />
-                                <DataGridTextColumn Header="Raison" Binding="{Binding Reason}" Width="*" />
-                                <DataGridTextColumn Header="Date (UTC)" Binding="{Binding CreatedAtUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" Width="130" />
-                                <DataGridCheckBoxColumn Header="Traité" Binding="{Binding Resolved}" Width="55" />
+                                <DataGridTextColumn Header="{loc:Tr 'Signalé'}" Binding="{Binding ReportedCharacterName}" Width="130" />
+                                <DataGridTextColumn Header="{loc:Tr 'Signalé par'}" Binding="{Binding ReporterCharacterName}" Width="130" />
+                                <DataGridTextColumn Header="{loc:Tr 'Raison'}" Binding="{Binding Reason}" Width="*" />
+                                <DataGridTextColumn Header="{loc:Tr 'Date (UTC)'}" Binding="{Binding CreatedAtUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" Width="130" />
+                                <DataGridCheckBoxColumn Header="{loc:Tr 'Traité'}" Binding="{Binding Resolved}" Width="55" />
                                 <DataGridTemplateColumn Header="" Width="100">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Button Content="Marquer traité" Style="{StaticResource LinkButton}"
+                                            <Button Content="{loc:Tr 'Marquer traité'}" Style="{StaticResource LinkButton}"
                                                     Command="{Binding DataContext.ResolveReportCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                     CommandParameter="{Binding}" />
                                         </DataTemplate>
@@ -1030,9 +1031,9 @@
                 <Border Style="{StaticResource OverlayCard}" Width="560" Height="480" behaviors:FadeInBehavior.Enable="True"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="TOUTES LES ACTUALITÉS" FontSize="16" FontWeight="Bold"
+                        <TextBlock DockPanel.Dock="Top" Text="{loc:Tr 'TOUTES LES ACTUALITÉS'}" FontSize="16" FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}" Margin="0,0,0,14" />
-                        <Button DockPanel.Dock="Bottom" Content="Fermer" Command="{Binding ToggleAllNewsCommand}"
+                        <Button DockPanel.Dock="Bottom" Content="{loc:Tr 'Fermer'}" Command="{Binding ToggleAllNewsCommand}"
                                 Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center" Margin="0,14,0,0" />
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <ItemsControl ItemsSource="{Binding AllNews}" ItemTemplate="{StaticResource NewsCardTemplate}" />
@@ -1052,7 +1053,7 @@
                         <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
                             <TextBlock Text="{Binding SelectedNews.FullContent}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" />
                         </ScrollViewer>
-                        <Button Content="Fermer" Command="{Binding CloseNewsDetailCommand}" Style="{StaticResource SecondaryButton}"
+                        <Button Content="{loc:Tr 'Fermer'}" Command="{Binding CloseNewsDetailCommand}" Style="{StaticResource SecondaryButton}"
                                 HorizontalAlignment="Center" Margin="0,20,0,0" />
                     </StackPanel>
                 </Border>

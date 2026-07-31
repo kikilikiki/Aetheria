@@ -16,6 +16,7 @@ using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Models.WorldBoss;
+using Aetheria.Shared.Models.GuildRaid;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
 using Microsoft.AspNetCore.Builder;
@@ -437,6 +438,22 @@ app.MapPost("/api/monsters/reroll-iv", async (RerollIvRequest request) =>
     }
 });
 
+// Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon)".
+app.MapPost("/api/monsters/reroll-nature", async (RerollNatureRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var careService = new MonsterCareService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await careService.RerollNatureAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 // Voir GDD/demande utilisateur — "Prestige après niveau maximum".
 app.MapPost("/api/monsters/{monsterId:guid}/prestige", async (Guid monsterId, PrestigeMonsterRequest request) =>
 {
@@ -838,6 +855,39 @@ app.MapPost("/api/guilds/{guildId:guid}/deposit-gold", async (Guid guildId, Guil
     try
     {
         return Results.Ok(await guildService.DepositGoldAsync(guildId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume".
+app.MapGet("/api/guilds/decorations/catalog", () => Results.Ok(GuildDecorationCatalog.All));
+
+app.MapPost("/api/guilds/{guildId:guid}/decorations/purchase", async (Guid guildId, GuildDecorationActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await guildService.PurchaseDecorationAsync(guildId, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/guilds/{guildId:guid}/decorations/set-active", async (Guid guildId, GuildDecorationActionRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await guildService.SetActiveDecorationAsync(guildId, request));
     }
     catch (AccountOperationException ex)
     {
@@ -1297,6 +1347,49 @@ app.MapGet("/api/worldboss/leaderboard", async (string scope, int limit) =>
     return Results.Ok(rows);
 });
 
+// Voir GDD/demande utilisateur — "Raids de guilde (boss coopératif nécessitant plusieurs joueurs, distinct du world boss solo/petit groupe)".
+app.MapGet("/api/guildraid/status/{characterId:guid}", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var status = await new GuildRaidService(db, app.Services.GetRequiredService<SessionTokenStore>()).GetStatusAsync(characterId);
+    return status is null ? Results.NoContent() : Results.Ok(status);
+});
+
+app.MapPost("/api/guildraid/spawn", async (GuildRaidSpawnRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildRaidService = new GuildRaidService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await guildRaidService.SpawnAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/guildraid/attack", async (GuildRaidAttackRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var guildRaidService = new GuildRaidService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    try
+    {
+        return Results.Ok(await guildRaidService.AttackAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapGet("/api/guildraid/leaderboard/{characterId:guid}", async (Guid characterId, int limit) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var rows = await new GuildRaidService(db, app.Services.GetRequiredService<SessionTokenStore>()).GetLeaderboardAsync(characterId, limit <= 0 ? 10 : limit);
+    return Results.Ok(rows);
+});
+
 // Voir GDD/demande utilisateur — "un endroit pour modifier son profil".
 app.MapGet("/api/profile/{characterId:guid}", async (Guid characterId) =>
 {
@@ -1372,6 +1465,48 @@ app.MapGet("/api/friends/{characterId:guid}/pending", async (Guid characterId) =
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     return Results.Ok(await CreateFriendService(db).GetPendingRequestsAsync(characterId));
+});
+
+// Voir GDD/demande utilisateur — "Système d'échange (trade) entre joueurs".
+TradeService CreateTradeService(AetheriaDbContext tradeDb) =>
+    new(tradeDb, app.Services.GetRequiredService<SessionTokenStore>());
+
+app.MapPost("/api/trade/propose", async (ProposeTradeRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = true, Message = await CreateTradeService(db).ProposeAsync(request) });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+
+app.MapPost("/api/trade/{offerId:guid}/respond", async (Guid offerId, RespondTradeRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        return Results.Ok(new AdminGameActionResponse { Success = true, Message = await CreateTradeService(db).RespondAsync(offerId, request) });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+
+app.MapGet("/api/trade/{characterId:guid}/incoming", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    return Results.Ok(await CreateTradeService(db).GetIncomingAsync(characterId));
+});
+
+app.MapGet("/api/trade/{characterId:guid}/outgoing", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    return Results.Ok(await CreateTradeService(db).GetOutgoingAsync(characterId));
 });
 
 app.MapPost("/api/combat/start", async (StartCombatRequest request) =>
@@ -1469,6 +1604,38 @@ app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomI
     try
     {
         return Results.Ok(await roomService.OpenChestAsync(dungeonId, floorNumber, roomIndex, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller".
+app.MapPost("/api/dungeons/{dungeonId:int}/entry-status", async (int dungeonId, DungeonEntryStatusRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var completionService = new DungeonCompletionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await completionService.GetEntryStatusAsync(request.SessionToken, request.CharacterId, dungeonId));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir GDD/demande utilisateur — "a la fin des 10 etage termine le dongon [...] donne lui des recompense".
+app.MapPost("/api/dungeons/{dungeonId:int}/complete", async (int dungeonId, DungeonCompleteRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var completionService = new DungeonCompletionService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await completionService.CompleteAsync(request.SessionToken, request.CharacterId, dungeonId));
     }
     catch (AccountOperationException ex)
     {
@@ -2672,6 +2839,8 @@ app.MapPost("/api/admin/game/level-up-monster", async (AdminLevelUpMonsterReques
 
     // Voir GDD/demande utilisateur — "limite de niveau à 1000 pour les monstres".
     monster.Level = Math.Clamp(monster.Level + Math.Max(1, request.Levels), 1, MonsterProgressionService.MaxLevel);
+    // Voir GDD/demande utilisateur — évolutions : un changement de niveau admin doit aussi pouvoir déclencher une évolution, comme un gain de niveau normal.
+    await MonsterEvolutionService.CheckAndApplyAsync(db, monster);
     await db.SaveChangesAsync();
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monster.Nickname} est maintenant niveau {monster.Level}." });
 });
@@ -2713,6 +2882,7 @@ app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest reque
         Variant = MonsterVariant.Normal,
         Nickname = species.Name,
         Level = 1,
+        Nature = MonsterNatureCatalog.RollRandom(Random.Shared),
     };
     MonsterIvRoller.RollInto(monster, Random.Shared);
 
@@ -2812,6 +2982,7 @@ app.MapPost("/api/admin/game/max-level-team", async (AdminMaxLevelTeamRequest re
     {
         monster.Level = MonsterProgressionService.MaxLevel;
         monster.Experience = 0;
+        await MonsterEvolutionService.CheckAndApplyAsync(db, monster);
     }
 
     await db.SaveChangesAsync();
@@ -3164,6 +3335,7 @@ static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnly
     Experience = entity.Experience,
     Personality = entity.Personality,
     PassiveTalent = entity.PassiveTalent,
+    Nature = entity.Nature,
     IsInActiveTeam = entity.IsInActiveTeam,
     EquippedWeaponItemId = entity.EquippedWeaponItemId,
     EquippedWeaponName = entity.EquippedWeaponItemId is { } weaponId ? itemNames?.GetValueOrDefault(weaponId) : null,

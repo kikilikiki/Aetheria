@@ -23,6 +23,11 @@ public sealed class MonsterEntity
     public string Personality { get; set; } = string.Empty;
     public string PassiveTalent { get; set; } = string.Empty;
 
+    // Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les
+    // 'natures' Pokémon, influençant les stats)" : tirée une seule fois à la capture/naissance
+    // (voir MonsterNatureCatalog.RollRandom), appliquée dans MonsterStatMath.
+    public MonsterNature Nature { get; set; } = MonsterNature.Neutre;
+
     /// <summary>Fait partie de l'équipe active (4 créatures maximum combattent — voir GDD).</summary>
     public bool IsInActiveTeam { get; set; }
 

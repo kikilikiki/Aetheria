@@ -119,6 +119,43 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         return ToMonsterInstanceData(monster);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon, influençant les stats)" (Pierre de Nature) : même schéma que <see cref="RerollIvAsync"/> ci-dessus.</summary>
+    public async Task<MonsterInstanceData> RerollNatureAsync(RerollNatureRequest request, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var monster = await db.Monsters.FirstOrDefaultAsync(m => m.Id == request.MonsterId, ct)
+            ?? throw new AccountOperationException("Créature introuvable.");
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == monster.OwnerCharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Cette créature n'appartient pas à un personnage de ce compte.");
+
+        var item = await db.Items.FirstOrDefaultAsync(i => i.Id == request.ItemId, ct)
+            ?? throw new AccountOperationException("Objet introuvable.");
+
+        if (item.Name != "Pierre de Nature")
+        {
+            throw new AccountOperationException($"{item.Name} ne peut pas être utilisé de cette façon.");
+        }
+
+        var inventoryItem = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == character.Id && i.ItemId == request.ItemId, ct)
+            ?? throw new AccountOperationException("Vous ne possédez pas cet objet.");
+
+        inventoryItem.Quantity--;
+        if (inventoryItem.Quantity <= 0)
+        {
+            db.InventoryItems.Remove(inventoryItem);
+        }
+
+        monster.Nature = MonsterNatureCatalog.RollRandom(Random.Shared);
+        await db.SaveChangesAsync(ct);
+
+        return ToMonsterInstanceData(monster);
+    }
+
     /// <summary>
     /// Voir GDD/demande utilisateur — bâtiment "où l'on peut voir tout nos monstres et déplacer
     /// ce que l'on a dans notre team" : bascule l'appartenance à l'équipe active (max 4, voir
@@ -164,6 +201,7 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         Experience = entity.Experience,
         Personality = entity.Personality,
         PassiveTalent = entity.PassiveTalent,
+        Nature = entity.Nature,
         IsInActiveTeam = entity.IsInActiveTeam,
         EquippedWeaponItemId = entity.EquippedWeaponItemId,
         EquippedArmorItemId = entity.EquippedArmorItemId,

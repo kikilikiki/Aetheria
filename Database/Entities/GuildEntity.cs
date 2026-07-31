@@ -32,4 +32,7 @@ public sealed class GuildEntity
 
     /// <summary>Code a 5 chiffres genere a la creation d'une guilde privee (voir GuildService.CreateAsync), requis pour rejoindre (voir GuildService.JoinAsync). Null pour une guilde publique.</summary>
     public string? JoinCode { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume" : décoration actuellement affichée, doit correspondre à une <see cref="GuildDecorationEntity.DecorationKey"/> déjà achetée (voir GuildDecorationService.SetActiveAsync), sinon ignorée. Null = aucune.</summary>
+    public string? ActiveDecorationKey { get; set; }
 }

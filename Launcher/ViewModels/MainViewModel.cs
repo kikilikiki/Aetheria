@@ -24,6 +24,9 @@ public sealed partial class MainViewModel : ObservableObject
     private AccountApiClient _accountApi;
     private AdminApiClient? _adminApi;
 
+    /// <summary>Voir GDD/demande utilisateur — "traduit le launcher en anglais aussi" : raccourci pour les messages assignés en C# (StatusMessage, ServerStatusText, ...), qui ne passent pas par le markup extension loc:Tr (réservé au XAML statique).</summary>
+    private static string Tr(string text) => Aetheria.Shared.Localization.Localization.Translate(text, GameSettings.Load().Language);
+
     [ObservableProperty]
     private string _title = $"{GameInfo.Name} Launcher — v{GameInfo.Version}";
 
@@ -56,7 +59,7 @@ public sealed partial class MainViewModel : ObservableObject
     private bool _isServerOnline;
 
     [ObservableProperty]
-    private string _serverStatusText = "Vérification du serveur...";
+    private string _serverStatusText = Tr("Vérification du serveur...");
 
     /// <summary>Vrai si le serveur tourne une version différente de ce Launcher (voir GDD/demande utilisateur — afficher "Mettre à jour" à la place de "Jouer").</summary>
     [ObservableProperty]
@@ -73,7 +76,7 @@ public sealed partial class MainViewModel : ObservableObject
     private int _updateProgressPercent;
 
     /// <summary>Texte du bouton de mise à jour (voir GDD/demande utilisateur — "Mise à jour / Mise à jour en cours (14%) / Jouer").</summary>
-    public string UpdateButtonText => IsUpdating ? $"Mise à jour en cours ({UpdateProgressPercent}%)" : "Mise à jour";
+    public string UpdateButtonText => IsUpdating ? $"{Tr("Mise à jour en cours")} ({UpdateProgressPercent}%)" : Tr("Mise à jour");
 
     /// <summary>Le gros bouton du bas est soit JOUER, soit MISE À JOUR — jamais les deux (voir GDD).</summary>
     public bool ShowPlayButton => IsLoggedIn && !IsUpdateAvailable;
@@ -117,8 +120,8 @@ public sealed partial class MainViewModel : ObservableObject
     public IReadOnlyList<KeyboardLayoutPreference> AvailableKeyboardLayouts { get; } = Enum.GetValues<KeyboardLayoutPreference>();
 
     public string DetectedLayoutText => KeyboardLayoutResolver.IsAzertyDetected()
-        ? "Détecté sur cette machine : AZERTY"
-        : "Détecté sur cette machine : QWERTY";
+        ? $"{Tr("Détecté sur cette machine")} : AZERTY"
+        : $"{Tr("Détecté sur cette machine")} : QWERTY";
 
     [ObservableProperty]
     private bool _isNewsDetailOpen;
@@ -380,12 +383,21 @@ public sealed partial class MainViewModel : ObservableObject
         settings.Save();
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue" — persiste immédiatement, partagé avec le Client comme la disposition clavier ci-dessus.</summary>
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue" — persiste
+    /// immédiatement, partagé avec le Client comme la disposition clavier ci-dessus. Voir aussi
+    /// GDD/demande utilisateur — "traduit le launcher en anglais aussi" : met aussi à jour
+    /// LauncherLanguageService pour retraduire le Launcher lui-même immédiatement (voir loc:Tr
+    /// dans MainWindow.xaml), sans redémarrage.
+    /// </summary>
     partial void OnLanguagePreferenceChanged(Language value)
     {
         var settings = GameSettings.Load();
         settings.Language = value;
         settings.Save();
+        Aetheria.Launcher.Localization.LauncherLanguageService.Instance.Current = value;
+        OnPropertyChanged(nameof(UpdateButtonText));
+        OnPropertyChanged(nameof(DetectedLayoutText));
     }
 
     /// <summary>
@@ -424,7 +436,7 @@ public sealed partial class MainViewModel : ObservableObject
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
             var response = await http.GetAsync($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}/api/health");
             IsServerOnline = response.IsSuccessStatusCode;
-            ServerStatusText = IsServerOnline ? "Serveur en ligne" : "Serveur hors ligne";
+            ServerStatusText = Tr(IsServerOnline ? "Serveur en ligne" : "Serveur hors ligne");
 
             if (IsServerOnline)
             {
@@ -446,13 +458,13 @@ public sealed partial class MainViewModel : ObservableObject
         {
             IsServerOnline = false;
             IsUpdateAvailable = false;
-            ServerStatusText = "Serveur hors ligne";
+            ServerStatusText = Tr("Serveur hors ligne");
         }
         catch (TaskCanceledException)
         {
             IsServerOnline = false;
             IsUpdateAvailable = false;
-            ServerStatusText = "Serveur hors ligne";
+            ServerStatusText = Tr("Serveur hors ligne");
         }
     }
 
@@ -483,7 +495,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (!IsValidEmail(Email))
         {
-            StatusMessage = "L'email doit être au format exemple@domaine.com.";
+            StatusMessage = Tr("L'email doit être au format exemple@domaine.com.");
             return;
         }
 
@@ -493,7 +505,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             var result = await _accountApi.RegisterAsync(UsernameOrEmail, Email, Password);
             StatusMessage = result.IsSuccess
-                ? "Compte créé. Vous pouvez maintenant vous connecter."
+                ? Tr("Compte créé. Vous pouvez maintenant vous connecter.")
                 : result.Error;
         }
         finally
@@ -587,7 +599,7 @@ public sealed partial class MainViewModel : ObservableObject
         await CheckServerStatusAsync();
         if (IsUpdateAvailable)
         {
-            StatusMessage = "Une nouvelle version est disponible : mettez à jour avant de jouer.";
+            StatusMessage = Tr("Une nouvelle version est disponible : mettez à jour avant de jouer.");
             return;
         }
 

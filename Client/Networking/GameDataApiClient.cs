@@ -9,6 +9,7 @@ using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Models.WorldBoss;
+using Aetheria.Shared.Models.GuildRaid;
 
 namespace Aetheria.Client.Networking;
 
@@ -92,6 +93,37 @@ public sealed class GameDataApiClient : IDisposable
             SessionToken = sessionToken,
             CharacterId = characterId,
             Amount = amount,
+        }, JsonOptions, ct);
+
+        return await ReadGuildResultAsync(response, ct);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume".</summary>
+    public async Task<List<GuildDecorationDefinition>> GetGuildDecorationCatalogAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<GuildDecorationDefinition>>("/api/guilds/decorations/catalog", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<GuildSummary> PurchaseGuildDecorationAsync(string sessionToken, Guid characterId, Guid guildId, string decorationKey, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/guilds/{guildId}/decorations/purchase", new GuildDecorationActionRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            DecorationKey = decorationKey,
+        }, JsonOptions, ct);
+
+        return await ReadGuildResultAsync(response, ct);
+    }
+
+    public async Task<GuildSummary> SetActiveGuildDecorationAsync(string sessionToken, Guid characterId, Guid guildId, string decorationKey, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/guilds/{guildId}/decorations/set-active", new GuildDecorationActionRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            DecorationKey = decorationKey,
         }, JsonOptions, ct);
 
         return await ReadGuildResultAsync(response, ct);
@@ -249,6 +281,30 @@ public sealed class GameDataApiClient : IDisposable
         }, JsonOptions, ct);
 
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ChestLootResult>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller".</summary>
+    public async Task<DungeonEntryStatus?> GetDungeonEntryStatusAsync(string sessionToken, Guid characterId, int dungeonId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/entry-status", new DungeonEntryStatusRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<DungeonEntryStatus>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "a la fin des 10 etage termine le dongon [...] donne lui des recompense".</summary>
+    public async Task<DungeonCompletionResult?> CompleteDungeonAsync(string sessionToken, Guid characterId, int dungeonId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/complete", new DungeonCompleteRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<DungeonCompletionResult>(JsonOptions, ct) : null;
     }
 
     public async Task<List<ShopItem>> GetShopCatalogAsync(CancellationToken ct = default)
@@ -699,6 +755,19 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon)".</summary>
+    public async Task<MonsterInstanceData?> RerollNatureAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/monsters/reroll-nature", new RerollNatureRequest
+        {
+            SessionToken = sessionToken,
+            MonsterId = monsterId,
+            ItemId = itemId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos monstres".</summary>
     public async Task<MonsterInstanceData?> EquipItemAsync(string sessionToken, Guid monsterId, int itemId, CancellationToken ct = default)
     {
@@ -854,6 +923,33 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> RemoveFriendAsync(string sessionToken, Guid characterId, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/friends/remove", new FriendActionRequest { SessionToken = sessionToken, CharacterId = characterId, TargetCharacterName = targetCharacterName }, ct);
 
+    /// <summary>Voir GDD/demande utilisateur — "Système d'échange (trade) entre joueurs".</summary>
+    public async Task<List<TradeOfferSummary>> GetIncomingTradeOffersAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<TradeOfferSummary>>($"/api/trade/{characterId}/incoming", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<List<TradeOfferSummary>> GetOutgoingTradeOffersAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<TradeOfferSummary>>($"/api/trade/{characterId}/outgoing", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    public async Task<AdminGameActionResponse> ProposeTradeAsync(string sessionToken, Guid characterId, string targetCharacterName, Guid? offeredMonsterId, long offeredGold, long requestedGold, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/trade/propose", new ProposeTradeRequest
+        {
+            SessionToken = sessionToken,
+            InitiatorCharacterId = characterId,
+            TargetCharacterName = targetCharacterName,
+            OfferedMonsterId = offeredMonsterId,
+            OfferedGold = offeredGold,
+            RequestedGold = requestedGold,
+        }, ct);
+
+    public async Task<AdminGameActionResponse> RespondTradeAsync(string sessionToken, Guid characterId, Guid offerId, bool accept, CancellationToken ct = default)
+        => await PostAdminActionAsync($"/api/trade/{offerId}/respond", new RespondTradeRequest { SessionToken = sessionToken, CharacterId = characterId, Accept = accept }, ct);
+
     // Voir GDD/demande utilisateur — "un batiment pour fusionner des monstres" + retour
     // utilisateur "ajoute un temps et une validation avant de le faire" : en deux temps
     // (start puis claim une fois le délai écoulé, voir GetPendingFusionAsync pour le sondage).
@@ -956,6 +1052,51 @@ public sealed class GameDataApiClient : IDisposable
     {
         var scope = allTime ? "alltime" : "current";
         var result = await _http.GetFromJsonAsync<List<WorldBossLeaderboardRow>>($"/api/worldboss/leaderboard?scope={scope}&limit={limit}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Raids de guilde (boss coopératif nécessitant plusieurs joueurs, distinct du world boss solo/petit groupe)".</summary>
+    public async Task<GuildRaidStatus?> GetGuildRaidStatusAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/guildraid/status/{characterId}", ct);
+        return response.StatusCode == System.Net.HttpStatusCode.NoContent
+            ? null
+            : await response.Content.ReadFromJsonAsync<GuildRaidStatus>(JsonOptions, ct);
+    }
+
+    public async Task<AdminGameActionResponse> SpawnGuildRaidAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/guildraid/spawn", new GuildRaidSpawnRequest { SessionToken = sessionToken, CharacterId = characterId }, JsonOptions, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new AdminGameActionResponse { Success = false, Message = error?.Message ?? $"Erreur serveur ({(int)response.StatusCode})." };
+        }
+
+        var status = await response.Content.ReadFromJsonAsync<GuildRaidStatus>(JsonOptions, ct);
+        return new AdminGameActionResponse { Success = true, Message = $"{status?.Name} invoqué !" };
+    }
+
+    public async Task<GuildRaidAttackResponse> AttackGuildRaidAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/guildraid/attack", new GuildRaidAttackRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+            return new GuildRaidAttackResponse(false, error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).", 0, 0, false, 0);
+        }
+
+        return (await response.Content.ReadFromJsonAsync<GuildRaidAttackResponse>(JsonOptions, ct))!;
+    }
+
+    public async Task<List<GuildRaidLeaderboardRow>> GetGuildRaidLeaderboardAsync(Guid characterId, int limit = 10, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<GuildRaidLeaderboardRow>>($"/api/guildraid/leaderboard/{characterId}?limit={limit}", JsonOptions, ct);
         return result ?? [];
     }
 

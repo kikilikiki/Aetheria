@@ -15,8 +15,8 @@ namespace Aetheria.Server.World;
 /// </summary>
 public sealed class DungeonRoomService(AetheriaDbContext db, SessionTokenStore tokenStore)
 {
-    /// <summary>Voir retour utilisateur — "ajoute des items exclusifs que l'on peut avoir que en donjon" : réservés aux coffres de donjon (voir MonsterCatalogSeeder, IsObtainable = false).</summary>
-    private static readonly string[] DungeonExclusiveItems = ["Éclat de donjon", "Relique poussiéreuse", "Fragment d'ombre", "Cœur de labyrinthe"];
+    /// <summary>Voir retour utilisateur — "ajoute des items exclusifs que l'on peut avoir que en donjon" : réservés aux coffres de donjon (voir MonsterCatalogSeeder, IsObtainable = false). Interne plutôt que privé : réutilisé tel quel par <see cref="DungeonCompletionService"/> pour la récompense de fin de parcours.</summary>
+    internal static readonly string[] DungeonExclusiveItems = ["Éclat de donjon", "Relique poussiéreuse", "Fragment d'ombre", "Cœur de labyrinthe"];
 
     public async Task<ChestLootResult> OpenChestAsync(int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request, CancellationToken ct = default)
     {

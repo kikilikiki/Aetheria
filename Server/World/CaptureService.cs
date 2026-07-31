@@ -78,6 +78,8 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
             Level = 1,
             // Voir GDD/demande utilisateur — "Compétences passives" : tirée une fois pour toutes à la capture.
             PassiveTalent = PassiveTalentCatalog.RollRandom(Random),
+            // Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon)" : tirée une fois pour toutes à la capture, comme le talent passif ci-dessus.
+            Nature = MonsterNatureCatalog.RollRandom(Random),
         };
 
         // Voir GDD/demande utilisateur — "ajoute un random iv" : tirées une fois pour toutes à la capture, comme le talent passif ci-dessus.

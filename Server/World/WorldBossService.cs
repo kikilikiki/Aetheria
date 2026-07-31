@@ -129,6 +129,7 @@ public sealed class WorldBossService(AetheriaDbContext db, SessionTokenStore tok
                         Nickname = species.Name,
                         Level = 1,
                         PassiveTalent = PassiveTalentCatalog.RollRandom(Random.Shared),
+                        Nature = MonsterNatureCatalog.RollRandom(Random.Shared),
                     };
                     MonsterIvRoller.RollInto(rewardMonster, Random.Shared);
                     db.Monsters.Add(rewardMonster);

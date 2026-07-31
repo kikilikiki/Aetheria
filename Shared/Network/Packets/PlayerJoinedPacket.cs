@@ -23,6 +23,9 @@ public sealed class PlayerJoinedPacket : IPacket
     /// <summary>Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour que en multijoueur on puisse voir le niveau des autres".</summary>
     public int Level { get; init; } = 1;
 
+    /// <summary>Voir GDD/demande utilisateur — "Titres/emblèmes affichés à côté du pseudo (en plus du niveau qu'on vient d'ajouter)" : vide = aucun titre.</summary>
+    public string Title { get; init; } = string.Empty;
+
     public void Write(BinaryWriter writer)
     {
         writer.Write(CharacterId.ToByteArray());
@@ -31,6 +34,7 @@ public sealed class PlayerJoinedPacket : IPacket
         writer.Write(PositionY);
         writer.Write((byte)Rank);
         writer.Write(Level);
+        writer.Write(Title);
     }
 
     public static IPacket Read(BinaryReader reader) => new PlayerJoinedPacket
@@ -41,5 +45,6 @@ public sealed class PlayerJoinedPacket : IPacket
         PositionY = reader.ReadInt32(),
         Rank = (UserRank)reader.ReadByte(),
         Level = reader.ReadInt32(),
+        Title = reader.ReadString(),
     };
 }

@@ -17,6 +17,7 @@ using Aetheria.Shared.Models.BattlePass;
 using Aetheria.Shared.Models.Combat;
 using Aetheria.Shared.Models.Premium;
 using Aetheria.Shared.Models.WorldBoss;
+using Aetheria.Shared.Models.GuildRaid;
 using Aetheria.Shared.Network.Packets;
 using Aetheria.Shared.World;
 using Aetheria.Shared.Settings;
@@ -124,6 +125,9 @@ var dungeonRoomIndex = 0;
 Task<DungeonFloor?>? dungeonFloorTask = null;
 Task<ChestLootResult?>? dungeonChestTask = null;
 string? dungeonRoomMessage = null;
+
+/// <summary>Voir GDD/demande utilisateur — "a la fin des 10 etage termine le dongon et affiche un message fait le quitter le dongon donne lui des recompense et ajoute un cooldown de 1h".</summary>
+Task<DungeonCompletionResult?>? dungeonCompletionTask = null;
 
 /// <summary>Position du joueur dans la salle courante (0..1 relatif, voir DrawDungeonRoom) — recentrée à chaque changement de salle.</summary>
 var dungeonPlayerPos = new Vector2(0.5f, 0.5f);
@@ -424,6 +428,11 @@ var isDungeonSelectOpen = false;
 var dungeonSelectCursor = 0;
 List<DungeonData> dungeonSelectOptions = [];
 Task<(List<DungeonData> Dungeons, List<KingdomData> Kingdoms)>? dungeonSelectTask = null;
+
+/// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller" : donjons actuellement en recharge pour ce personnage (Id du donjon -> date de fin), rafraîchi à chaque ouverture du panneau (voir LoadDungeonCooldownsAsync).</summary>
+Dictionary<int, DateTime> dungeonCooldownUntil = [];
+Task<Dictionary<int, DateTime>>? dungeonCooldownTask = null;
+string? dungeonSelectMessage = null;
 /// <summary>Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des dongon a part mais que l'on peut choisir hardcore ou normal" : choix fait sur l'écran de sélection (touche TAB, seulement si le donjon sélectionné le propose), porté jusqu'au combat engagé (voir StartDungeonRoomCombatAsync).</summary>
 var dungeonHardcoreRequested = false;
 
@@ -509,6 +518,21 @@ string? friendMessage = null;
 Task<List<FriendSummary>>? friendListTask = null;
 Task<List<FriendRequestSummary>>? friendPendingTask = null;
 Task<AdminGameActionResponse>? friendActionTask = null;
+
+// Voir GDD/demande utilisateur — "Système d'échange (trade) entre joueurs" : panneau Echange
+// (touche O), même structure que le panneau Amis ci-dessus (liste combinée reçues/envoyées,
+// saisie texte pour proposer). Format de saisie "joueur;indexMonstre;orOffert;orDemande" —
+// indexMonstre référence ownedMonsters (vide/-1 = aucune créature offerte, or seul).
+List<TradeOfferSummary> tradeIncoming = [];
+List<TradeOfferSummary> tradeOutgoing = [];
+var tradeLoaded = false;
+var tradeCursor = 0;
+var tradeAddMode = false;
+var tradeTextInput = string.Empty;
+string? tradeMessage = null;
+Task<List<TradeOfferSummary>>? tradeIncomingTask = null;
+Task<List<TradeOfferSummary>>? tradeOutgoingTask = null;
+Task<AdminGameActionResponse>? tradeActionTask = null;
 
 // Voir GDD/demande utilisateur — "shop avec des gems" : gemmes (monnaie premium), conversion de
 // pièces, palier de grade (bonus XP/or cosmétique) et pass d'emplacement de personnage. L'achat
@@ -641,6 +665,23 @@ Task<List<GuildChestItemSummary>>? guildChestTask = null;
 List<GuildSummary> guildLeaderboard = [];
 var guildLeaderboardLoaded = false;
 Task<List<GuildSummary>>? guildLeaderboardTask = null;
+
+// Voir GDD/demande utilisateur — "Raids de guilde (boss coopératif nécessitant plusieurs
+// joueurs, distinct du world boss solo/petit groupe)" : même schéma que le panneau Boss Mondial
+// (voir worldBossStatus/worldBossLoadTask), scopé à la guilde.
+GuildRaidStatus? guildRaidStatus = null;
+Task<GuildRaidStatus?>? guildRaidStatusTask = null;
+Task<AdminGameActionResponse>? guildRaidSpawnTask = null;
+Task<GuildRaidAttackResponse>? guildRaidAttackTask = null;
+List<GuildRaidLeaderboardRow> guildRaidLeaderboard = [];
+string? guildRaidMessage = null;
+
+// Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume".
+List<GuildDecorationDefinition> guildDecorationCatalog = [];
+Task<List<GuildDecorationDefinition>>? guildDecorationCatalogTask = null;
+var guildDecorationCursor = 0;
+Task<GuildSummary>? guildDecorationActionTask = null;
+string? guildDecorationMessage = null;
 List<ShopItem> shopCatalog = [];
 var shopCursor = 0;
 string? shopMessage = null;
@@ -1247,6 +1288,8 @@ host.Update += deltaTime =>
     else if (keyboard.WasJustPressed(Key.R)) OpenPanel(PanelKind.Kingdom);
     // Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec une UI dédiée.
     else if (keyboard.WasJustPressed(Key.X)) OpenPanel(PanelKind.Challenges);
+    // Voir GDD/demande utilisateur — "Système d'échange (trade) entre joueurs".
+    else if (keyboard.WasJustPressed(Key.O)) OpenPanel(PanelKind.Trade);
 
     Vector2 positionBeforeInput;
     lock (stateLock)
@@ -1511,6 +1554,9 @@ host.Update += deltaTime =>
                 dungeonSelectOptions = [];
                 dungeonSelectTask = LoadDungeonSelectDataAsync();
                 dungeonHardcoreRequested = false;
+                dungeonCooldownUntil = [];
+                dungeonCooldownTask = null;
+                dungeonSelectMessage = null;
                 break;
         }
     }
@@ -2161,6 +2207,231 @@ void DrawFriendsPanel(int w, int h)
     }
 
     DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : MP/accepter - SUPPR : retirer - A : ajouter - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Panneau Echange (touche O, voir GDD/demande utilisateur — "Système d'échange (trade) entre
+/// joueurs"). Même structure que <see cref="UpdateFriendsPanel"/> ci-dessus : liste combinée
+/// (offres reçues puis envoyées) navigable au clavier, saisie texte pour proposer une offre.
+/// Format de saisie "joueur;indexMonstre;orOffert;orDemande" — indexMonstre référence
+/// <see cref="ownedMonsters"/> (index vide/-1 = aucune créature offerte, échange en or seul).
+/// </summary>
+void UpdateTradePanel()
+{
+    if (tradeIncomingTask is { IsCompleted: true } incomingTask)
+    {
+        tradeIncoming = incomingTask.IsFaulted ? [] : incomingTask.Result;
+        tradeIncomingTask = null;
+    }
+
+    if (tradeOutgoingTask is { IsCompleted: true } outgoingTask)
+    {
+        tradeOutgoing = outgoingTask.IsFaulted ? [] : outgoingTask.Result;
+        tradeOutgoingTask = null;
+        tradeLoaded = true;
+    }
+
+    if (tradeActionTask is { IsCompleted: true } actionTask)
+    {
+        tradeMessage = actionTask.IsFaulted ? "Connexion au serveur impossible." : actionTask.Result.Message;
+        tradeActionTask = null;
+        tradeCursor = 0;
+        if (chosenCharacterId is not null && gameDataApi is not null)
+        {
+            tradeIncomingTask = gameDataApi.GetIncomingTradeOffersAsync(chosenCharacterId.Value);
+            tradeOutgoingTask = gameDataApi.GetOutgoingTradeOffersAsync(chosenCharacterId.Value);
+        }
+
+        return;
+    }
+
+    if (tradeActionTask is not null || tradeIncomingTask is not null && !tradeLoaded)
+    {
+        return;
+    }
+
+    if (tradeAddMode)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (tradeTextInput.Length < 60 && !char.IsControl(typed))
+            {
+                tradeTextInput += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && tradeTextInput.Length > 0)
+        {
+            tradeTextInput = tradeTextInput[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            tradeAddMode = false;
+            tradeTextInput = string.Empty;
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && gameDataApi is not null)
+        {
+            var parts = tradeTextInput.Split(';', StringSplitOptions.TrimEntries);
+            if (parts.Length == 4 && parts[0].Length > 0
+                && long.TryParse(parts[2], out var offeredGold) && offeredGold >= 0
+                && long.TryParse(parts[3], out var requestedGold) && requestedGold >= 0)
+            {
+                Guid? monsterId = null;
+                if (parts[1].Length > 0)
+                {
+                    if (!int.TryParse(parts[1], out var monsterIndex) || monsterIndex < 0 || monsterIndex >= ownedMonsters.Count)
+                    {
+                        tradeMessage = "Index de créature invalide.";
+                        return;
+                    }
+
+                    monsterId = ownedMonsters[monsterIndex].Id;
+                }
+
+                tradeMessage = null;
+                tradeActionTask = gameDataApi.ProposeTradeAsync(options.SessionToken!, chosenCharacterId.Value, parts[0], monsterId, offeredGold, requestedGold);
+                tradeAddMode = false;
+                tradeTextInput = string.Empty;
+            }
+            else
+            {
+                tradeMessage = "Format attendu : joueur;indexCreature;orOffert;orDemande (index vide = aucune creature)";
+            }
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.A))
+    {
+        tradeAddMode = true;
+        tradeTextInput = string.Empty;
+        tradeMessage = null;
+        return;
+    }
+
+    var totalRows = tradeIncoming.Count + tradeOutgoing.Count;
+    if (totalRows == 0)
+    {
+        return;
+    }
+
+    tradeCursor = Math.Clamp(tradeCursor, 0, totalRows - 1);
+
+    if (keyboard.WasJustPressed(Key.Down)) tradeCursor = Math.Min(tradeCursor + 1, totalRows - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) tradeCursor = Math.Max(tradeCursor - 1, 0);
+    else if (chosenCharacterId is not null && gameDataApi is not null)
+    {
+        if (tradeCursor < tradeIncoming.Count)
+        {
+            var offer = tradeIncoming[tradeCursor];
+            if (keyboard.WasJustPressed(Key.Enter))
+            {
+                tradeMessage = null;
+                tradeActionTask = gameDataApi.RespondTradeAsync(options.SessionToken!, chosenCharacterId.Value, offer.Id, accept: true);
+            }
+            else if (keyboard.WasJustPressed(Key.N))
+            {
+                tradeMessage = null;
+                tradeActionTask = gameDataApi.RespondTradeAsync(options.SessionToken!, chosenCharacterId.Value, offer.Id, accept: false);
+            }
+        }
+        else
+        {
+            var offer = tradeOutgoing[tradeCursor - tradeIncoming.Count];
+            if (keyboard.WasJustPressed(Key.Delete))
+            {
+                tradeMessage = null;
+                tradeActionTask = gameDataApi.RespondTradeAsync(options.SessionToken!, chosenCharacterId.Value, offer.Id, accept: false);
+            }
+        }
+    }
+}
+
+void DrawTradePanel(int w, int h)
+{
+    const float boxWidth = 520f;
+    const float boxHeight = 440f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.07f, 0.05f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ECHANGE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+
+    if (tradeAddMode)
+    {
+        DrawText(spriteBatch, whiteTexture, "Joueur;indexCreature;orOffert;orDemande", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawText(spriteBatch, whiteTexture, tradeTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
+
+        var listY = topLeft.Y + 140f;
+        DrawText(spriteBatch, whiteTexture, "VOS CREATURES :", new Vector2(topLeft.X + 20f, listY), 1.5f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
+        listY += 24f;
+        for (var i = 0; i < ownedMonsters.Count && listY < topLeft.Y + boxHeight - 60f; i++)
+        {
+            var monster = ownedMonsters[i];
+            var name = monster.Nickname.Length > 0 ? monster.Nickname : speciesById.GetValueOrDefault(monster.SpeciesId)?.Name ?? "?";
+            DrawText(spriteBatch, whiteTexture, $"{i} - {name} (Nv.{monster.Level})", new Vector2(topLeft.X + 20f, listY), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            listY += 20f;
+        }
+
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : ENVOYER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        return;
+    }
+
+    var y = topLeft.Y + 60f;
+    var row = 0;
+
+    if (tradeIncoming.Count > 0)
+    {
+        DrawText(spriteBatch, whiteTexture, "OFFRES RECUES :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        y += 26f;
+
+        foreach (var offer in tradeIncoming)
+        {
+            var selected = row == tradeCursor;
+            var color = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
+            var give = offer.OfferedMonsterName is { } name ? $"{name} + {offer.OfferedGold} or" : $"{offer.OfferedGold} or";
+            DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}{offer.InitiatorName} propose : {give} contre {offer.RequestedGold} or (ENTREE : accepter, N : refuser)",
+                new Vector2(topLeft.X + 20f, y), 1.3f, color);
+            y += 22f;
+            row++;
+        }
+
+        y += 10f;
+    }
+
+    DrawText(spriteBatch, whiteTexture, "OFFRES ENVOYEES :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
+    y += 26f;
+
+    if (tradeOutgoing.Count == 0)
+    {
+        DrawText(spriteBatch, whiteTexture, "Aucune offre en attente.", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        y += 24f;
+    }
+
+    foreach (var offer in tradeOutgoing)
+    {
+        var selected = row == tradeCursor;
+        var color = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
+        var give = offer.OfferedMonsterName is { } name ? $"{name} + {offer.OfferedGold} or" : $"{offer.OfferedGold} or";
+        DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}A {offer.TargetName} : {give} contre {offer.RequestedGold} or (SUPPR : annuler)",
+            new Vector2(topLeft.X + 20f, y), 1.3f, color);
+        y += 22f;
+        row++;
+    }
+
+    if (tradeMessage is not null)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, tradeMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+    }
+
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : accepter - N : refuser - SUPPR : annuler - A : proposer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -5116,7 +5387,7 @@ void ConnectAndEnterWorld(Guid characterId)
 
         lock (stateLock)
         {
-            remotePlayers[packet.CharacterId] = new RemotePlayer(packet.Name, new Vector2(packet.PositionX, packet.PositionY), packet.Rank, packet.Level);
+            remotePlayers[packet.CharacterId] = new RemotePlayer(packet.Name, new Vector2(packet.PositionX, packet.PositionY), packet.Rank, packet.Level, packet.Title);
         }
     };
     connection.PlayerLeft += packet =>
@@ -5448,6 +5719,27 @@ async Task<(List<DungeonData> Dungeons, List<KingdomData> Kingdoms)> LoadDungeon
     return (dungeons, kingdoms);
 }
 
+/// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller" : un aller-retour par donjon affiché, acceptable vu le petit nombre de donjons par royaume.</summary>
+async Task<Dictionary<int, DateTime>> LoadDungeonCooldownsAsync(List<DungeonData> dungeons)
+{
+    var result = new Dictionary<int, DateTime>();
+    if (gameDataApi is null || options.SessionToken is null || chosenCharacterId is null)
+    {
+        return result;
+    }
+
+    foreach (var dungeon in dungeons)
+    {
+        var status = await gameDataApi.GetDungeonEntryStatusAsync(options.SessionToken, chosenCharacterId.Value, dungeon.Id);
+        if (status is { Allowed: false, AvailableAtUtc: { } availableAt })
+        {
+            result[dungeon.Id] = availableAt;
+        }
+    }
+
+    return result;
+}
+
 /// <summary>Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour rentrer" : liste des donjons du royaume courant (voir <see cref="isDungeonSelectOpen"/>).</summary>
 void UpdateDungeonSelectPanel()
 {
@@ -5458,6 +5750,15 @@ void UpdateDungeonSelectPanel()
         dungeonSelectOptions = kingdomId is null ? [] : dungeons.Where(d => d.KingdomId == kingdomId).OrderBy(d => d.MinLevel).ToList();
         dungeonSelectCursor = 0;
         dungeonSelectTask = null;
+        dungeonCooldownUntil = [];
+        dungeonCooldownTask = LoadDungeonCooldownsAsync(dungeonSelectOptions);
+        return;
+    }
+
+    if (dungeonCooldownTask is { IsCompleted: true } cooldownTask)
+    {
+        dungeonCooldownUntil = cooldownTask.IsFaulted ? [] : cooldownTask.Result;
+        dungeonCooldownTask = null;
         return;
     }
 
@@ -5487,10 +5788,9 @@ void UpdateDungeonSelectPanel()
         dungeonSelectCursor = Math.Max(dungeonSelectCursor - 1, 0);
         dungeonHardcoreRequested = false;
     }
-    // Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des dongon
-    // a part mais que l'on peut choisir hardcore ou normal" : bascule uniquement si le donjon
-    // sélectionné propose le mode hardcore (voir DungeonEntity.IsHardcore, repris tel quel).
-    else if (keyboard.WasJustPressed(Key.Tab) && dungeonSelectOptions[dungeonSelectCursor].IsHardcore)
+    // Voir GDD/demande utilisateur — "le hardcore peut etre mis dans tout les dongon" : le
+    // mode hardcore est proposable sur n'importe quel donjon, plus de garde-fou IsHardcore.
+    else if (keyboard.WasJustPressed(Key.Tab))
     {
         dungeonHardcoreRequested = !dungeonHardcoreRequested;
     }
@@ -5500,8 +5800,19 @@ void UpdateDungeonSelectPanel()
         // c'est le niveau des monstres, pas celui du personnage" : plus aucun garde-fou de
         // niveau de personnage ici ni côté serveur (voir CombatService.StartFromDungeonAsync) —
         // MinLevel/MaxMonsterLevel décrivent seulement le niveau des monstres rencontrés.
+        var selected = dungeonSelectOptions[dungeonSelectCursor];
+        // Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne
+        // dans le dongon ou il vient d'aller" : bloqué côté client (confort, évite l'aller-retour
+        // serveur) — la validation faisant foi reste GetDungeonEntryStatusAsync côté serveur.
+        if (dungeonCooldownUntil.TryGetValue(selected.Id, out var availableAt) && availableAt > DateTime.UtcNow)
+        {
+            var remaining = availableAt - DateTime.UtcNow;
+            dungeonSelectMessage = $"Ce donjon recharge encore ({(int)Math.Ceiling(remaining.TotalMinutes)} min).";
+            return;
+        }
+
         isDungeonSelectOpen = false;
-        EnterDungeonInterior(dungeonSelectOptions[dungeonSelectCursor]);
+        EnterDungeonInterior(selected);
     }
 }
 
@@ -5532,11 +5843,14 @@ void DrawDungeonSelectPanel(int w, int h)
             var isSelected = i == dungeonSelectCursor;
             var prefix = isSelected ? "> " : "  ";
             var color = isSelected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
-            // Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des
-            // dongon a part mais que l'on peut choisir hardcore ou normal" : le choix (TAB) ne
-            // s'applique qu'au donjon actuellement sélectionné.
-            var hardcoreTag = !dungeon.IsHardcore ? "" : isSelected && dungeonHardcoreRequested ? " [HARDCORE ACTIVE - TAB]" : " [HARDCORE DISPONIBLE - TAB]";
-            var tags = (dungeon.IsMythic ? " [MYTHIQUE]" : "") + hardcoreTag;
+            // Voir GDD/demande utilisateur — "le hardcore peut etre mis dans tout les dongon donc
+            // retire le texte hardcore dispo" : plus de tag "disponible", uniquement "actif".
+            var hardcoreTag = isSelected && dungeonHardcoreRequested ? " [HARDCORE ACTIVE - TAB]" : "";
+            // Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller".
+            var cooldownTag = dungeonCooldownUntil.TryGetValue(dungeon.Id, out var availableAt) && availableAt > DateTime.UtcNow
+                ? $" [RECHARGE {(int)Math.Ceiling((availableAt - DateTime.UtcNow).TotalMinutes)}MIN]"
+                : "";
+            var tags = (dungeon.IsMythic ? " [MYTHIQUE]" : "") + hardcoreTag + cooldownTag;
             // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon
             // c'est le niveau des monstres" : plage affichee (etage 1 -> dernier etage) plutot
             // qu'un simple "niveau min pour rentrer".
@@ -5556,6 +5870,11 @@ void DrawDungeonSelectPanel(int w, int h)
     }
 
     DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - TAB : hardcore/normal - ENTREE : entrer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+
+    if (dungeonSelectMessage is not null)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, dungeonSelectMessage, new Vector2(w / 2f, topLeft.Y + boxHeight + 22f), 1.6f, new Vector4(0.95f, 0.6f, 0.4f, 1f));
+    }
 }
 
 /// <summary>Voir GDD/demande utilisateur — extrait de l'ex-<c>case InteractionKind.Dungeon</c> pour être réutilisable depuis <see cref="UpdateDungeonSelectPanel"/>.</summary>
@@ -5653,9 +5972,33 @@ void UpdateTitleScreen()
 {
     if (titleShowOptions)
     {
+        // Voir retour utilisateur — "le champs de la langue n'est pas disponible dans les
+        // options de l'ecran titre" : cet écran a son propre système (titleShowOptions), séparé
+        // du panneau Paramètres en jeu (voir PanelKind.Settings) — même contrôle Haut/Bas +
+        // Gauche/Droite ajouté ici, réutilise settingsCursor (jamais actif en même temps que le
+        // panneau en jeu, les deux écrans sont mutuellement exclusifs).
         if (keyboard.WasJustPressed(Key.Escape))
         {
             titleShowOptions = false;
+        }
+        else if (keyboard.WasJustPressed(Key.Down)) settingsCursor = Math.Min(settingsCursor + 1, 1);
+        else if (keyboard.WasJustPressed(Key.Up)) settingsCursor = Math.Max(settingsCursor - 1, 0);
+        else if (keyboard.WasJustPressed(Key.Left) || keyboard.WasJustPressed(Key.Right))
+        {
+            var direction = keyboard.WasJustPressed(Key.Right) ? 1 : -1;
+            if (settingsCursor == 0)
+            {
+                var layouts = Enum.GetValues<KeyboardLayoutPreference>();
+                var index = (Array.IndexOf(layouts, gameSettings.KeyboardLayout) + direction + layouts.Length) % layouts.Length;
+                gameSettings.KeyboardLayout = layouts[index];
+                isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
+            }
+            else
+            {
+                gameSettings.Language = gameSettings.Language == Language.Anglais ? Language.Francais : Language.Anglais;
+            }
+
+            gameSettings.Save();
         }
 
         return;
@@ -6156,6 +6499,20 @@ void OpenPanel(PanelKind kind)
         case PanelKind.Settings:
             settingsCursor = 0;
             break;
+        case PanelKind.Trade:
+            tradeLoaded = false;
+            tradeCursor = 0;
+            tradeAddMode = false;
+            tradeTextInput = string.Empty;
+            tradeMessage = null;
+            tradeIncomingTask = chosenCharacterId is null ? null : gameDataApi?.GetIncomingTradeOffersAsync(chosenCharacterId.Value);
+            tradeOutgoingTask = chosenCharacterId is null ? null : gameDataApi?.GetOutgoingTradeOffersAsync(chosenCharacterId.Value);
+            if (!monstersLoaded)
+            {
+                _ = LoadMonstersAsync();
+            }
+
+            break;
     }
 }
 
@@ -6446,6 +6803,119 @@ void UpdateGuildPanel(float deltaTime)
         return;
     }
 
+    // Voir GDD/demande utilisateur — "Raids de guilde (boss coopératif nécessitant plusieurs
+    // joueurs, distinct du world boss solo/petit groupe)" : même schéma bouton+cooldown que le
+    // panneau Boss Mondial (voir UpdateWorldBossPanel), scopé à la guilde.
+    if (guildMode == GuildPanelMode.Raid)
+    {
+        if (guildRaidStatusTask is { IsCompleted: true } raidStatusTask)
+        {
+            guildRaidStatus = raidStatusTask.IsFaulted ? null : raidStatusTask.Result;
+            guildRaidStatusTask = null;
+        }
+
+        if (guildRaidSpawnTask is { IsCompleted: true } raidSpawnTask)
+        {
+            guildRaidMessage = raidSpawnTask.IsFaulted ? "Connexion au serveur impossible." : raidSpawnTask.Result.Message;
+            guildRaidSpawnTask = null;
+            guildRaidStatusTask = chosenCharacterId is null ? null : gameDataApi?.GetGuildRaidStatusAsync(chosenCharacterId.Value);
+        }
+
+        if (guildRaidAttackTask is { IsCompleted: true } raidAttackTask)
+        {
+            guildRaidMessage = raidAttackTask.IsFaulted ? "Connexion au serveur impossible." : raidAttackTask.Result.Message;
+            guildRaidAttackTask = null;
+            guildRaidStatusTask = chosenCharacterId is null ? null : gameDataApi?.GetGuildRaidStatusAsync(chosenCharacterId.Value);
+            if (chosenCharacterId is not null)
+            {
+                _ = gameDataApi?.GetGuildRaidLeaderboardAsync(chosenCharacterId.Value).ContinueWith(t => { if (!t.IsFaulted) guildRaidLeaderboard = t.Result; });
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            guildMode = GuildPanelMode.None;
+            return;
+        }
+
+        if (guildRaidSpawnTask is not null || guildRaidAttackTask is not null)
+        {
+            return;
+        }
+
+        if (guildRaidStatus is null or { IsAlive: false })
+        {
+            if (keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && options.SessionToken is not null && gameDataApi is not null)
+            {
+                guildRaidMessage = null;
+                guildRaidSpawnTask = gameDataApi.SpawnGuildRaidAsync(options.SessionToken, chosenCharacterId.Value);
+            }
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && options.SessionToken is not null && gameDataApi is not null)
+        {
+            guildRaidMessage = null;
+            guildRaidAttackTask = gameDataApi.AttackGuildRaidAsync(options.SessionToken, chosenCharacterId.Value);
+        }
+
+        return;
+    }
+
+    // Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume".
+    if (guildMode == GuildPanelMode.Decoration)
+    {
+        if (guildDecorationCatalogTask is { IsCompleted: true } catalogTask)
+        {
+            guildDecorationCatalog = catalogTask.IsFaulted ? [] : catalogTask.Result;
+            guildDecorationCatalogTask = null;
+        }
+
+        if (guildDecorationActionTask is { IsCompleted: true } decorationActionTask)
+        {
+            if (decorationActionTask.IsFaulted)
+            {
+                guildDecorationMessage = "Connexion au serveur impossible.";
+            }
+            else
+            {
+                myGuild = decorationActionTask.Result;
+                guildDecorationMessage = "Fait.";
+            }
+
+            guildDecorationActionTask = null;
+        }
+
+        if (keyboard.WasJustPressed(Key.Escape))
+        {
+            guildMode = GuildPanelMode.None;
+            return;
+        }
+
+        if (guildDecorationCatalogTask is not null || guildDecorationActionTask is not null || guildDecorationCatalog.Count == 0 || myGuild is null)
+        {
+            return;
+        }
+
+        guildDecorationCursor = Math.Clamp(guildDecorationCursor, 0, guildDecorationCatalog.Count - 1);
+
+        if (keyboard.WasJustPressed(Key.Down)) guildDecorationCursor = Math.Min(guildDecorationCursor + 1, guildDecorationCatalog.Count - 1);
+        else if (keyboard.WasJustPressed(Key.Up)) guildDecorationCursor = Math.Max(guildDecorationCursor - 1, 0);
+        else if (chosenCharacterId is not null && options.SessionToken is not null && gameDataApi is not null)
+        {
+            var selected = guildDecorationCatalog[guildDecorationCursor];
+            var owned = myGuild.OwnedDecorationKeys.Contains(selected.Key);
+
+            if (keyboard.WasJustPressed(Key.Enter))
+            {
+                guildDecorationMessage = null;
+                guildDecorationActionTask = owned
+                    ? gameDataApi.SetActiveGuildDecorationAsync(options.SessionToken, chosenCharacterId.Value, myGuild.Id, selected.Key)
+                    : gameDataApi.PurchaseGuildDecorationAsync(options.SessionToken, chosenCharacterId.Value, myGuild.Id, selected.Key);
+            }
+        }
+
+        return;
+    }
+
     if (myGuild is not null)
     {
         if (guildMode == GuildPanelMode.DepositGold)
@@ -6546,6 +7016,20 @@ void UpdateGuildPanel(float deltaTime)
         {
             guildMode = GuildPanelMode.War;
             guildWarMessage = null;
+        }
+        else if (keyboard.WasJustPressed(Key.B))
+        {
+            guildMode = GuildPanelMode.Raid;
+            guildRaidMessage = null;
+            guildRaidStatusTask = chosenCharacterId is null ? null : gameDataApi?.GetGuildRaidStatusAsync(chosenCharacterId.Value);
+            guildRaidLeaderboard = [];
+        }
+        else if (keyboard.WasJustPressed(Key.H))
+        {
+            guildMode = GuildPanelMode.Decoration;
+            guildDecorationMessage = null;
+            guildDecorationCursor = 0;
+            guildDecorationCatalogTask = guildDecorationCatalog.Count > 0 ? null : gameDataApi?.GetGuildDecorationCatalogAsync();
         }
 
         return;
@@ -7314,6 +7798,12 @@ void UpdatePanel(float deltaTime)
         return;
     }
 
+    if (activePanel == PanelKind.Trade)
+    {
+        UpdateTradePanel();
+        return;
+    }
+
     if (activePanel == PanelKind.Inventory)
     {
         UpdateInventoryPanel();
@@ -7623,7 +8113,26 @@ void UpdateDungeonCorridor(float deltaTime)
         return;
     }
 
-    if (dungeonFloorTask is not null || dungeonChestTask is not null || dungeonFloor is null)
+    // Voir GDD/demande utilisateur — "a la fin des 10 etage termine le dongon [...] fait le
+    // quitter le dongon donne lui des recompense et ajoute un cooldown" : une fois la récompense
+    // confirmée par le serveur (et le cooldown enregistré), on affiche la bannière plein écran
+    // (voir DrawAdminBanner, réutilisée telle quelle) et on renvoie le joueur en extérieur.
+    if (dungeonCompletionTask is { IsCompleted: true } completionTask)
+    {
+        var result = completionTask.IsFaulted ? null : completionTask.Result;
+        dungeonCompletionTask = null;
+        adminBannerMessage = result switch
+        {
+            { ItemName: { } itemName } => $"DONJON TERMINE ! +{result.Gold} OR + {itemName}. Revient dans 1h.",
+            { } r => $"DONJON TERMINE ! +{r.Gold} OR. Revient dans 1h.",
+            null => "Donjon termine.",
+        };
+        adminBannerExpiresAtUtc = DateTime.UtcNow.AddSeconds(6);
+        sceneMode = SceneMode.Outdoor;
+        return;
+    }
+
+    if (dungeonFloorTask is not null || dungeonChestTask is not null || dungeonCompletionTask is not null || dungeonFloor is null)
     {
         return;
     }
@@ -7707,9 +8216,21 @@ void UpdateDungeonCorridor(float deltaTime)
     if (allCleared && keyboard.WasJustPressed(Key.E))
     {
         var wasFinalFloor = dungeonFloorNumber >= DungeonProgression.MaxFloor;
-        dungeonFloorNumber = wasFinalFloor ? 1 : dungeonFloorNumber + 1;
+        // Voir GDD/demande utilisateur — "a la fin des 10 etage termine le dongon et affiche un
+        // message fait le quitter le dongon donne lui des recompense et ajoute un cooldown de 1h" :
+        // le dernier étage ne boucle plus vers l'étage 1, il termine le parcours côté serveur
+        // (récompense + cooldown, voir DungeonCompletionService) puis renvoie en extérieur (voir
+        // le bloc de sondage de dungeonCompletionTask plus haut).
+        if (wasFinalFloor)
+        {
+            dungeonRoomMessage = "Donjon termine...";
+            dungeonCompletionTask = gameDataApi!.CompleteDungeonAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId);
+            return;
+        }
+
+        dungeonFloorNumber++;
         dungeonFloor = null;
-        dungeonRoomMessage = wasFinalFloor ? "Donjon entierement nettoye ! Un nouveau parcours recommence a l'etage 1." : null;
+        dungeonRoomMessage = null;
         dungeonEncounterPreview = null;
         dungeonEncounterPreviewTask = null;
         dungeonEncounterPreviewRoomIndex = -1;
@@ -8507,10 +9028,14 @@ void DrawRemotePlayerFigure(RemotePlayer remote, float animClock)
         return;
     }
 
+    // Voir GDD/demande utilisateur — "Titres/emblèmes affichés à côté du pseudo (en plus du
+    // niveau qu'on vient d'ajouter)" : préfixe le pseudo plutôt qu'une troisième ligne, pour ne
+    // pas surcharger l'affichage au-dessus des personnages.
+    var displayName = remote.Title.Length > 0 ? $"«{remote.Title}» {remote.Name}" : remote.Name;
     DrawFigure(
         remote.Position, 0.55f,
         new Vector4(0.35f, 0.62f, 0.88f, 1f), new Vector4(0.20f, 0.38f, 0.58f, 1f), new Vector4(0.28f, 0.50f, 0.72f, 1f),
-        new Vector4(0.88f, 0.78f, 0.68f, 1f), bob, remote.Name, $"Niv. {remote.Level}");
+        new Vector4(0.88f, 0.78f, 0.68f, 1f), bob, displayName, $"Niv. {remote.Level}");
 }
 
 void DrawNpcFigure(Npc npc, float animClock)
@@ -8566,6 +9091,7 @@ void DrawOutdoorHud()
             case PanelKind.Challenges: DrawChallengesPanel(w, h); break;
             case PanelKind.Reports: DrawReportsPanel(w, h); break;
             case PanelKind.Settings: DrawSettingsPanel(w, h); break;
+            case PanelKind.Trade: DrawTradePanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -8634,6 +9160,8 @@ void DrawOutdoorHud()
         // Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... un bouton
         // avec ui (ou raccourci clavier) qui affiche les parametre".
         ("PARAMETRES (F9)", PanelKind.Settings),
+        // Voir GDD/demande utilisateur — "Système d'échange (trade) entre joueurs".
+        ("ECHANGE (O)", PanelKind.Trade),
     ];
 
     // Voir GDD/demande utilisateur — "masque le bouton des gems pour tout le monde sauf au
@@ -8986,9 +9514,115 @@ void DrawGuildPanel(int w, int h)
             DrawTextCentered(spriteBatch, whiteTexture, guildWarMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
         }
     }
+    else if (guildMode == GuildPanelMode.Raid)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, "RAID DE GUILDE", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
+
+        if (guildRaidStatusTask is not null)
+        {
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else if (guildRaidStatus is null or { IsAlive: false })
+        {
+            if (guildRaidStatus is { IsAlive: false } previous)
+            {
+                DrawTextCentered(spriteBatch, whiteTexture, $"{previous.Name.ToUpperInvariant()} VAINCU PAR {previous.KillerCharacterName?.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 100f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            }
+
+            var cost = 500L + myGuild.Level * 100L;
+            DrawTextCentered(spriteBatch, whiteTexture, $"Cout d'invocation : {cost} or (banque de guilde : {myGuild.TreasuryGold} or)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 10f), 1.6f, Vector4.One);
+            if (DrawClickableCentered("INVOQUER (ENTREE)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 20f), 2f, new Vector4(0.95f, 0.55f, 0.5f, 1f))
+                && guildRaidSpawnTask is null && chosenCharacterId is not null && options.SessionToken is not null && gameDataApi is not null)
+            {
+                guildRaidMessage = null;
+                guildRaidSpawnTask = gameDataApi.SpawnGuildRaidAsync(options.SessionToken, chosenCharacterId.Value);
+            }
+        }
+        else
+        {
+            var status = guildRaidStatus;
+            DrawStarterPortrait(new Vector2(w / 2f, topLeft.Y + 90f), 26f, ElementColor(status.BossElement));
+            DrawTextCentered(spriteBatch, whiteTexture, status.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 122f), 2f, Vector4.One);
+
+            var barTop = new Vector2(topLeft.X + 30f, topLeft.Y + 148f);
+            var barSize = new Vector2(boxWidth - 60f, 22f);
+            var healthRatio = status.MaxHealth <= 0 ? 0f : Math.Clamp((float)status.CurrentHealth / status.MaxHealth, 0f, 1f);
+            DrawPanel(barTop, barSize, new Vector4(0.2f, 0.08f, 0.08f, 1f));
+            DrawPanel(barTop, new Vector2(barSize.X * healthRatio, barSize.Y), new Vector4(0.85f, 0.25f, 0.2f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, $"{status.CurrentHealth} / {status.MaxHealth} PV", barTop + new Vector2(barSize.X / 2f, barSize.Y / 2f - 8f), 1.5f, Vector4.One);
+
+            if (DrawClickableCentered("ATTAQUER (ENTREE)", new Vector2(w / 2f, topLeft.Y + 200f), 2f, new Vector4(0.95f, 0.45f, 0.4f, 1f))
+                && guildRaidAttackTask is null && chosenCharacterId is not null && options.SessionToken is not null && gameDataApi is not null)
+            {
+                guildRaidMessage = null;
+                guildRaidAttackTask = gameDataApi.AttackGuildRaidAsync(options.SessionToken, chosenCharacterId.Value);
+            }
+
+            var leaderY = topLeft.Y + 236f;
+            DrawText(spriteBatch, whiteTexture, "DEGATS INFLIGES :", new Vector2(topLeft.X + 24f, leaderY), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            leaderY += 24f;
+            foreach (var row in guildRaidLeaderboard.Take(6))
+            {
+                DrawText(spriteBatch, whiteTexture, $"{row.CharacterName} - {row.TotalDamage}", new Vector2(topLeft.X + 30f, leaderY), 1.5f, Vector4.One);
+                leaderY += 20f;
+            }
+        }
+
+        if (guildRaidMessage is { Length: > 0 })
+        {
+            DrawTextCentered(spriteBatch, whiteTexture, guildRaidMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+        }
+    }
+    else if (guildMode == GuildPanelMode.Decoration)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, "DECORATIONS DE GUILDE", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.95f, 0.75f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"BANQUE : {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 84f), 1.7f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+
+        if (guildDecorationCatalogTask is not null)
+        {
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        }
+        else
+        {
+            var y = topLeft.Y + 112f;
+            for (var i = 0; i < guildDecorationCatalog.Count; i++)
+            {
+                var decoration = guildDecorationCatalog[i];
+                var isSelected = i == guildDecorationCursor;
+                var owned = myGuild.OwnedDecorationKeys.Contains(decoration.Key);
+                var isActive = myGuild.ActiveDecorationKey == decoration.Key;
+                var prefix = isSelected ? "> " : "  ";
+                var color = isSelected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : new Vector4(decoration.R, decoration.G, decoration.B, 1f);
+                var status = isActive ? "[AFFICHEE]" : owned ? "[POSSEDEE - ENTREE POUR AFFICHER]" : $"[{decoration.Cost} OR - ENTREE POUR ACHETER]";
+                DrawText(spriteBatch, whiteTexture, $"{prefix}{decoration.DisplayName.ToUpperInvariant()} {status}", new Vector2(topLeft.X + 20f, y), 1.5f, color);
+                y += 24f;
+            }
+
+            if (guildDecorationCatalog.Count > 0)
+            {
+                var selectedDecoration = guildDecorationCatalog[Math.Clamp(guildDecorationCursor, 0, guildDecorationCatalog.Count - 1)];
+                foreach (var line in WrapTextToLines(selectedDecoration.Description, boxWidth - 40f, 1.4f))
+                {
+                    DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y + 10f), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+                    y += 20f;
+                }
+            }
+        }
+
+        if (guildDecorationMessage is { Length: > 0 })
+        {
+            DrawTextCentered(spriteBatch, whiteTexture, guildDecorationMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        }
+    }
     else
     {
-        DrawTextCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        // Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume" : la
+        // décoration affichée teinte le nom de la guilde (voir GuildDecorationCatalog), seul
+        // rendu visuel possible sans moteur de bâtiment spatial (voir Docs/README.md).
+        var guildNameColor = myGuild.ActiveDecorationKey is { } activeKey && GuildDecorationCatalog.Find(activeKey) is { } activeDecoration
+            ? new Vector4(activeDecoration.R, activeDecoration.G, activeDecoration.B, 1f)
+            : new Vector4(0.9f, 0.75f, 0.35f, 1f);
+        DrawTextCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, guildNameColor);
         DrawTextCentered(spriteBatch, whiteTexture, $"NIVEAU {myGuild.Level} - {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 88f), 2f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
 
         // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)" :
@@ -9018,7 +9652,7 @@ void DrawGuildPanel(int w, int h)
             y += 24f;
         }
 
-        DrawTextCentered(spriteBatch, whiteTexture, "D : BANQUE   K : COFFRE   L : CLASSEMENT   W : GUERRE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "D : BANQUE   K : COFFRE   L : CLASSEMENT   W : GUERRE   B : RAID   H : DECOS", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
     }
 
     if (myGuild is not null && guildActionMessage is { Length: > 0 })
@@ -9278,6 +9912,10 @@ static int ClientScaledStat(int baseStat, int level, MonsterVariant variant)
     return Math.Max(1, (int)Math.Round(levelScaled * MonsterVariantCatalog.Get(variant).StatMultiplier));
 }
 
+/// <summary>Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon)" : multiplicateur de nature appliqué sur la statistique de base, avant mise à l'échelle par niveau/variante (même ordre que MonsterStatMath côté serveur).</summary>
+static int ClientScaledStatWithNature(int baseStat, int level, MonsterVariant variant, MonsterNature nature, MonsterStatKind statKind) =>
+    ClientScaledStat((int)Math.Round(baseStat * MonsterNatureCatalog.Multiplier(nature, statKind)), level, variant);
+
 void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
 {
     DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0f, 0f, 0f, 0.65f));
@@ -9304,12 +9942,13 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
     {
         ("Niveau", monster.PrestigeLevel > 0 ? $"{monster.Level} (prestige {monster.PrestigeLevel})" : $"{monster.Level}"),
         ("Variante", MonsterVariantCatalog.Get(monster.Variant).DisplayName),
-        ("PV max", $"{ClientScaledStat(baseStats.Health, monster.Level, monster.Variant)}{StatSuffix(monster.IvHealth, monster.EvHealth, monster.PrestHealth)}"),
-        ("Attaque", $"{ClientScaledStat(baseStats.Attack, monster.Level, monster.Variant)}{StatSuffix(monster.IvAttack, monster.EvAttack, monster.PrestAttack)}"),
-        ("Defense", $"{ClientScaledStat(baseStats.Defense, monster.Level, monster.Variant)}{StatSuffix(monster.IvDefense, monster.EvDefense, monster.PrestDefense)}"),
-        ("Vitesse", $"{ClientScaledStat(baseStats.Speed, monster.Level, monster.Variant)}{StatSuffix(monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed)}"),
-        ("Intelligence", $"{ClientScaledStat(baseStats.Intelligence, monster.Level, monster.Variant)}{StatSuffix(monster.IvIntelligence, monster.EvIntelligence, monster.PrestIntelligence)}"),
-        ("Resistance", $"{ClientScaledStat(baseStats.Resistance, monster.Level, monster.Variant)}{StatSuffix(monster.IvResistance, monster.EvResistance, monster.PrestResistance)}"),
+        ("Nature", MonsterNatureCatalog.DisplayName(monster.Nature)),
+        ("PV max", $"{ClientScaledStatWithNature(baseStats.Health, monster.Level, monster.Variant, monster.Nature, MonsterStatKind.Health)}{StatSuffix(monster.IvHealth, monster.EvHealth, monster.PrestHealth)}"),
+        ("Attaque", $"{ClientScaledStatWithNature(baseStats.Attack, monster.Level, monster.Variant, monster.Nature, MonsterStatKind.Attack)}{StatSuffix(monster.IvAttack, monster.EvAttack, monster.PrestAttack)}"),
+        ("Defense", $"{ClientScaledStatWithNature(baseStats.Defense, monster.Level, monster.Variant, monster.Nature, MonsterStatKind.Defense)}{StatSuffix(monster.IvDefense, monster.EvDefense, monster.PrestDefense)}"),
+        ("Vitesse", $"{ClientScaledStatWithNature(baseStats.Speed, monster.Level, monster.Variant, monster.Nature, MonsterStatKind.Speed)}{StatSuffix(monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed)}"),
+        ("Intelligence", $"{ClientScaledStatWithNature(baseStats.Intelligence, monster.Level, monster.Variant, monster.Nature, MonsterStatKind.Intelligence)}{StatSuffix(monster.IvIntelligence, monster.EvIntelligence, monster.PrestIntelligence)}"),
+        ("Resistance", $"{ClientScaledStatWithNature(baseStats.Resistance, monster.Level, monster.Variant, monster.Nature, MonsterStatKind.Resistance)}{StatSuffix(monster.IvResistance, monster.EvResistance, monster.PrestResistance)}"),
         ("Passif", monster.PassiveTalent.Length > 0 ? monster.PassiveTalent : "Aucun"),
     };
 
@@ -11144,12 +11783,21 @@ void DrawTitleScreen()
 
     if (titleShowOptions)
     {
-        var layoutLabel = $"DISPOSITION CLAVIER : {gameSettings.KeyboardLayout.ToString().ToUpperInvariant()} ({(isAzerty ? "ZQSD" : "WASD")})";
-        DrawTextCentered(spriteBatch, whiteTexture, "OPTIONS", new Vector2(w / 2f, h * 0.5f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-        DrawTextCentered(spriteBatch, whiteTexture, layoutLabel, new Vector2(w / 2f, h * 0.58f), 1.8f, Vector4.One);
-        DrawTextCentered(spriteBatch, whiteTexture, "F9 POUR CHANGER", new Vector2(w / 2f, h * 0.58f + 26f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+        // Voir retour utilisateur — "le champs de la langue n'est pas disponible dans les
+        // options de l'ecran titre" : même présentation à deux lignes (curseur) que le panneau
+        // Paramètres en jeu (voir DrawSettingsPanel), pour rester cohérent.
+        var layoutValue = gameSettings.KeyboardLayout.ToString().ToUpperInvariant() + (gameSettings.KeyboardLayout == KeyboardLayoutPreference.Auto ? $" ({(isAzerty ? "ZQSD" : "WASD")})" : "");
+        var languageValue = gameSettings.Language == Language.Anglais ? "ENGLISH" : "FRANCAIS";
 
-        if (DrawClickableCentered("RETOUR (ECHAP)", new Vector2(w / 2f, h * 0.74f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f)))
+        DrawTextCentered(spriteBatch, whiteTexture, "OPTIONS", new Vector2(w / 2f, h * 0.5f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        var row0Color = settingsCursor == 0 ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
+        var row1Color = settingsCursor == 1 ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
+        DrawTextCentered(spriteBatch, whiteTexture, $"{(settingsCursor == 0 ? "> " : "")}DISPOSITION CLAVIER : < {layoutValue} >", new Vector2(w / 2f, h * 0.58f), 1.8f, row0Color);
+        DrawTextCentered(spriteBatch, whiteTexture, $"{(settingsCursor == 1 ? "> " : "")}LANGUE / LANGUAGE : < {languageValue} >", new Vector2(w / 2f, h * 0.58f + 30f), 1.8f, row1Color);
+        DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - GAUCHE/DROITE : CHANGER", new Vector2(w / 2f, h * 0.58f + 60f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+
+        if (DrawClickableCentered("RETOUR (ECHAP)", new Vector2(w / 2f, h * 0.78f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f)))
         {
             titleShowOptions = false;
         }
@@ -11504,6 +12152,9 @@ enum PanelKind
 
     /// <summary>Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... ajoute le fait que quand on appuie sur un bouton avec ui (ou raccourci clavier) sa nous affiche les parametre" : disposition clavier + langue (voir GameSettings), touche F9 ou bouton HUD.</summary>
     Settings,
+
+    /// <summary>Voir GDD/demande utilisateur — "Système d'échange (trade) entre joueurs".</summary>
+    Trade,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
@@ -11527,11 +12178,17 @@ enum GuildPanelMode
 
     /// <summary>Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)" : saisie du code avant de rejoindre une guilde marquée privée (voir GuildSummary.IsPublic), déclenché depuis Search.</summary>
     EnterJoinCode,
+
+    /// <summary>Voir GDD/demande utilisateur — "Raids de guilde (boss coopératif nécessitant plusieurs joueurs)".</summary>
+    Raid,
+
+    /// <summary>Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume".</summary>
+    Decoration,
 }
 
 /// <summary>Autre joueur visible sur la carte (voir GDD — visibilité globale, même hors groupe). Porte son grade pour la liste des joueurs en ligne.</summary>
 /// <summary>Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour que en multijoueur on puisse voir le niveau des autres" (voir Level, DrawFigure).</summary>
-record RemotePlayer(string Name, Vector2 Position, UserRank Rank = UserRank.Joueur, int Level = 1);
+record RemotePlayer(string Name, Vector2 Position, UserRank Rank = UserRank.Joueur, int Level = 1, string Title = "");
 
 /// <summary>Un message affiché dans le panneau Tchat (voir GDD — tchat global/tchat de guilde).</summary>
 record ChatLine(ChatChannel Channel, string SenderName, UserRank Rank, string Message, int SenderGradeTier = 0);

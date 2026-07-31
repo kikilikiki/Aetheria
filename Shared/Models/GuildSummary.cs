@@ -27,4 +27,8 @@ public sealed class GuildSummary
 
     /// <summary>Voir GDD/demande utilisateur — "peut join avec code 5 chiffres" : uniquement renseigné pour un membre consultant SA PROPRE guilde (voir GuildService.BuildSummaryAsync) — jamais exposé via la recherche/le classement d'une guilde à laquelle on n'appartient pas.</summary>
     public string? JoinCode { get; init; }
+
+    /// <summary>Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume".</summary>
+    public string? ActiveDecorationKey { get; init; }
+    public IReadOnlyList<string> OwnedDecorationKeys { get; init; } = [];
 }

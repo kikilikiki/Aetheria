@@ -31,4 +31,8 @@ public static class MonsterStatMath
     /// </summary>
     public static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel, int iv, int ev, int prest) =>
         Math.Max(1, ScaledStat(baseStat + iv + ev / 4, level, variant, prestigeLevel) + prest);
+
+    /// <summary>Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon, influençant les stats)" : multiplicateur de nature appliqué sur la statistique de base, avant IV/EV.</summary>
+    public static int ScaledStat(int baseStat, int level, MonsterVariant variant, int prestigeLevel, int iv, int ev, int prest, MonsterNature nature, MonsterStatKind statKind) =>
+        ScaledStat((int)Math.Round(baseStat * MonsterNatureCatalog.Multiplier(nature, statKind)), level, variant, prestigeLevel, iv, ev, prest);
 }

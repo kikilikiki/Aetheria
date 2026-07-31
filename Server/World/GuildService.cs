@@ -192,6 +192,53 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
         return await BuildSummaryAsync(guild.Id, ct);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume" : achetée avec l'or de la banque de guilde (voir GuildEntity.TreasuryGold), accessible à n'importe quel membre — même politique d'accès que le dépôt/coffre ci-dessus.</summary>
+    public async Task<GuildSummary> PurchaseDecorationAsync(Guid guildId, GuildDecorationActionRequest request, CancellationToken ct = default)
+    {
+        var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
+        await RequireMembershipAsync(character.Id, guildId, ct);
+
+        var definition = GuildDecorationCatalog.Find(request.DecorationKey)
+            ?? throw new AccountOperationException("Décoration introuvable.");
+
+        var guild = await db.Guilds.FirstAsync(g => g.Id == guildId, ct);
+        var alreadyOwned = await db.GuildDecorations.AnyAsync(d => d.GuildId == guildId && d.DecorationKey == definition.Key, ct);
+        if (alreadyOwned)
+        {
+            throw new AccountOperationException($"La guilde possède déjà {definition.DisplayName}.");
+        }
+
+        if (guild.TreasuryGold < definition.Cost)
+        {
+            throw new AccountOperationException($"La banque de guilde n'a pas assez d'or ({guild.TreasuryGold}/{definition.Cost} requis).");
+        }
+
+        guild.TreasuryGold -= definition.Cost;
+        db.GuildDecorations.Add(new GuildDecorationEntity { Id = Guid.NewGuid(), GuildId = guildId, DecorationKey = definition.Key });
+
+        await db.SaveChangesAsync(ct);
+        return await BuildSummaryAsync(guild.Id, ct);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "Housing/décoration de guilde ou de royaume" : change la décoration affichée parmi celles déjà achetées.</summary>
+    public async Task<GuildSummary> SetActiveDecorationAsync(Guid guildId, GuildDecorationActionRequest request, CancellationToken ct = default)
+    {
+        var character = await ResolveOwnedCharacterAsync(request.SessionToken, request.CharacterId, ct);
+        await RequireMembershipAsync(character.Id, guildId, ct);
+
+        var owned = await db.GuildDecorations.AnyAsync(d => d.GuildId == guildId && d.DecorationKey == request.DecorationKey, ct);
+        if (!owned)
+        {
+            throw new AccountOperationException("La guilde ne possède pas cette décoration.");
+        }
+
+        var guild = await db.Guilds.FirstAsync(g => g.Id == guildId, ct);
+        guild.ActiveDecorationKey = request.DecorationKey;
+
+        await db.SaveChangesAsync(ct);
+        return await BuildSummaryAsync(guild.Id, ct);
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "Coffre partagé".</summary>
     public async Task<List<GuildChestItemSummary>> GetChestAsync(Guid guildId, CancellationToken ct = default)
     {
@@ -328,6 +375,11 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
             .Join(db.Characters, m => m.CharacterId, c => c.Id, (m, c) => c.Name)
             .ToListAsync(ct);
 
+        var ownedDecorationKeys = await db.GuildDecorations
+            .Where(d => d.GuildId == guildId)
+            .Select(d => d.DecorationKey)
+            .ToListAsync(ct);
+
         return new GuildSummary
         {
             Id = guild.Id,
@@ -344,6 +396,8 @@ public sealed class GuildService(AetheriaDbContext db, SessionTokenStore tokenSt
             WeeklyQuestCompleted = guild.WeeklyQuestWeekBucket == CurrentWeekBucket() && guild.WeeklyQuestCompleted,
             IsPublic = guild.IsPublic,
             JoinCode = includeJoinCode ? guild.JoinCode : null,
+            ActiveDecorationKey = guild.ActiveDecorationKey,
+            OwnedDecorationKeys = ownedDecorationKeys,
         };
     }
 }

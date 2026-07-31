@@ -45,6 +45,9 @@ public sealed class PlayerSession(
     /// <summary>Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour que en multijoueur on puisse voir le niveau des autres" : capturé à l'entrée dans le monde (voir HandleEnterWorld), pas re-synchronisé en direct si le joueur monte de niveau en cours de session (se rafraîchit à la prochaine reconnexion).</summary>
     public int Level { get; private set; } = 1;
 
+    /// <summary>Voir GDD/demande utilisateur — "Titres/emblèmes affichés à côté du pseudo" : réutilise le titre PvP déjà existant (voir CharacterEntity.ActiveTitle/TitleCatalog/ProfileService), capturé à l'entrée dans le monde (voir HandleEnterWorld) comme <see cref="Level"/> ci-dessus.</summary>
+    public string Title { get; private set; } = string.Empty;
+
     /// <summary>Mis à jour immédiatement par la commande <c>/nick</c> (voir <see cref="HandleChatCommand"/>) — sans attendre une reconnexion.</summary>
     public void UpdateCharacterName(string newName) => CharacterName = newName;
 
@@ -177,6 +180,7 @@ public sealed class PlayerSession(
         CharacterId = character.Id;
         CharacterName = character.Name;
         Level = character.Level;
+        Title = character.ActiveTitle ?? string.Empty;
         UserId = userId;
         var user = db.Users.FirstOrDefault(u => u.Id == userId);
         Rank = user?.Rank ?? UserRank.Joueur;
@@ -212,6 +216,7 @@ public sealed class PlayerSession(
                 PositionY = other.PositionY,
                 Rank = other.Rank,
                 Level = other.Level,
+                Title = other.Title,
             });
         }
 
@@ -224,6 +229,7 @@ public sealed class PlayerSession(
             PositionY = PositionY,
             Rank = Rank,
             Level = Level,
+            Title = Title,
         });
 
         logger.LogInformation("{CharacterName} est entré dans le monde.", character.Name);
@@ -1498,6 +1504,7 @@ public sealed class PlayerSession(
                 PositionY = targetSession.PositionY,
                 Rank = targetSession.Rank,
                 Level = targetSession.Level,
+                Title = targetSession.Title,
             });
         }
     }
@@ -1810,7 +1817,7 @@ public sealed class PlayerSession(
             return;
         }
 
-        var monster = new MonsterEntity { Id = Guid.NewGuid(), OwnerCharacterId = target.Id, SpeciesId = species.Id, Variant = MonsterVariant.Normal, Nickname = species.Name, Level = 1 };
+        var monster = new MonsterEntity { Id = Guid.NewGuid(), OwnerCharacterId = target.Id, SpeciesId = species.Id, Variant = MonsterVariant.Normal, Nickname = species.Name, Level = 1, Nature = MonsterNatureCatalog.RollRandom(Random.Shared) };
         MonsterIvRoller.RollInto(monster, Random.Shared);
         db.Monsters.Add(monster);
         db.SaveChanges();
