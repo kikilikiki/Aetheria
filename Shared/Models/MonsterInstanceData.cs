@@ -35,4 +35,28 @@ public sealed class MonsterInstanceData
 
     /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum".</summary>
     public int PrestigeLevel { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon" et "fait en sorte que dans le detail du pokemon on puisse les voir" : tirées une seule fois à la capture, 0-31.</summary>
+    public int IvHealth { get; set; }
+    public int IvAttack { get; set; }
+    public int IvDefense { get; set; }
+    public int IvSpeed { get; set; }
+    public int IvIntelligence { get; set; }
+    public int IvResistance { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute aussi des ev" : accumulées en combat, plafonnées à 252 par statistique.</summary>
+    public int EvHealth { get; set; }
+    public int EvAttack { get; set; }
+    public int EvDefense { get; set; }
+    public int EvSpeed { get; set; }
+    public int EvIntelligence { get; set; }
+    public int EvResistance { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "après un prestige ajoute un nouveau champ que on va appelé prest" : +1 permanent sur une statistique tirée au hasard à chaque prestige.</summary>
+    public int PrestHealth { get; set; }
+    public int PrestAttack { get; set; }
+    public int PrestDefense { get; set; }
+    public int PrestSpeed { get; set; }
+    public int PrestIntelligence { get; set; }
+    public int PrestResistance { get; set; }
 }

@@ -58,6 +58,9 @@ public sealed class StarterService(AetheriaDbContext db, SessionTokenStore token
             PassiveTalent = PassiveTalentCatalog.RollRandom(Random.Shared),
         };
 
+        // Voir GDD/demande utilisateur — "ajoute un random iv".
+        MonsterIvRoller.RollInto(monster, Random.Shared);
+
         db.Monsters.Add(monster);
         await db.SaveChangesAsync(ct);
 

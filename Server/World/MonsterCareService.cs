@@ -82,6 +82,43 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         return ToMonsterInstanceData(monster);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un item pour changer les iv" (Pierre de Réinitialisation) : même schéma que <see cref="RerollPassiveTalentAsync"/> ci-dessus.</summary>
+    public async Task<MonsterInstanceData> RerollIvAsync(RerollIvRequest request, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var monster = await db.Monsters.FirstOrDefaultAsync(m => m.Id == request.MonsterId, ct)
+            ?? throw new AccountOperationException("Créature introuvable.");
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == monster.OwnerCharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Cette créature n'appartient pas à un personnage de ce compte.");
+
+        var item = await db.Items.FirstOrDefaultAsync(i => i.Id == request.ItemId, ct)
+            ?? throw new AccountOperationException("Objet introuvable.");
+
+        if (item.Name != "Pierre de Réinitialisation")
+        {
+            throw new AccountOperationException($"{item.Name} ne peut pas être utilisé de cette façon.");
+        }
+
+        var inventoryItem = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == character.Id && i.ItemId == request.ItemId, ct)
+            ?? throw new AccountOperationException("Vous ne possédez pas cet objet.");
+
+        inventoryItem.Quantity--;
+        if (inventoryItem.Quantity <= 0)
+        {
+            db.InventoryItems.Remove(inventoryItem);
+        }
+
+        MonsterIvRoller.RollInto(monster, Random.Shared);
+        await db.SaveChangesAsync(ct);
+
+        return ToMonsterInstanceData(monster);
+    }
+
     /// <summary>
     /// Voir GDD/demande utilisateur — bâtiment "où l'on peut voir tout nos monstres et déplacer
     /// ce que l'on a dans notre team" : bascule l'appartenance à l'équipe active (max 4, voir
@@ -133,5 +170,11 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
         CapturedAtUtc = entity.CapturedAtUtc,
         PrestigeLevel = entity.PrestigeLevel,
+        IvHealth = entity.IvHealth, IvAttack = entity.IvAttack, IvDefense = entity.IvDefense,
+        IvSpeed = entity.IvSpeed, IvIntelligence = entity.IvIntelligence, IvResistance = entity.IvResistance,
+        EvHealth = entity.EvHealth, EvAttack = entity.EvAttack, EvDefense = entity.EvDefense,
+        EvSpeed = entity.EvSpeed, EvIntelligence = entity.EvIntelligence, EvResistance = entity.EvResistance,
+        PrestHealth = entity.PrestHealth, PrestAttack = entity.PrestAttack, PrestDefense = entity.PrestDefense,
+        PrestSpeed = entity.PrestSpeed, PrestIntelligence = entity.PrestIntelligence, PrestResistance = entity.PrestResistance,
     };
 }

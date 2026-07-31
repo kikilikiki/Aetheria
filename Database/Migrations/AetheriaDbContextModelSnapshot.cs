@@ -404,6 +404,9 @@ namespace Aetheria.Database.Migrations
                     b.Property<int>("KingdomId")
                         .HasColumnType("integer");
 
+                    b.Property<int>("MaxMonsterLevel")
+                        .HasColumnType("integer");
+
                     b.Property<int>("MinLevel")
                         .HasColumnType("integer");
 
@@ -432,6 +435,32 @@ namespace Aetheria.Database.Migrations
                     b.HasIndex("KingdomId");
 
                     b.ToTable("Dungeons");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.DungeonLivesEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DungeonId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastResetUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("LivesRemaining")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId", "DungeonId")
+                        .IsUnique();
+
+                    b.ToTable("DungeonLives");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.FriendshipEntity", b =>
@@ -757,11 +786,47 @@ namespace Aetheria.Database.Migrations
                     b.Property<int?>("EquippedWeaponItemId")
                         .HasColumnType("integer");
 
+                    b.Property<int>("EvAttack")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EvDefense")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EvHealth")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EvIntelligence")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EvResistance")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EvSpeed")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Experience")
                         .HasColumnType("integer");
 
                     b.Property<bool>("IsInActiveTeam")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("IvAttack")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("IvDefense")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("IvHealth")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("IvIntelligence")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("IvResistance")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("IvSpeed")
+                        .HasColumnType("integer");
 
                     b.Property<int>("Level")
                         .HasColumnType("integer");
@@ -780,6 +845,24 @@ namespace Aetheria.Database.Migrations
                     b.Property<string>("Personality")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("PrestAttack")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PrestDefense")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PrestHealth")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PrestIntelligence")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PrestResistance")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PrestSpeed")
+                        .HasColumnType("integer");
 
                     b.Property<int>("PrestigeLevel")
                         .HasColumnType("integer");
@@ -1011,6 +1094,41 @@ namespace Aetheria.Database.Migrations
                     b.ToTable("RecipeIngredients");
                 });
 
+            modelBuilder.Entity("Aetheria.Database.Entities.ReportEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ReportedCharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReportedCharacterName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ReporterCharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReporterCharacterName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("Resolved")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Reports");
+                });
+
             modelBuilder.Entity("Aetheria.Database.Entities.SeasonEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1158,6 +1276,12 @@ namespace Aetheria.Database.Migrations
                         .HasColumnType("text");
 
                     b.Property<int>("KingdomId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PositionX")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PositionY")
                         .HasColumnType("integer");
 
                     b.Property<long>("RewardGold")

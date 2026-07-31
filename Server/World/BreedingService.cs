@@ -172,6 +172,9 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
             PassiveTalent = character.PendingBreedOffspringPassiveTalent ?? PassiveTalentCatalog.RollRandom(Random),
         };
 
+        // Voir GDD/demande utilisateur — "ajoute un random iv".
+        MonsterIvRoller.RollInto(offspring, Random);
+
         db.Monsters.Add(offspring);
         character.PendingBreedParentId1 = null;
         character.PendingBreedParentId2 = null;
@@ -203,5 +206,11 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
         EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
         CapturedAtUtc = entity.CapturedAtUtc,
         PrestigeLevel = entity.PrestigeLevel,
+        IvHealth = entity.IvHealth, IvAttack = entity.IvAttack, IvDefense = entity.IvDefense,
+        IvSpeed = entity.IvSpeed, IvIntelligence = entity.IvIntelligence, IvResistance = entity.IvResistance,
+        EvHealth = entity.EvHealth, EvAttack = entity.EvAttack, EvDefense = entity.EvDefense,
+        EvSpeed = entity.EvSpeed, EvIntelligence = entity.EvIntelligence, EvResistance = entity.EvResistance,
+        PrestHealth = entity.PrestHealth, PrestAttack = entity.PrestAttack, PrestDefense = entity.PrestDefense,
+        PrestSpeed = entity.PrestSpeed, PrestIntelligence = entity.PrestIntelligence, PrestResistance = entity.PrestResistance,
     };
 }

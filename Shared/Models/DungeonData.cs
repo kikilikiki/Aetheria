@@ -20,8 +20,11 @@ public sealed class DungeonData
     public int WorldX { get; init; }
     public int WorldY { get; init; }
 
-    /// <summary>Voir GDD/demande utilisateur — "niveau min pour rentrer" : 1 = accessible à tout le monde.</summary>
+    /// <summary>Voir GDD/demande utilisateur — CORRECTION : niveau des monstres à l'étage 1 (pas un niveau de personnage requis pour entrer, voir DungeonEntity.MinLevel).</summary>
     public int MinLevel { get; init; } = 1;
+
+    /// <summary>Niveau des monstres au dernier étage (voir DungeonEntity.MaxMonsterLevel).</summary>
+    public int MaxMonsterLevel { get; init; } = 1;
 
     /// <summary>Voir GDD/demande utilisateur — "donjons hardcore (niv 15+)".</summary>
     public bool IsHardcore { get; init; }

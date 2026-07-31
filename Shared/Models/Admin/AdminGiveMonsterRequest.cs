@@ -5,5 +5,5 @@ public sealed class AdminGiveMonsterRequest
 {
     public required string SessionToken { get; init; }
     public required string TargetCharacterName { get; init; }
-    public required string SpeciesName { get; init; }
+    public required int SpeciesId { get; init; }
 }

@@ -38,4 +38,34 @@ public sealed class MonsterEntity
 
     /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : incrémenté par PrestigeService, remet Level/Experience à zéro contre un bonus de statistiques permanent (voir MonsterStatMath).</summary>
     public int PrestigeLevel { get; set; }
+
+    // Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon" : tirées une seule fois à
+    // la capture (voir CaptureService), 0-31, ne changent plus jamais ensuite (même après un
+    // prestige — voir PrestigeService) sauf reroll explicite (voir MonsterCareService.RerollIvAsync).
+    public int IvHealth { get; set; }
+    public int IvAttack { get; set; }
+    public int IvDefense { get; set; }
+    public int IvSpeed { get; set; }
+    public int IvIntelligence { get; set; }
+    public int IvResistance { get; set; }
+
+    // Voir GDD/demande utilisateur — "ajoute aussi des ev" : accumulées en combat (voir
+    // CombatService.ApplyPveVictoryRewardsAsync), plafonnées à 252 par statistique.
+    public int EvHealth { get; set; }
+    public int EvAttack { get; set; }
+    public int EvDefense { get; set; }
+    public int EvSpeed { get; set; }
+    public int EvIntelligence { get; set; }
+    public int EvResistance { get; set; }
+
+    // Voir GDD/demande utilisateur — "après un prestige ajoute un nouveau champ que on va
+    // appelé prest ou a chaque prestige l'un des [...] champs augmentera" : +1 permanent sur une
+    // statistique tirée au hasard à chaque prestige (voir PrestigeService), cumulatif, jamais
+    // remis à zéro.
+    public int PrestHealth { get; set; }
+    public int PrestAttack { get; set; }
+    public int PrestDefense { get; set; }
+    public int PrestSpeed { get; set; }
+    public int PrestIntelligence { get; set; }
+    public int PrestResistance { get; set; }
 }

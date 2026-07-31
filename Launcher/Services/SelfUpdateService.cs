@@ -86,7 +86,7 @@ public static class SelfUpdateService
                     Start-Sleep -Milliseconds 250
                 }
                 Start-Sleep -Milliseconds 500
-                robocopy "{{extractDir}}" "{{installDir}}" /E /NFL /NDL /NJH /NJS /NC /NS
+                robocopy "{{extractDir}}" "{{installDir}}" /MIR /NFL /NDL /NJH /NJS /NC /NS
                 Start-Process -FilePath "{{launcherExePath}}"
                 Remove-Item -Recurse -Force "{{stagingRoot}}"
                 """;

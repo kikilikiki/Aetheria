@@ -43,6 +43,8 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<KingdomVoteEntity> KingdomVotes => Set<KingdomVoteEntity>();
     public DbSet<WeeklyChestEntity> WeeklyChests => Set<WeeklyChestEntity>();
     public DbSet<ChallengeProgressEntity> ChallengeProgress => Set<ChallengeProgressEntity>();
+    public DbSet<DungeonLivesEntity> DungeonLives => Set<DungeonLivesEntity>();
+    public DbSet<ReportEntity> Reports => Set<ReportEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -271,6 +273,11 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
                 .WithMany()
                 .HasForeignKey(l => l.ItemId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<DungeonLivesEntity>(lives =>
+        {
+            lives.HasIndex(l => new { l.CharacterId, l.DungeonId }).IsUnique();
         });
 
         modelBuilder.Entity<KingdomVoteEntity>(vote =>

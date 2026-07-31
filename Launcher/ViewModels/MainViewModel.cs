@@ -97,6 +97,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAdminPanelOpen;
 
+    /// <summary>Voir GDD/demande utilisateur — "les admin peut voir les report sur une page sur le launcher".</summary>
+    [ObservableProperty]
+    private bool _isReportsPanelOpen;
+
     [ObservableProperty]
     private KeyboardLayoutPreference _keyboardLayoutPreference;
 
@@ -537,6 +541,8 @@ public sealed partial class MainViewModel : ObservableObject
         IsFondateurAccount = false;
         IsAdminPanelOpen = false;
         AdminUsers.Clear();
+        IsReportsPanelOpen = false;
+        Reports.Clear();
 
         // Voir GDD/demande utilisateur — "rester connecté jusqu'à ce que l'on s'y déconnecte" :
         // seule une déconnexion explicite efface le jeton persisté.
@@ -709,6 +715,80 @@ public sealed partial class MainViewModel : ObservableObject
         finally
         {
             AdminIsBusy = false;
+        }
+    }
+
+    // ===== Panneau "Signalements" (voir GDD/demande utilisateur — "les admin peut voir les
+    // report sur une page sur le launcher") : même modèle que le panneau Communauté ci-dessus.
+
+    public ObservableCollection<ReportSummary> Reports { get; } = [];
+
+    [ObservableProperty]
+    private string? _reportsStatusMessage;
+
+    [ObservableProperty]
+    private bool _reportsIsBusy;
+
+    private bool CanToggleReportsPanel() => IsAdminAccount;
+
+    [RelayCommand(CanExecute = nameof(CanToggleReportsPanel))]
+    private async Task ToggleReportsPanel()
+    {
+        IsReportsPanelOpen = !IsReportsPanelOpen;
+        if (IsReportsPanelOpen)
+        {
+            await LoadReports();
+        }
+    }
+
+    [RelayCommand]
+    private async Task LoadReports()
+    {
+        if (_adminApi is null || SessionToken is null)
+        {
+            return;
+        }
+
+        ReportsIsBusy = true;
+        ReportsStatusMessage = null;
+        try
+        {
+            var result = await _adminApi.GetReportsAsync(SessionToken);
+            Reports.Clear();
+            if (result.IsSuccess)
+            {
+                foreach (var report in result.Value!)
+                {
+                    Reports.Add(report);
+                }
+            }
+            else
+            {
+                ReportsStatusMessage = result.Error;
+            }
+        }
+        finally
+        {
+            ReportsIsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ResolveReport(ReportSummary? report)
+    {
+        if (_adminApi is null || SessionToken is null || report is null)
+        {
+            return;
+        }
+
+        var result = await _adminApi.ResolveReportAsync(SessionToken, report.Id);
+        if (result.IsSuccess)
+        {
+            await LoadReports();
+        }
+        else
+        {
+            ReportsStatusMessage = result.Error;
         }
     }
 
@@ -917,7 +997,11 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    partial void OnIsAdminAccountChanged(bool value) => ToggleAdminPanelCommand.NotifyCanExecuteChanged();
+    partial void OnIsAdminAccountChanged(bool value)
+    {
+        ToggleAdminPanelCommand.NotifyCanExecuteChanged();
+        ToggleReportsPanelCommand.NotifyCanExecuteChanged();
+    }
 
     partial void OnAdminSelectedUserChanged(AdminUserSummary? value)
     {

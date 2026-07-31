@@ -115,8 +115,16 @@ public sealed class LeaderboardService(AetheriaDbContext db)
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "le classement en jeu et sur le launcher n'affiche rien" :
+    /// <see cref="RefreshAsync"/> n'était jusqu'ici appelée par personne (aucun job planifié, voir
+    /// commentaire de classe), donc la table Leaderboard restait vide en permanence — recalculée
+    /// à chaque lecture plutôt que d'introduire un job d'arrière-plan pour ce volume de données.
+    /// </summary>
     public async Task<IReadOnlyList<LeaderboardRow>> GetTopAsync(LeaderboardCategory category, int limit, CancellationToken ct = default)
     {
+        await RefreshAsync(category, ct);
+
         var rows = await db.Leaderboard
             .Where(l => l.Category == category)
             .OrderByDescending(l => l.Score)
@@ -140,6 +148,8 @@ public sealed class LeaderboardService(AetheriaDbContext db)
     /// </summary>
     public async Task<IReadOnlyList<LeaderboardRow>> GetTopByKingdomAsync(LeaderboardCategory category, KingdomType kingdom, int limit, CancellationToken ct = default)
     {
+        await RefreshAsync(category, ct);
+
         var kingdomCharacterIds = await db.Characters.Where(c => c.Kingdom == kingdom).Select(c => c.Id).ToHashSetAsync(ct);
 
         var rows = await db.Leaderboard

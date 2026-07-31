@@ -1,6 +1,7 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Server.Persistence;
+using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,13 +24,31 @@ public sealed class WeeklyChestService(AetheriaDbContext db, SessionTokenStore t
         return $"{now.Year}-W{calendar.GetWeekOfYear(now, System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Monday):00}";
     }
 
+    /// <summary>Bornes de placement sur la carte (voir WorldMap.cs cote client, taille 50x50) — evite les bords.</summary>
+    private const int MapSize = 50;
+    private const int PositionMargin = 6;
+
     private async Task<WeeklyChestEntity> GetOrCreateAsync(int kingdomId, CancellationToken ct)
     {
         var weekBucket = CurrentWeekBucket();
         var chest = await db.WeeklyChests.FirstOrDefaultAsync(c => c.KingdomId == kingdomId && c.WeekBucket == weekBucket, ct);
         if (chest is null)
         {
-            chest = new WeeklyChestEntity { Id = Guid.NewGuid(), KingdomId = kingdomId, WeekBucket = weekBucket, RewardGold = RewardGold };
+            // Voir GDD/demande utilisateur — "le coffre de la semaine doit etre cache sur la map" :
+            // position tiree au sort a partir d'un seed deterministe (royaume x semaine) pour que
+            // tous les joueurs du meme royaume voient le meme coffre au meme endroit cette semaine.
+            var seed = HashCode.Combine(kingdomId, weekBucket);
+            var seededRandom = new Random(seed);
+            var range = MapSize - 2 * PositionMargin;
+            chest = new WeeklyChestEntity
+            {
+                Id = Guid.NewGuid(),
+                KingdomId = kingdomId,
+                WeekBucket = weekBucket,
+                RewardGold = RewardGold,
+                PositionX = PositionMargin + seededRandom.Next(range),
+                PositionY = PositionMargin + seededRandom.Next(range),
+            };
             db.WeeklyChests.Add(chest);
             await db.SaveChangesAsync(ct);
         }
@@ -37,10 +56,27 @@ public sealed class WeeklyChestService(AetheriaDbContext db, SessionTokenStore t
         return chest;
     }
 
+    private async Task<KingdomEntity> ResolveKingdomAsync(KingdomType kingdomType, CancellationToken ct) =>
+        await db.Kingdoms.FirstOrDefaultAsync(k => k.Type == kingdomType, ct)
+            ?? throw new AccountOperationException("Royaume introuvable.");
+
     public async Task<WeeklyChestStatus> GetStatusAsync(int kingdomId, CancellationToken ct = default)
     {
         var chest = await GetOrCreateAsync(kingdomId, ct);
         return ToStatus(chest);
+    }
+
+    /// <summary>Voir GDD/demande utilisateur — "coffre cache sur la map" : le client ne connait que le royaume du personnage (KingdomType), pas l'id interne du royaume.</summary>
+    public async Task<WeeklyChestStatus> GetStatusByKingdomTypeAsync(KingdomType kingdomType, CancellationToken ct = default)
+    {
+        var kingdom = await ResolveKingdomAsync(kingdomType, ct);
+        return await GetStatusAsync(kingdom.Id, ct);
+    }
+
+    public async Task<WeeklyChestStatus> ClaimByKingdomTypeAsync(string sessionToken, Guid characterId, KingdomType kingdomType, CancellationToken ct = default)
+    {
+        var kingdom = await ResolveKingdomAsync(kingdomType, ct);
+        return await ClaimAsync(sessionToken, characterId, kingdom.Id, ct);
     }
 
     public async Task<WeeklyChestStatus> ClaimAsync(string sessionToken, Guid characterId, int kingdomId, CancellationToken ct = default)
@@ -84,5 +120,7 @@ public sealed class WeeklyChestService(AetheriaDbContext db, SessionTokenStore t
         IsClaimed = chest.ClaimedByCharacterId is not null,
         ClaimedByCharacterName = chest.ClaimedByCharacterName,
         RewardGold = chest.RewardGold,
+        PositionX = chest.PositionX,
+        PositionY = chest.PositionY,
     };
 }

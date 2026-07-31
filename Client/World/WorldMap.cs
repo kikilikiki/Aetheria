@@ -1,5 +1,6 @@
 using System.Numerics;
 using Aetheria.Shared.Enums;
+using Aetheria.Shared.World;
 
 namespace Aetheria.Client.World;
 
@@ -66,19 +67,25 @@ public sealed class WorldMap
         Size = size;
         TileColors = new Vector4[size, size];
 
-        var capital = (X: size / 2, Y: size / 2);
-        var village = (X: size / 2 - 10, Y: size / 2 - 8);
-        var auctionHouse = (X: size / 2 + 8, Y: size / 2 - 6);
-        var forge = (X: size / 2 - 6, Y: size / 2 + 9);
-        var guild = (X: size / 2 + 9, Y: size / 2 + 8);
-        var teleporter = (X: size / 2 - 3, Y: size / 2 - 4);
-        var pension = (X: size / 2 + 3, Y: size / 2 - 4);
-        var mine = (X: size / 2 - 8, Y: size / 2 + 3);
-        var shop = (X: auctionHouse.X + 3, Y: auctionHouse.Y + 2);
-        var field = (X: village.X - 4, Y: village.Y + 5);
-        var warRoom = (X: guild.X + 3, Y: guild.Y - 3);
-        var fusion = (X: size / 2 - 1, Y: size / 2 + 6);
-        var hatchery = (X: size / 2 + 6, Y: size / 2 + 2);
+        // Voir GDD/demande utilisateur — "en combat on peut encore traverser les mur" : cette
+        // arithmétique de placement est désormais partagée avec le serveur (voir
+        // Shared/World/TownLayout.cs, réutilisé tel quel ici) plutôt que dupliquée, pour que la
+        // validation de collision serveur (PlayerSession.HandlePlayerMove) et l'affichage client
+        // ne puissent jamais diverger.
+        var buildingCells = TownLayout.BuildingCells(size);
+        var capital = buildingCells[0];
+        var village = buildingCells[1];
+        var auctionHouse = buildingCells[2];
+        var forge = buildingCells[3];
+        var guild = buildingCells[4];
+        var teleporter = buildingCells[5];
+        var pension = buildingCells[6];
+        var mine = buildingCells[7];
+        var shop = buildingCells[8];
+        var field = buildingCells[9];
+        var warRoom = buildingCells[10];
+        var fusion = buildingCells[11];
+        var hatchery = buildingCells[12];
 
         SpawnPosition = (capital.X, capital.Y + 2);
         DungeonEntrance = (size - 4, size - 4);
