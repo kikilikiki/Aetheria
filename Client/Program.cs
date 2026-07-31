@@ -20,6 +20,7 @@ using Aetheria.Shared.Models.WorldBoss;
 using Aetheria.Shared.Network.Packets;
 using Aetheria.Shared.World;
 using Aetheria.Shared.Settings;
+using Aetheria.Shared.Localization;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
 
@@ -35,6 +36,23 @@ var options = LaunchOptions.Parse(args);
 var gameSettings = GameSettings.Load();
 var isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
 Console.WriteLine($"Disposition clavier : {gameSettings.KeyboardLayout} ({(isAzerty ? "ZQSD" : "WASD")}) — F9 pour changer.");
+
+// Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... traduit tout les
+// dialogue" : plutôt que de retoucher les ~400 sites d'appel existants avec leur propre logique
+// de traduction, chaque appel de rendu de texte passe par ces enveloppes (voir remplacement
+// mécanique TextRenderer.Draw/DrawCentered/MeasureWidth -> DrawText/DrawTextCentered/
+// MeasureTextWidth ci-dessous dans ce fichier) qui traduisent via Localization.Translate avant de
+// déléguer au vrai renderer. Couverture : chaînes statiques uniquement (voir Localization.cs) —
+// les chaînes interpolées avec du contenu dynamique (nom de joueur, nombres...) ne correspondent
+// à aucune entrée exacte du dictionnaire et restent affichées en français.
+void DrawText(SpriteBatch sb, Texture2D tex, string text, Vector2 position, float pixelSize, Vector4 color)
+    => TextRenderer.Draw(sb, tex, Localization.Translate(text, gameSettings.Language), position, pixelSize, color);
+
+void DrawTextCentered(SpriteBatch sb, Texture2D tex, string text, Vector2 topCenter, float pixelSize, Vector4 color)
+    => TextRenderer.DrawCentered(sb, tex, Localization.Translate(text, gameSettings.Language), topCenter, pixelSize, color);
+
+float MeasureTextWidth(string text, float pixelSize)
+    => TextRenderer.MeasureWidth(Localization.Translate(text, gameSettings.Language), pixelSize);
 
 var worldMap = new WorldMap(size: 50);
 Console.WriteLine($"Monde généré : {worldMap.Size}x{worldMap.Size} cases, {worldMap.Buildings.Count} bâtiments, " +
@@ -703,6 +721,9 @@ string? reportsMessage = null;
 Task<AdminGameActionResponse>? reportsActionTask = null;
 Task<PlayerLocationSummary?>? reportsTeleportTask = null;
 
+/// <summary>Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue" + "un bouton/raccourci qui affiche les parametre" (touche F9, voir PanelKind.Settings). Ligne sélectionnée : 0 = disposition clavier, 1 = langue.</summary>
+var settingsCursor = 0;
+
 /// <summary>Voir GDD/demande utilisateur — "ajoute un UI pour les montures" : deuxième onglet du panneau Encyclopédie (touche Tab).</summary>
 var encyclopediaShowMounts = false;
 var encyclopediaMountCursor = 0;
@@ -888,19 +909,16 @@ host.Update += deltaTime =>
     try
     {
 
-    // F9 : cycle la préférence de disposition clavier (Auto -> QWERTY -> AZERTY -> Auto),
-    // disponible partout et persistée pour que le Launcher la reflète aussi (voir GDD).
-    if (keyboard.WasJustPressed(Key.F9))
+    // Voir GDD/demande utilisateur — "ajoute le fait que quand on appuie sur un bouton avec ui
+    // (ou raccourci clavier) sa nous affiche les parametre" : F9 ouvrait jusqu'ici silencieusement
+    // (juste un cycle sans UI, voir Console.WriteLine) la disposition clavier - remplacé par un
+    // vrai panneau Paramètres (voir PanelKind.Settings) qui regroupe disposition clavier ET
+    // langue (voir GameSettings.Language). Même garde que les autres raccourcis globaux
+    // (invitation de duel juste en dessous) pour ne pas interrompre un dialogue/panneau déjà ouvert.
+    if (keyboard.WasJustPressed(Key.F9) && activePanel == PanelKind.None
+        && sceneMode is SceneMode.Outdoor or SceneMode.Interior && activeDialogueNpc is null)
     {
-        gameSettings.KeyboardLayout = gameSettings.KeyboardLayout switch
-        {
-            KeyboardLayoutPreference.Auto => KeyboardLayoutPreference.Qwerty,
-            KeyboardLayoutPreference.Qwerty => KeyboardLayoutPreference.Azerty,
-            _ => KeyboardLayoutPreference.Auto,
-        };
-        gameSettings.Save();
-        isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
-        Console.WriteLine($"[Parametres] Disposition clavier : {gameSettings.KeyboardLayout} ({(isAzerty ? "ZQSD" : "WASD")}).");
+        OpenPanel(PanelKind.Settings);
     }
 
     // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp" : sondé ici (hors
@@ -1913,7 +1931,7 @@ void DrawCraftPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(CraftPanelWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.05f, 0.95f));
     DrawPanel(topLeft, new Vector2(CraftPanelWidth, 4f), new Vector4(0.85f, 0.6f, 0.3f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "LE FORGERON PROPOSE :", new Vector2(w / 2f, topLeft.Y + 24f), 2f, new Vector4(0.95f, 0.75f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "LE FORGERON PROPOSE :", new Vector2(w / 2f, topLeft.Y + 24f), 2f, new Vector4(0.95f, 0.75f, 0.4f, 1f));
 
     // Voir GDD/demande utilisateur — "le texte dépasse, fait en sorte que ça ne dépasse pas" :
     // au-delà de la hauteur disponible (boxHeight plafonnée ci-dessus), défile plutôt que de
@@ -1941,13 +1959,13 @@ void DrawCraftPanel(int w, int h)
         }
         else if (!isRecipeRow)
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, text, topLeft + new Vector2(16f, y - topLeft.Y), 1.4f, color);
+            DrawText(spriteBatch, whiteTexture, text, topLeft + new Vector2(16f, y - topLeft.Y), 1.4f, color);
         }
 
         y += lineHeight + 6f;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - C OU CLIC : fabriquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - C OU CLIC : fabriquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -2087,13 +2105,13 @@ void DrawFriendsPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.08f, 0.1f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.8f, 0.9f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AMIS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.6f, 0.85f, 0.95f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "AMIS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.6f, 0.85f, 0.95f, 1f));
 
     if (friendAddMode)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, "Nom du personnage a ajouter :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, friendTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : ENVOYER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, "Nom du personnage a ajouter :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawText(spriteBatch, whiteTexture, friendTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : ENVOYER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
@@ -2102,14 +2120,14 @@ void DrawFriendsPanel(int w, int h)
 
     if (friendPendingRequests.Count > 0)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, "DEMANDES RECUES :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawText(spriteBatch, whiteTexture, "DEMANDES RECUES :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         y += 26f;
 
         foreach (var request in friendPendingRequests)
         {
             var selected = row == friendCursor;
             var color = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}{request.RequesterName} (ENTREE : accepter, N : refuser)", new Vector2(topLeft.X + 20f, y), 1.5f, color);
+            DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}{request.RequesterName} (ENTREE : accepter, N : refuser)", new Vector2(topLeft.X + 20f, y), 1.5f, color);
             y += 24f;
             row++;
         }
@@ -2117,12 +2135,12 @@ void DrawFriendsPanel(int w, int h)
         y += 10f;
     }
 
-    TextRenderer.Draw(spriteBatch, whiteTexture, "AMIS :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
+    DrawText(spriteBatch, whiteTexture, "AMIS :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
     y += 26f;
 
     if (friendsList.Count == 0)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, "Aucun ami pour l'instant.", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, "Aucun ami pour l'instant.", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
     foreach (var friend in friendsList)
@@ -2131,18 +2149,18 @@ void DrawFriendsPanel(int w, int h)
         var dotColor = friend.IsOnline ? new Vector4(0.4f, 0.9f, 0.45f, 1f) : new Vector4(0.5f, 0.5f, 0.55f, 1f);
         var textColor = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
         var status = friend.IsOnline ? "EN LIGNE" : "HORS LIGNE";
-        TextRenderer.Draw(spriteBatch, whiteTexture, (selected ? "> " : "  ") + "●", new Vector2(topLeft.X + 20f, y), 1.5f, dotColor);
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{friend.Name} (Nv.{friend.Level}) - {status}", new Vector2(topLeft.X + 42f, y), 1.5f, textColor);
+        DrawText(spriteBatch, whiteTexture, (selected ? "> " : "  ") + "●", new Vector2(topLeft.X + 20f, y), 1.5f, dotColor);
+        DrawText(spriteBatch, whiteTexture, $"{friend.Name} (Nv.{friend.Level}) - {status}", new Vector2(topLeft.X + 42f, y), 1.5f, textColor);
         y += 24f;
         row++;
     }
 
     if (friendMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, friendMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, friendMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : MP/accepter - SUPPR : retirer - A : ajouter - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : MP/accepter - SUPPR : retirer - A : ajouter - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -2273,65 +2291,65 @@ void DrawProfilePanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.07f, 0.1f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.75f, 0.55f, 0.95f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PROFIL", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.8f, 0.65f, 0.98f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "PROFIL", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.8f, 0.65f, 0.98f, 1f));
 
     if (myProfile is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Chargement...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "Chargement...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
     if (profileEditMode)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, "Description (200 caracteres max) :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawText(spriteBatch, whiteTexture, "Description (200 caracteres max) :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         foreach (var line in WrapTextToLines(profileTextInput + "_", boxWidth - 40f, 1.6f))
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.6f, Vector4.One);
+            DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.6f, Vector4.One);
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : VALIDER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : VALIDER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
     var y = topLeft.Y + 66f;
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"{myProfile.CharacterName} - Nv.{myProfile.Level} - {myProfile.Rank}", new Vector2(topLeft.X + 20f, y), 1.8f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+    DrawText(spriteBatch, whiteTexture, $"{myProfile.CharacterName} - Nv.{myProfile.Level} - {myProfile.Rank}", new Vector2(topLeft.X + 20f, y), 1.8f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
     y += 28f;
 
     // Voir retour utilisateur — "ajoute l'or que l'on a sur notre profil".
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"Or : {myProfile.Gold}", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    DrawText(spriteBatch, whiteTexture, $"Or : {myProfile.Gold}", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     y += 30f;
 
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"Titre actif : {myProfile.ActiveTitle ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    DrawText(spriteBatch, whiteTexture, $"Titre actif : {myProfile.ActiveTitle ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
     y += 26f;
 
     // Voir GDD/demande utilisateur — "Collections : montures, ailes".
     var mountName = myProfile.ActiveMountKey is { } mKey ? MountCatalog.Find(mKey)?.Name ?? mKey : "(aucune)";
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"Monture active : {mountName} ({myProfile.OwnedMountKeys.Count} possedee(s))", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    DrawText(spriteBatch, whiteTexture, $"Monture active : {mountName} ({myProfile.OwnedMountKeys.Count} possedee(s))", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
     y += 26f;
 
     var wingName = myProfile.ActiveWingKey is { } wKey ? WingCatalog.Find(wKey)?.Name ?? wKey : "(aucunes)";
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"Ailes actives : {wingName} ({myProfile.OwnedWingKeys.Count} possedee(s))", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    DrawText(spriteBatch, whiteTexture, $"Ailes actives : {wingName} ({myProfile.OwnedWingKeys.Count} possedee(s))", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
     y += 26f;
 
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"Objet à montrer : {myProfile.ShowcaseItemName ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
+    DrawText(spriteBatch, whiteTexture, $"Objet à montrer : {myProfile.ShowcaseItemName ?? "(aucun)"}", new Vector2(topLeft.X + 20f, y), 1.6f, Vector4.One);
     y += 34f;
 
-    TextRenderer.Draw(spriteBatch, whiteTexture, "Description :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    DrawText(spriteBatch, whiteTexture, "Description :", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     y += 24f;
     var descriptionLines = myProfile.Description.Length > 0 ? WrapTextToLines(myProfile.Description, boxWidth - 40f, 1.5f) : ["(vide)"];
     foreach (var line in descriptionLines)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         y += 22f;
     }
 
     if (profileMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, profileMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, profileMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : description - GAUCHE/DROITE : titre - HAUT/BAS : monture - TAB : ailes - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "D : description - GAUCHE/DROITE : titre - HAUT/BAS : monture - TAB : ailes - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Panneau Classement (bouton HUD/touche K, voir GDD/demande utilisateur — "un bouton pour le leaderboard en jeu et sur le launcher").</summary>
@@ -2381,24 +2399,24 @@ void DrawLeaderboardPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.08f, 0.04f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.95f, 0.8f, 0.35f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSEMENT", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"< {LeaderboardCategoryLabel(leaderboardCategories[leaderboardCategoryCursor])} >", new Vector2(w / 2f, topLeft.Y + 58f), 2f, Vector4.One);
+    DrawTextCentered(spriteBatch, whiteTexture, "CLASSEMENT", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, $"< {LeaderboardCategoryLabel(leaderboardCategories[leaderboardCategoryCursor])} >", new Vector2(w / 2f, topLeft.Y + 58f), 2f, Vector4.One);
 
     var y = topLeft.Y + 96f;
     if (leaderboardRows.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Aucune donnée pour ce classement.", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "Aucune donnée pour ce classement.", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
     for (var i = 0; i < leaderboardRows.Count; i++)
     {
         var row = leaderboardRows[i];
         var color = i == 0 ? new Vector4(0.95f, 0.85f, 0.4f, 1f) : Vector4.One;
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName} - {row.Score}", new Vector2(topLeft.X + 24f, y), 1.7f, color);
+        DrawText(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName} - {row.Score}", new Vector2(topLeft.X + 24f, y), 1.7f, color);
         y += 28f;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : categorie - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : categorie - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Panneau Métiers (touche B, voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier"), simple lecture seule — un par ProfessionType, y compris ceux jamais pratiqués (niveau 1).</summary>
@@ -2430,12 +2448,12 @@ void DrawProfessionsPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.09f, 0.07f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.45f, 0.85f, 0.55f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "METIERS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "METIERS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
 
     var y = topLeft.Y + 64f;
     if (professionLoadTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, y + 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, y + 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -2445,17 +2463,17 @@ void DrawProfessionsPanel(int w, int h)
         for (var i = scrollStart; i < Math.Min(professionRows.Count, scrollStart + visibleRows); i++)
         {
             var row = professionRows[i];
-            TextRenderer.Draw(spriteBatch, whiteTexture, row.Profession.ToString().ToUpperInvariant(), new Vector2(topLeft.X + 24f, y), 1.8f, Vector4.One);
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"Niveau {row.Level}", new Vector2(topLeft.X + 240f, y), 1.6f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
+            DrawText(spriteBatch, whiteTexture, row.Profession.ToString().ToUpperInvariant(), new Vector2(topLeft.X + 24f, y), 1.8f, Vector4.One);
+            DrawText(spriteBatch, whiteTexture, $"Niveau {row.Level}", new Vector2(topLeft.X + 240f, y), 1.6f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
             y += 26f;
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{row.Experience} / {row.ExperienceForNextLevel} XP", new Vector2(topLeft.X + 24f, y), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawText(spriteBatch, whiteTexture, $"{row.Experience} / {row.ExperienceForNextLevel} XP", new Vector2(topLeft.X + 24f, y), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             y += 30f;
         }
 
         DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 64f), visibleRows * rowHeight, professionRows.Count, visibleRows, scrollStart);
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -2519,22 +2537,22 @@ void DrawBattlePassPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.07f, 0.04f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.95f, 0.75f, 0.35f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PASSE DE NIVEAU", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "PASSE DE NIVEAU", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
     if (battlePassLoadTask is not null || battlePassStatus is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
         var status = battlePassStatus;
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {status.Level} - {status.Experience} / {status.ExperienceForNextLevel} XP", new Vector2(w / 2f, topLeft.Y + 60f), 2f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, $"NIVEAU {status.Level} - {status.Experience} / {status.ExperienceForNextLevel} XP", new Vector2(w / 2f, topLeft.Y + 60f), 2f, Vector4.One);
 
         // Voir demande utilisateur — "renomme le pass gratuit et le pass premium : pass aventure =
         // pass gratuit, pass premium [inchangé]".
         var premiumLabel = status.HasPremium ? "PASS PREMIUM ACTIF" : "Pass Aventure — récompenses de base à chaque niveau.";
         var premiumColor = status.HasPremium ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.7f, 0.7f, 0.75f, 1f);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, premiumLabel, new Vector2(w / 2f, topLeft.Y + 90f), 1.6f, premiumColor);
+        DrawTextCentered(spriteBatch, whiteTexture, premiumLabel, new Vector2(w / 2f, topLeft.Y + 90f), 1.6f, premiumColor);
 
         // Voir GDD/demande utilisateur — "une route que l'on peut scroll" : un palier par ligne,
         // récompense gratuite/premium côte à côte, surligné une fois atteint. Fenêtre de lignes
@@ -2546,9 +2564,9 @@ void DrawBattlePassPanel(int w, int h)
         var tiers = status.Tiers;
         var scrollStart = Math.Clamp(battlePassCursor - visibleRows / 2, 0, Math.Max(0, tiers.Count - visibleRows));
 
-        TextRenderer.Draw(spriteBatch, whiteTexture, "PALIER", new Vector2(topLeft.X + 24f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, "GRATUIT", new Vector2(topLeft.X + 120f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, "PREMIUM", new Vector2(topLeft.X + 380f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.85f, 0.7f, 0.35f, 1f));
+        DrawText(spriteBatch, whiteTexture, "PALIER", new Vector2(topLeft.X + 24f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+        DrawText(spriteBatch, whiteTexture, "GRATUIT", new Vector2(topLeft.X + 120f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+        DrawText(spriteBatch, whiteTexture, "PREMIUM", new Vector2(topLeft.X + 380f, topLeft.Y + routeTop - 22f), 1.3f, new Vector4(0.85f, 0.7f, 0.35f, 1f));
 
         var y = topLeft.Y + routeTop;
         for (var i = scrollStart; i < Math.Min(tiers.Count, scrollStart + visibleRows); i++)
@@ -2562,10 +2580,10 @@ void DrawBattlePassPanel(int w, int h)
             }
 
             var levelPrefix = tier.IsReached ? "✓" : " ";
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{levelPrefix} {tier.Level}", new Vector2(topLeft.X + 24f, y), 1.5f, rowColor);
-            TextRenderer.Draw(spriteBatch, whiteTexture, TruncateToWidth(tier.FreeReward, 248f, 1.4f), new Vector2(topLeft.X + 120f, y), 1.4f, rowColor);
+            DrawText(spriteBatch, whiteTexture, $"{levelPrefix} {tier.Level}", new Vector2(topLeft.X + 24f, y), 1.5f, rowColor);
+            DrawText(spriteBatch, whiteTexture, TruncateToWidth(tier.FreeReward, 248f, 1.4f), new Vector2(topLeft.X + 120f, y), 1.4f, rowColor);
             var premiumRowColor = !tier.IsReached ? new Vector4(0.5f, 0.5f, 0.55f, 1f) : status.HasPremium ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.55f, 0.5f, 0.35f, 1f);
-            TextRenderer.Draw(spriteBatch, whiteTexture, TruncateToWidth(tier.PremiumReward, boxWidth - 380f - 34f, 1.4f), new Vector2(topLeft.X + 380f, y), 1.4f, premiumRowColor);
+            DrawText(spriteBatch, whiteTexture, TruncateToWidth(tier.PremiumReward, boxWidth - 380f - 34f, 1.4f), new Vector2(topLeft.X + 380f, y), 1.4f, premiumRowColor);
 
             y += rowHeight;
         }
@@ -2574,7 +2592,7 @@ void DrawBattlePassPanel(int w, int h)
 
         if (battlePassMessage is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, battlePassMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.5f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, battlePassMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.5f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
         }
 
         // Voir GDD/demande utilisateur — "un bouton pour acheter le premium" : bouton bien
@@ -2584,7 +2602,7 @@ void DrawBattlePassPanel(int w, int h)
         {
             var buttonCenter = new Vector2(w / 2f, topLeft.Y + boxHeight - 46f);
             var buttonLabel = $"ACHETER LE PASS PREMIUM ({cost} GEMMES)";
-            var buttonSize = new Vector2(TextRenderer.MeasureWidth(buttonLabel, 1.8f) + 32f, 34f);
+            var buttonSize = new Vector2(MeasureTextWidth(buttonLabel, 1.8f) + 32f, 34f);
             DrawPanel(buttonCenter - new Vector2(buttonSize.X / 2f, buttonSize.Y / 2f), buttonSize, new Vector4(0.95f, 0.75f, 0.35f, 0.15f));
             if (DrawClickableCentered(buttonLabel, buttonCenter, 1.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f))
                 && chosenCharacterId is not null && gameDataApi is not null)
@@ -2595,11 +2613,11 @@ void DrawBattlePassPanel(int w, int h)
         }
         else if (status.HasPremium)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Pass Premium déjà actif — merci !", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "Pass Premium déjà actif — merci !", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir la route - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir la route - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -2668,15 +2686,15 @@ void DrawWorldBossPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.3f, 0.25f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BOSS MONDIAL", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.45f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "BOSS MONDIAL", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.45f, 0.4f, 1f));
 
     if (worldBossLoadTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + 100f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (worldBossStatus is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN BOSS MONDIAL ACTIF POUR LE MOMENT", new Vector2(w / 2f, topLeft.Y + 100f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUN BOSS MONDIAL ACTIF POUR LE MOMENT", new Vector2(w / 2f, topLeft.Y + 100f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -2686,24 +2704,24 @@ void DrawWorldBossPanel(int w, int h)
         // partir d'une espèce réelle du catalogue, donc un vrai portrait coloré par Element au
         // lieu de rien (avant, ce n'était qu'un nom libre sans identité visuelle).
         DrawStarterPortrait(new Vector2(w / 2f, topLeft.Y + 54f), 30f, ElementColor(status.BossElement));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 90f), 2.2f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, status.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 90f), 2.2f, Vector4.One);
 
         var barTop = new Vector2(topLeft.X + 30f, topLeft.Y + 118f);
         var barSize = new Vector2(boxWidth - 60f, 22f);
         var healthRatio = status.MaxHealth <= 0 ? 0f : Math.Clamp((float)status.CurrentHealth / status.MaxHealth, 0f, 1f);
         DrawPanel(barTop, barSize, new Vector4(0.2f, 0.08f, 0.08f, 1f));
         DrawPanel(barTop, new Vector2(barSize.X * healthRatio, barSize.Y), new Vector4(0.85f, 0.25f, 0.2f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{status.CurrentHealth} / {status.MaxHealth} PV", barTop + new Vector2(barSize.X / 2f, barSize.Y / 2f - 8f), 1.5f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, $"{status.CurrentHealth} / {status.MaxHealth} PV", barTop + new Vector2(barSize.X / 2f, barSize.Y / 2f - 8f), 1.5f, Vector4.One);
 
         if (!status.IsAlive)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VAINCU PAR {status.KillerCharacterName?.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 156f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, $"VAINCU PAR {status.KillerCharacterName?.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 156f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
 
             // Voir GDD/demande utilisateur — "la recompense va au royaume qui inflige le plus de
             // degats" : affiché en plus du vainqueur du coup de grâce ci-dessus.
             if (status.WinningKingdom is { } winningKingdom)
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ROYAUME VAINQUEUR : {winningKingdom.ToString().ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 178f), 1.6f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+                DrawTextCentered(spriteBatch, whiteTexture, $"ROYAUME VAINQUEUR : {winningKingdom.ToString().ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 178f), 1.6f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
             }
         }
         else if (DrawClickableCentered("ATTAQUER (ENTREE)", new Vector2(w / 2f, topLeft.Y + 156f), 2f, new Vector4(0.95f, 0.45f, 0.4f, 1f))
@@ -2715,18 +2733,18 @@ void DrawWorldBossPanel(int w, int h)
 
         if (worldBossMessage is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, worldBossMessage, new Vector2(w / 2f, topLeft.Y + 202f), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, worldBossMessage, new Vector2(w / 2f, topLeft.Y + 202f), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
         }
     }
 
     var leaderboardTitle = worldBossShowAllTime ? "< CLASSEMENT DE TOUJOURS >" : "< CLASSEMENT DU BOSS ACTUEL >";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, leaderboardTitle, new Vector2(w / 2f, topLeft.Y + 226f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, leaderboardTitle, new Vector2(w / 2f, topLeft.Y + 226f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
     var leaderboard = worldBossShowAllTime ? worldBossAllTimeLeaderboard : worldBossCurrentLeaderboard;
     var y = topLeft.Y + 260f;
     if (leaderboard.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE DONNEE POUR CE CLASSEMENT", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUNE DONNEE POUR CE CLASSEMENT", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -2734,12 +2752,12 @@ void DrawWorldBossPanel(int w, int h)
         {
             var row = leaderboard[i];
             var color = i == 0 ? new Vector4(0.95f, 0.75f, 0.4f, 1f) : Vector4.One;
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName} - {row.TotalDamage} degats", new Vector2(topLeft.X + 30f, y), 1.6f, color);
+            DrawText(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName} - {row.TotalDamage} degats", new Vector2(topLeft.X + 30f, y), 1.6f, color);
             y += 24f;
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : classement - ENTREE : attaquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "GAUCHE/DROITE : classement - ENTREE : attaquer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Nom affiché d'une créature possédée (surnom, sinon nom d'espèce) — voir DrawMonstersPanel pour l'usage d'origine.</summary>
@@ -2888,27 +2906,27 @@ void DrawFusionPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.05f, 0.08f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.75f, 0.42f, 0.68f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FUSION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.55f, 0.78f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "FUSION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.55f, 0.78f, 1f));
 
     if (fusionPendingLoadTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (fusionPending is { } pending)
     {
         var ready = DateTime.UtcNow >= pending.CompletesAtUtc;
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{pending.SurvivorName.ToUpperInvariant()} FUSIONNE AVEC {pending.ConsumedName.ToUpperInvariant()}",
+        DrawTextCentered(spriteBatch, whiteTexture, $"{pending.SurvivorName.ToUpperInvariant()} FUSIONNE AVEC {pending.ConsumedName.ToUpperInvariant()}",
             new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 50f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU FINAL : {pending.ResultingLevel}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 16f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"NIVEAU FINAL : {pending.ResultingLevel}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 16f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 
         if (ready)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FUSION PRETE ! (ENTREE POUR RECUPERER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 2f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "FUSION PRETE ! (ENTREE POUR RECUPERER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 2f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
         }
         else
         {
             var remaining = pending.CompletesAtUtc - DateTime.UtcNow;
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EN COURS... ({(int)Math.Max(0, remaining.TotalMinutes)}M {(int)Math.Max(0, remaining.Seconds)}S RESTANT)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 2f, new Vector4(0.85f, 0.75f, 0.5f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, $"EN COURS... ({(int)Math.Max(0, remaining.TotalMinutes)}M {(int)Math.Max(0, remaining.Seconds)}S RESTANT)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 2f, new Vector4(0.85f, 0.75f, 0.5f, 1f));
         }
     }
     else if (fusionConfirming)
@@ -2918,10 +2936,10 @@ void DrawFusionPanel(int w, int h)
         if (first is not null && second is not null)
         {
             var resultingLevel = Math.Max(1, (first.Level + second.Level) / 2);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CONFIRMER LA FUSION ?", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 70f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(first).ToUpperInvariant()} SURVIVRA (NIV. {resultingLevel})",
+            DrawTextCentered(spriteBatch, whiteTexture, "CONFIRMER LA FUSION ?", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 70f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(first).ToUpperInvariant()} SURVIVRA (NIV. {resultingLevel})",
                 new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 1.8f, new Vector4(0.6f, 0.95f, 0.65f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(second).ToUpperInvariant()} SERA CONSOMMEE",
+            DrawTextCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(second).ToUpperInvariant()} SERA CONSOMMEE",
                 new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 4f), 1.8f, new Vector4(0.9f, 0.5f, 0.5f, 1f));
         }
     }
@@ -2930,15 +2948,15 @@ void DrawFusionPanel(int w, int h)
         var instructions = fusionFirstMonsterId is null
             ? "CHOISISSEZ LA PREMIERE CREATURE (ENTREE)"
             : $"PREMIERE : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == fusionFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LA SECONDE";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         if (!monstersLoaded)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else if (ownedMonsters.Count < 2)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -2968,7 +2986,7 @@ void DrawFusionPanel(int w, int h)
 
     if (fusionMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, fusionMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, fusionMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
     var footer = fusionPending is not null
@@ -2976,7 +2994,7 @@ void DrawFusionPanel(int w, int h)
         : fusionConfirming
             ? "ENTREE : CONFIRMER - ECHAP : ANNULER"
             : "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -3112,26 +3130,26 @@ void DrawHatcheryPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.06f, 0.06f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.55f, 0.6f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "REPRODUCTION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.65f, 0.7f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "REPRODUCTION", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.65f, 0.7f, 1f));
 
     if (hatcheryPendingLoadTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (hatcheryPending is { } pending)
     {
         var ready = DateTime.UtcNow >= pending.CompletesAtUtc;
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"UN {pending.OffspringSpeciesName.ToUpperInvariant()} EST EN INCUBATION",
+        DrawTextCentered(spriteBatch, whiteTexture, $"UN {pending.OffspringSpeciesName.ToUpperInvariant()} EST EN INCUBATION",
             new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 1.9f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         if (ready)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PRET A NAITRE ! (ENTREE POUR RECUPERER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "PRET A NAITRE ! (ENTREE POUR RECUPERER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
         }
         else
         {
             var remaining = pending.CompletesAtUtc - DateTime.UtcNow;
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EN COURS... ({(int)Math.Max(0, remaining.TotalMinutes)}M {(int)Math.Max(0, remaining.Seconds)}S RESTANT)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2f, new Vector4(0.85f, 0.75f, 0.5f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, $"EN COURS... ({(int)Math.Max(0, remaining.TotalMinutes)}M {(int)Math.Max(0, remaining.Seconds)}S RESTANT)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 10f), 2f, new Vector4(0.85f, 0.75f, 0.5f, 1f));
         }
     }
     else if (hatcheryConfirming)
@@ -3140,10 +3158,10 @@ void DrawHatcheryPanel(int w, int h)
         var second = ownedMonsters.Count > 0 ? ownedMonsters[hatcheryCursor] : null;
         if (first is not null && second is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CONFIRMER LA REPRODUCTION ?", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 50f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(first).ToUpperInvariant()} + {MonsterDisplayName(second).ToUpperInvariant()}",
+            DrawTextCentered(spriteBatch, whiteTexture, "CONFIRMER LA REPRODUCTION ?", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 50f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, $"{MonsterDisplayName(first).ToUpperInvariant()} + {MonsterDisplayName(second).ToUpperInvariant()}",
                 new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 10f), 1.9f, new Vector4(0.6f, 0.95f, 0.65f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "LES DEUX PARENTS SURVIVENT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 24f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "LES DEUX PARENTS SURVIVENT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 24f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
     }
     else
@@ -3151,15 +3169,15 @@ void DrawHatcheryPanel(int w, int h)
         var instructions = hatcheryFirstMonsterId is null
             ? "CHOISISSEZ LE PREMIER PARENT (ENTREE)"
             : $"PREMIER PARENT : {MonsterDisplayName(ownedMonsters.FirstOrDefault(m => m.Id == hatcheryFirstMonsterId)!).ToUpperInvariant()} - CHOISISSEZ LE SECOND";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, instructions, new Vector2(w / 2f, topLeft.Y + 58f), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         if (!monstersLoaded)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else if (ownedMonsters.Count < 2)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "IL FAUT AU MOINS 2 CREATURES", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -3189,7 +3207,7 @@ void DrawHatcheryPanel(int w, int h)
 
     if (hatcheryMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, hatcheryMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, hatcheryMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
     var footer = hatcheryPending is not null
@@ -3197,7 +3215,7 @@ void DrawHatcheryPanel(int w, int h)
         : hatcheryConfirming
             ? "ENTREE : CONFIRMER - ECHAP : ANNULER"
             : "HAUT/BAS : choisir - ENTREE : valider - ECHAP : fermer";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -3273,12 +3291,12 @@ void DrawEncyclopediaPanel(int w, int h)
         var ownedMountKeys = (encyclopediaMountProfile?.OwnedMountKeys ?? []).ToHashSet();
         var activeMountKey = encyclopediaMountProfile?.ActiveMountKey;
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONTURES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{ownedMountKeys.Count} / {MountCatalog.All.Count} MONTURES POSSEDEES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "MONTURES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{ownedMountKeys.Count} / {MountCatalog.All.Count} MONTURES POSSEDEES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         if (encyclopediaMountProfileTask is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -3309,7 +3327,7 @@ void DrawEncyclopediaPanel(int w, int h)
                 : $"Debloquee via le succes \"{AchievementCatalog.Find(selectedMount.UnlockedByAchievementKey)?.Name ?? selectedMount.UnlockedByAchievementKey}\".";
             foreach (var line in WrapTextToLines(mountDetailText, boxWidth - 52f, 1.3f))
             {
-                TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 26f, mountDetailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+                DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 26f, mountDetailY), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
                 mountDetailY += 18f;
             }
         }
@@ -3320,12 +3338,12 @@ void DrawEncyclopediaPanel(int w, int h)
         var ownedSpeciesIds = ownedMonsters.Select(m => m.SpeciesId).ToHashSet();
         var knownCount = speciesList.Count(s => ownedSpeciesIds.Contains(s.Id));
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENCYCLOPEDIE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{knownCount} / {speciesList.Count} ESPECES DECOUVERTES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ENCYCLOPEDIE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.8f, 0.95f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{knownCount} / {speciesList.Count} ESPECES DECOUVERTES", new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         if (speciesList.Count == 0)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -3359,7 +3377,7 @@ void DrawEncyclopediaPanel(int w, int h)
             var detailColor = ownedSpeciesIds.Contains(selectedSpecies.Id) ? new Vector4(0.75f, 0.75f, 0.8f, 1f) : new Vector4(0.55f, 0.55f, 0.6f, 1f);
             foreach (var line in WrapTextToLines(detailText, boxWidth - 52f, 1.3f))
             {
-                TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 26f, detailY), 1.3f, detailColor);
+                DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 26f, detailY), 1.3f, detailColor);
                 detailY += 18f;
             }
         }
@@ -3373,10 +3391,10 @@ void DrawEncyclopediaPanel(int w, int h)
         var endGameLabel = status.IsEligible
             ? "CONTENU END-GAME DEBLOQUE (donjon mythique Sanctuaire Ultime)"
             : $"END-GAME : {status.SpeciesAtMaxLevel}/{status.TotalRequiredSpecies} especes niv. max - {status.AchievementsUnlocked}/{status.TotalAchievements} succes";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, endGameLabel, new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.4f, endGameColor);
+        DrawTextCentered(spriteBatch, whiteTexture, endGameLabel, new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.4f, endGameColor);
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - TAB : especes/montures - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - TAB : especes/montures - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Voir GDD/demande utilisateur — "Défis hebdomadaires" (contenu end-game) + défis mensuels, avec une UI dédiée pour y accéder (touche X).</summary>
@@ -3449,20 +3467,20 @@ void DrawChallengesPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.07f, 0.06f, 0.05f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.6f, 0.3f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "DEFIS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.7f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "DEFIS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.9f, 0.7f, 0.4f, 1f));
 
     if (challengesTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (challenges.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN DEFI DISPONIBLE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUN DEFI DISPONIBLE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
         var y = topLeft.Y + 58f;
-        TextRenderer.Draw(spriteBatch, whiteTexture, "HEBDOMADAIRES", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.8f, 0.95f, 1f));
+        DrawText(spriteBatch, whiteTexture, "HEBDOMADAIRES", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.8f, 0.95f, 1f));
         y += 24f;
 
         for (var i = 0; i < challenges.Count; i++)
@@ -3471,7 +3489,7 @@ void DrawChallengesPanel(int w, int h)
             if (challenge.Period == ChallengePeriod.Monthly && challenges.Take(i).All(c => c.Period != ChallengePeriod.Monthly))
             {
                 y += 10f;
-                TextRenderer.Draw(spriteBatch, whiteTexture, "MENSUELS", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.95f, 0.75f, 0.5f, 1f));
+                DrawText(spriteBatch, whiteTexture, "MENSUELS", new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.95f, 0.75f, 0.5f, 1f));
                 y += 24f;
             }
 
@@ -3500,15 +3518,15 @@ void DrawChallengesPanel(int w, int h)
 
         var selectedChallenge = challenges[challengesCursor];
         var descY = topLeft.Y + boxHeight - 90f;
-        TextRenderer.Draw(spriteBatch, whiteTexture, selectedChallenge.Description, new Vector2(topLeft.X + 20f, descY), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        DrawText(spriteBatch, whiteTexture, selectedChallenge.Description, new Vector2(topLeft.X + 20f, descY), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
     }
 
     if (challengesMessage is { Length: > 0 })
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, challengesMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, challengesMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : reclamer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : reclamer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -3610,15 +3628,15 @@ void DrawReportsPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.05f, 0.05f, 0.96f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.35f, 0.3f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "SIGNALEMENTS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.5f, 0.45f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "SIGNALEMENTS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.5f, 0.45f, 1f));
 
     if (reportsTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (reports.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN SIGNALEMENT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUN SIGNALEMENT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -3643,16 +3661,93 @@ void DrawReportsPanel(int w, int h)
 
         var selected = reports[reportsCursor];
         var detailY = topLeft.Y + boxHeight - 96f;
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"RAISON : {selected.Reason}", new Vector2(topLeft.X + 20f, detailY), 1.4f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{selected.CreatedAtUtc:yyyy-MM-dd HH:mm} UTC", new Vector2(topLeft.X + 20f, detailY + 20f), 1.3f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+        DrawText(spriteBatch, whiteTexture, $"RAISON : {selected.Reason}", new Vector2(topLeft.X + 20f, detailY), 1.4f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawText(spriteBatch, whiteTexture, $"{selected.CreatedAtUtc:yyyy-MM-dd HH:mm} UTC", new Vector2(topLeft.X + 20f, detailY + 20f), 1.3f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
     }
 
     if (reportsMessage is { Length: > 0 })
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, reportsMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.5f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, reportsMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.5f, new Vector4(0.6f, 0.95f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "T : TP VERS LE RAPPORTEUR - Y : TP VERS LE SIGNALE - ENTREE : MARQUER TRAITE - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "T : TP VERS LE RAPPORTEUR - Y : TP VERS LE SIGNALE - ENTREE : MARQUER TRAITE - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... ajoute le fait
+/// que quand on appuie sur un bouton avec ui (ou raccourci clavier) sa nous affiche les
+/// parametre" : remplace l'ancien F9 "silencieux" (juste un cycle sans retour visuel) par un vrai
+/// panneau — regroupe disposition clavier (déjà réglable avant, maintenant avec une vraie UI) et
+/// langue (nouveau, voir GameSettings.Language/Localization). Japonais volontairement grisé/non
+/// sélectionnable (voir retour utilisateur — pas de police japonaise, Localization.cs).
+/// </summary>
+void UpdateSettingsPanel()
+{
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) settingsCursor = Math.Min(settingsCursor + 1, 1);
+    else if (keyboard.WasJustPressed(Key.Up)) settingsCursor = Math.Max(settingsCursor - 1, 0);
+    else if (keyboard.WasJustPressed(Key.Left) || keyboard.WasJustPressed(Key.Right))
+    {
+        var direction = keyboard.WasJustPressed(Key.Right) ? 1 : -1;
+        if (settingsCursor == 0)
+        {
+            var layouts = Enum.GetValues<KeyboardLayoutPreference>();
+            var index = (Array.IndexOf(layouts, gameSettings.KeyboardLayout) + direction + layouts.Length) % layouts.Length;
+            gameSettings.KeyboardLayout = layouts[index];
+            isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
+        }
+        else
+        {
+            // Voir retour utilisateur — "laisse tomber le japonais pour l'instant" : Japonais
+            // reste dans l'énumération (affiché grisé ci-dessous) mais n'est jamais sélectionnable
+            // ici, seul un cycle Francais <-> Anglais est proposé.
+            gameSettings.Language = gameSettings.Language == Language.Anglais ? Language.Francais : Language.Anglais;
+        }
+
+        gameSettings.Save();
+    }
+}
+
+void DrawSettingsPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 260f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.07f, 0.07f, 0.09f, 0.96f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.55f, 0.7f, 0.95f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "PARAMETRES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.65f, 0.78f, 0.98f, 1f));
+
+    var rows = new (string Label, string Value)[]
+    {
+        ("DISPOSITION CLAVIER", gameSettings.KeyboardLayout.ToString().ToUpperInvariant() + (gameSettings.KeyboardLayout == KeyboardLayoutPreference.Auto ? $" ({(isAzerty ? "ZQSD" : "WASD")})" : "")),
+        ("LANGUE / LANGUAGE", gameSettings.Language switch
+        {
+            Language.Anglais => "ENGLISH",
+            _ => "FRANCAIS",
+        }),
+    };
+
+    var y = topLeft.Y + 84f;
+    for (var i = 0; i < rows.Length; i++)
+    {
+        var isSelected = i == settingsCursor;
+        var prefix = isSelected ? "> " : "  ";
+        var color = isSelected ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
+        DrawText(spriteBatch, whiteTexture, $"{prefix}{rows[i].Label}", new Vector2(topLeft.X + 26f, y), 1.7f, color);
+        DrawText(spriteBatch, whiteTexture, $"< {rows[i].Value} >", new Vector2(topLeft.X + 280f, y), 1.7f, isSelected ? new Vector4(0.95f, 0.85f, 0.4f, 1f) : new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        y += 34f;
+    }
+
+    // Voir retour utilisateur — japonais visible mais explicitement indisponible pour l'instant.
+    DrawText(spriteBatch, whiteTexture, "JAPONAIS : BIENTOT (police non supportee)", new Vector2(topLeft.X + 26f, y + 6f), 1.2f, new Vector4(0.5f, 0.5f, 0.55f, 1f));
+
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - GAUCHE/DROITE : CHANGER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -4041,7 +4136,7 @@ void DrawTeleportPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.12f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.7f, 0.5f, 0.95f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TELEPORTEUR", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "TELEPORTEUR", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
 
     var y = topLeft.Y + 64f;
     for (var i = 0; i < destinations.Count; i++)
@@ -4074,12 +4169,12 @@ void DrawTeleportPanel(int w, int h)
     {
         foreach (var line in WrapTextToLines(islandVisitMessage, boxWidth - 40f, 1.5f))
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.95f, 1f));
+            DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.95f, 1f));
             y += 20f;
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VOYAGER - HAUT/BAS : CHOISIR - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VOYAGER - HAUT/BAS : CHOISIR - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 async Task<(TerritorySummary? Territory, ShopItem? Ore, int? MyKingdomId)> LoadMineInfoAsync(string mineName)
@@ -4149,24 +4244,24 @@ void DrawMinePanel(int w, int h)
 
     if (mineLoadTask is not null || mineTerritory is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, mineTerritory.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.75f, 0.55f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, mineTerritory.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.75f, 0.55f, 1f));
 
         var isMine = mineTerritory.ControllingKingdomId == myKingdomId;
         var controlColor = isMine ? new Vector4(0.6f, 0.9f, 0.6f, 1f) : new Vector4(0.9f, 0.5f, 0.45f, 1f);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"CONTROLEE PAR : {mineTerritory.ControllingKingdomName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 70f), 1.9f, controlColor);
+        DrawTextCentered(spriteBatch, whiteTexture, $"CONTROLEE PAR : {mineTerritory.ControllingKingdomName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 70f), 1.9f, controlColor);
 
         var status = isMine
             ? "Cette mine appartient à votre royaume — vous pouvez y récolter."
             : "Un royaume rival contrôle cette mine. Remportez la guerre pour la reprendre.";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status, new Vector2(w / 2f, topLeft.Y + 110f), 1.6f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, status, new Vector2(w / 2f, topLeft.Y + 110f), 1.6f, Vector4.One);
 
         if (mineMessage is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, mineMessage, new Vector2(w / 2f, topLeft.Y + 150f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, mineMessage, new Vector2(w / 2f, topLeft.Y + 150f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
         }
 
         if (isMine && mineGatherTask is null && mineOreItem is not null)
@@ -4181,7 +4276,7 @@ void DrawMinePanel(int w, int h)
     }
 
     var footer = mineTerritory?.ControllingKingdomId == myKingdomId ? "R OU CLIC : RECOLTER - ECHAP : FERMER" : "ECHAP : FERMER";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 async Task<(TerritorySummary? Territory, ShopItem? Crop)> LoadFieldInfoAsync(string fieldName)
@@ -4249,24 +4344,24 @@ void DrawFieldPanel(int w, int h)
 
     if (fieldLoadTask is not null || fieldTerritory is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, fieldTerritory.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.78f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, fieldTerritory.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.85f, 0.78f, 0.4f, 1f));
 
         var isOwn = fieldTerritory.ControllingKingdomId == myKingdomId;
         var controlColor = isOwn ? new Vector4(0.6f, 0.9f, 0.6f, 1f) : new Vector4(0.9f, 0.5f, 0.45f, 1f);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"CONTROLE PAR : {fieldTerritory.ControllingKingdomName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 70f), 1.9f, controlColor);
+        DrawTextCentered(spriteBatch, whiteTexture, $"CONTROLE PAR : {fieldTerritory.ControllingKingdomName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 70f), 1.9f, controlColor);
 
         var status = isOwn
             ? "Ce champ appartient à votre royaume — récolte à taux plein."
             : "Un royaume rival contrôle ce champ — vous pouvez toujours y récolter, mais avec moins de rendement et moins de chances d'obtenir du blé.";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, status, new Vector2(w / 2f, topLeft.Y + 110f), 1.5f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, status, new Vector2(w / 2f, topLeft.Y + 110f), 1.5f, Vector4.One);
 
         if (fieldMessage is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, fieldMessage, new Vector2(w / 2f, topLeft.Y + 150f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, fieldMessage, new Vector2(w / 2f, topLeft.Y + 150f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
         }
 
         if (fieldGatherTask is null && fieldCropItem is not null)
@@ -4280,7 +4375,7 @@ void DrawFieldPanel(int w, int h)
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "R OU CLIC : RECOLTER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "R OU CLIC : RECOLTER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -4400,33 +4495,33 @@ void DrawWarRoomPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.09f, 0.05f, 0.05f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.75f, 0.25f, 0.22f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GUERRE DE ROYAUMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "GUERRE DE ROYAUMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
 
     if (warReady)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PRET", new Vector2(w / 2f, topLeft.Y + 90f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "RECHERCHE D'UN ADVERSAIRE...", new Vector2(w / 2f, topLeft.Y + 124f), 1.9f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "PRET", new Vector2(w / 2f, topLeft.Y + 90f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "RECHERCHE D'UN ADVERSAIRE...", new Vector2(w / 2f, topLeft.Y + 124f), 1.9f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
     }
     else
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Affrontez un joueur d'un autre royaume.", new Vector2(w / 2f, topLeft.Y + 90f), 1.7f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Une victoire rapporte des points de guerre a votre royaume.", new Vector2(w / 2f, topLeft.Y + 114f), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "Affrontez un joueur d'un autre royaume.", new Vector2(w / 2f, topLeft.Y + 90f), 1.7f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "Une victoire rapporte des points de guerre a votre royaume.", new Vector2(w / 2f, topLeft.Y + 114f), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
     }
 
     if (warMessage is { Length: > 0 })
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, warMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 150f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, warMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 150f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
     }
 
     // Voir GDD/demande utilisateur — "ajoute un leaderboard dans l'UI pour le ready, pour
     // afficher le nombre de points par team (meilleur a la pire)".
     var y = topLeft.Y + 178f;
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSEMENT DES ROYAUMES", new Vector2(w / 2f, y), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "CLASSEMENT DES ROYAUMES", new Vector2(w / 2f, y), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     y += 30f;
     for (var i = 0; i < warStandings.Count; i++)
     {
         var standing = warStandings[i];
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{i + 1}. {standing.KingdomName.ToUpperInvariant()} — {standing.WarPoints} pts", new Vector2(w / 2f, y), 1.7f, i == 0 ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, $"{i + 1}. {standing.KingdomName.ToUpperInvariant()} — {standing.WarPoints} pts", new Vector2(w / 2f, y), 1.7f, i == 0 ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
         y += 24f;
     }
 
@@ -4434,24 +4529,24 @@ void DrawWarRoomPanel(int w, int h)
     // visible seulement si on est dans la même équipe" : le serveur ne renvoie que le royaume du
     // personnage authentifié (voir GetKingdomLeaderboardAsync), jamais un autre royaume.
     y += 16f;
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MEILLEURS JOUEURS DE VOTRE ROYAUME (PVP)", new Vector2(w / 2f, y), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "MEILLEURS JOUEURS DE VOTRE ROYAUME (PVP)", new Vector2(w / 2f, y), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     y += 26f;
     if (warKingdomLeaderboard.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Aucun rang PvP enregistre pour le moment.", new Vector2(w / 2f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "Aucun rang PvP enregistre pour le moment.", new Vector2(w / 2f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
         for (var i = 0; i < warKingdomLeaderboard.Count; i++)
         {
             var row = warKingdomLeaderboard[i];
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName.ToUpperInvariant()} — {row.Score}", new Vector2(w / 2f, y), 1.6f, i == 0 ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, $"{i + 1}. {row.CharacterName.ToUpperInvariant()} — {row.Score}", new Vector2(w / 2f, y), 1.6f, i == 0 ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
             y += 22f;
         }
     }
 
     var footer = warReady ? "ECHAP : ANNULER" : "ENTREE : PRET - ECHAP : FERMER";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom" : capitale, membres, points de guerre/classement, bonus de rendement et territoires contrôlés, en un seul chargement.</summary>
@@ -4600,11 +4695,11 @@ void DrawKingdomPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.07f, 0.06f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.8f, 0.5f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ROYAUMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.7f, 0.95f, 0.7f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ROYAUMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.7f, 0.95f, 0.7f, 1f));
 
     if (kingdomPanelLoadTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -4618,17 +4713,17 @@ void DrawKingdomPanel(int w, int h)
             var nameColor = isMine ? new Vector4(0.95f, 0.85f, 0.4f, 1f) : Vector4.One;
             var territoryCount = kingdomPanelTerritories.Count(t => t.ControllingKingdomId == kingdom.Id);
 
-            TextRenderer.Draw(spriteBatch, whiteTexture,
+            DrawText(spriteBatch, whiteTexture,
                 $"{rank}. {kingdom.Name.ToUpperInvariant()}{(isMine ? " (VOTRE ROYAUME)" : "")}",
                 new Vector2(topLeft.X + 20f, y), 1.9f, nameColor);
             y += 26f;
 
-            TextRenderer.Draw(spriteBatch, whiteTexture,
+            DrawText(spriteBatch, whiteTexture,
                 $"Capitale : {kingdom.CapitalName}   -   {kingdom.MemberCount} membre(s)",
                 new Vector2(topLeft.X + 34f, y), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
             y += 22f;
 
-            TextRenderer.Draw(spriteBatch, whiteTexture,
+            DrawText(spriteBatch, whiteTexture,
                 $"{kingdom.WarPoints} points de guerre   -   {territoryCount} territoire(s)   -   bonus de rendement +{kingdom.BonusTerritoryCount}",
                 new Vector2(topLeft.X + 34f, y), 1.5f, new Vector4(0.7f, 0.9f, 0.7f, 1f));
             y += 34f;
@@ -4636,7 +4731,7 @@ void DrawKingdomPanel(int w, int h)
             if (isMine && kingdomPolitics is not null)
             {
                 var kingLabel = kingdomPolitics.KingCharacterName is { Length: > 0 } king ? king.ToUpperInvariant() : "AUCUN (VOTEZ AVEC V)";
-                TextRenderer.Draw(spriteBatch, whiteTexture,
+                DrawText(spriteBatch, whiteTexture,
                     $"Roi elu : {kingLabel}   -   Tresor : {kingdomPolitics.TreasuryGold} or{(kingdomPolitics.IsTaxExempt ? "   -   EXEMPT DE TAXES" : "")}",
                     new Vector2(topLeft.X + 34f, y), 1.4f, new Vector4(0.9f, 0.8f, 0.5f, 1f));
                 y += 26f;
@@ -4648,7 +4743,7 @@ void DrawKingdomPanel(int w, int h)
                 {
                     var chestLabel = chest.IsClaimed ? $"Coffre cache : deja trouve par {chest.ClaimedByCharacterName}" : $"Coffre cache : quelque part sur la carte (case en jaune, +{chest.RewardGold} or)";
                     var chestColor = chest.IsClaimed ? new Vector4(0.6f, 0.6f, 0.65f, 1f) : new Vector4(0.95f, 0.85f, 0.4f, 1f);
-                    TextRenderer.Draw(spriteBatch, whiteTexture, chestLabel.ToUpperInvariant(), new Vector2(topLeft.X + 34f, y), 1.3f, chestColor);
+                    DrawText(spriteBatch, whiteTexture, chestLabel.ToUpperInvariant(), new Vector2(topLeft.X + 34f, y), 1.3f, chestColor);
                     y += 24f;
                 }
             }
@@ -4656,18 +4751,18 @@ void DrawKingdomPanel(int w, int h)
 
         if (kingdomVoteMode)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "NOM DU CANDIDAT (VOTRE ROYAUME) :", new Vector2(w / 2f, topLeft.Y + boxHeight - 78f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "NOM DU CANDIDAT (VOTRE ROYAUME) :", new Vector2(w / 2f, topLeft.Y + boxHeight - 78f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
             DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight - 58f), new Vector2(boxWidth - 60f, 28f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
-            TextRenderer.Draw(spriteBatch, whiteTexture, kingdomVoteInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight - 52f), 1.6f, Vector4.One);
+            DrawText(spriteBatch, whiteTexture, kingdomVoteInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight - 52f), 1.6f, Vector4.One);
         }
         else if (kingdomPoliticsMessage is { Length: > 0 })
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, kingdomPoliticsMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.7f, 0.9f, 0.7f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, kingdomPoliticsMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.7f, 0.9f, 0.7f, 1f));
         }
     }
 
     var kingdomFooter = kingdomVoteMode ? "ENTREE : VOTER - ECHAP : ANNULER" : "V : VOTER   B : CONSTRUIRE UNE MINE (ROI)   H : COFFRE CACHE   -   ECHAP : FERMER";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, kingdomFooter, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, kingdomFooter, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void OnDialogueFinished(string npcName)
@@ -4790,7 +4885,7 @@ void DrawTutorialOverlay(int w, int h)
     var pages = TutorialPages();
     var page = pages[Math.Clamp(tutorialPage, 0, pages.Length - 1)];
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, page.Title.ToUpperInvariant(), new Vector2(w / 2f, h * 0.24f), 3.4f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, page.Title.ToUpperInvariant(), new Vector2(w / 2f, h * 0.24f), 3.4f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
     // Voir GDD/demande utilisateur — "une petite main et un petit texte qui te dit quoi faire,
     // ça fait quoi" : une étape avec une touche/action associée affiche une petite main animée
@@ -4802,29 +4897,29 @@ void DrawTutorialOverlay(int w, int h)
     {
         if (step.Action.Length == 0)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, step.Effect, new Vector2(w / 2f, lineY), pixelSize, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, step.Effect, new Vector2(w / 2f, lineY), pixelSize, new Vector4(0.92f, 0.92f, 0.95f, 1f));
         }
         else
         {
             var actionText = $"[{step.Action}]";
             var effectText = $" {step.Effect}";
-            var actionWidth = TextRenderer.MeasureWidth(actionText, pixelSize);
-            var effectWidth = TextRenderer.MeasureWidth(effectText, pixelSize);
+            var actionWidth = MeasureTextWidth(actionText, pixelSize);
+            var effectWidth = MeasureTextWidth(effectText, pixelSize);
             var totalWidth = actionWidth + effectWidth;
             var handTipX = w / 2f - totalWidth / 2f - 14f;
 
             DrawTutorialHand(new Vector2(handTipX, lineY + TextRenderer.LineHeight(pixelSize) / 2f - 3f));
 
             var textLeft = w / 2f - totalWidth / 2f;
-            TextRenderer.Draw(spriteBatch, whiteTexture, actionText, new Vector2(textLeft, lineY), pixelSize, new Vector4(0.95f, 0.8f, 0.4f, 1f));
-            TextRenderer.Draw(spriteBatch, whiteTexture, effectText, new Vector2(textLeft + actionWidth, lineY), pixelSize, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+            DrawText(spriteBatch, whiteTexture, actionText, new Vector2(textLeft, lineY), pixelSize, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+            DrawText(spriteBatch, whiteTexture, effectText, new Vector2(textLeft + actionWidth, lineY), pixelSize, new Vector4(0.92f, 0.92f, 0.95f, 1f));
         }
 
         lineY += TextRenderer.LineHeight(pixelSize) + 8f;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"PAGE {tutorialPage + 1}/{pages.Length}", new Vector2(w / 2f, h * 0.78f), 1.7f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES : NAVIGUER - ECHAP OU F1 : FERMER", new Vector2(w / 2f, h - 40f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, $"PAGE {tutorialPage + 1}/{pages.Length}", new Vector2(w / 2f, h * 0.78f), 1.7f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "FLECHES : NAVIGUER - ECHAP OU F1 : FERMER", new Vector2(w / 2f, h - 40f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 }
 
 /// <summary>
@@ -5267,12 +5362,12 @@ void DrawQuestListPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.07f, 0.07f, 0.1f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.8f, 0.4f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "QUETES EN COURS", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "QUETES EN COURS", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
 
     if (activeStoryQuest is not { } quest)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE QUETE EN COURS", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUNE QUETE EN COURS", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
@@ -5287,11 +5382,11 @@ void DrawQuestListPanel(int w, int h)
     var y = topLeft.Y + 100f;
     foreach (var line in WrapTextToLines(quest.Description, boxWidth - 40f, 1.4f))
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.4f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.4f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
         y += 20f;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE OU CLIC : EPINGLER/DESEPINGLER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ENTREE OU CLIC : EPINGLER/DESEPINGLER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -5418,15 +5513,15 @@ void DrawDungeonSelectPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.04f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), WorldMap.PortalMidColorBright);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "DONJONS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "DONJONS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
 
     if (dungeonSelectTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (dungeonSelectOptions.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN DONJON DANS CE ROYAUME", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUN DONJON DANS CE ROYAUME", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -5446,7 +5541,7 @@ void DrawDungeonSelectPanel(int w, int h)
             // c'est le niveau des monstres" : plage affichee (etage 1 -> dernier etage) plutot
             // qu'un simple "niveau min pour rentrer".
             var levelLabel = dungeon.MaxMonsterLevel > dungeon.MinLevel ? $"NIV. {dungeon.MinLevel}-{dungeon.MaxMonsterLevel}" : $"NIV. {dungeon.MinLevel}";
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{dungeon.Name.ToUpperInvariant()} - {levelLabel}{tags}", new Vector2(topLeft.X + 24f, y), 1.8f, color);
+            DrawText(spriteBatch, whiteTexture, $"{prefix}{dungeon.Name.ToUpperInvariant()} - {levelLabel}{tags}", new Vector2(topLeft.X + 24f, y), 1.8f, color);
             y += 28f;
         }
 
@@ -5455,12 +5550,12 @@ void DrawDungeonSelectPanel(int w, int h)
         var descText = selected.IsMythic && selected.MythicModifierDescription.Length > 0 ? selected.MythicModifierDescription : selected.Description;
         foreach (var line in WrapTextToLines(descText, boxWidth - 40f, 1.4f))
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, descY), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, descY), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
             descY += 20f;
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - TAB : hardcore/normal - ENTREE : entrer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - TAB : hardcore/normal - ENTREE : entrer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Voir GDD/demande utilisateur — extrait de l'ex-<c>case InteractionKind.Dungeon</c> pour être réutilisable depuis <see cref="UpdateDungeonSelectPanel"/>.</summary>
@@ -6057,6 +6152,9 @@ void OpenPanel(PanelKind kind)
             reportsMessage = null;
             reports = [];
             reportsTask = gameDataApi?.GetReportsAsync(options.SessionToken!);
+            break;
+        case PanelKind.Settings:
+            settingsCursor = 0;
             break;
     }
 }
@@ -7210,6 +7308,12 @@ void UpdatePanel(float deltaTime)
         return;
     }
 
+    if (activePanel == PanelKind.Settings)
+    {
+        UpdateSettingsPanel();
+        return;
+    }
+
     if (activePanel == PanelKind.Inventory)
     {
         UpdateInventoryPanel();
@@ -8197,7 +8301,7 @@ int ApplyScrollWheel(int cursor, int count)
 /// </summary>
 bool DrawClickableCentered(string text, Vector2 topCenter, float pixelSize, Vector4 color)
 {
-    var width = TextRenderer.MeasureWidth(text, pixelSize);
+    var width = MeasureTextWidth(text, pixelSize);
     var height = TextRenderer.LineHeight(pixelSize);
     const float pad = 8f;
     var topLeft = topCenter - new Vector2(width / 2f + pad, 0f);
@@ -8212,7 +8316,7 @@ bool DrawClickableCentered(string text, Vector2 topCenter, float pixelSize, Vect
         DrawPanel(topLeft, boxSize, new Vector4(1f, 1f, 1f, 0.12f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, text, topCenter, pixelSize, isHovered ? Vector4.Lerp(color, Vector4.One, 0.35f) : color);
+    DrawTextCentered(spriteBatch, whiteTexture, text, topCenter, pixelSize, isHovered ? Vector4.Lerp(color, Vector4.One, 0.35f) : color);
 
     return isHovered && mouse.WasButtonJustPressed(MouseButton.Left);
 }
@@ -8236,7 +8340,7 @@ bool DrawClickableRow(string text, Vector2 topLeft, float rowWidth, float pixelS
         DrawPanel(topLeft - new Vector2(4f, 2f), new Vector2(rowWidth + 4f, height + 4f), new Vector4(1f, 1f, 1f, 0.08f));
     }
 
-    TextRenderer.Draw(spriteBatch, whiteTexture, text, topLeft, pixelSize, isHovered ? Vector4.Lerp(color, Vector4.One, 0.35f) : color);
+    DrawText(spriteBatch, whiteTexture, text, topLeft, pixelSize, isHovered ? Vector4.Lerp(color, Vector4.One, 0.35f) : color);
 
     return isHovered && mouse.WasButtonJustPressed(MouseButton.Left);
 }
@@ -8288,11 +8392,11 @@ void DrawBuilding(Building building)
     // (avec une largeur minimale pour ne pas rétrécir les enseignes à mot court).
     const float signTextScale = 0.85f;
     var signText = building.Name.ToUpperInvariant();
-    var signTextWidth = TextRenderer.MeasureWidth(signText, signTextScale);
+    var signTextWidth = MeasureTextWidth(signText, signTextScale);
     var plaqueSize = new Vector2(MathF.Max(IsoMath.TileWidth * 0.46f, signTextWidth + 8f), IsoMath.TileHeight * 0.42f);
     var plaquePosition = postTop - new Vector2(plaqueSize.X / 2f, plaqueSize.Y * 0.75f);
     spriteBatch.Draw(whiteTexture, plaquePosition, plaqueSize, WorldMap.SignboardColor);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, signText,
+    DrawTextCentered(spriteBatch, whiteTexture, signText,
         plaquePosition + new Vector2(plaqueSize.X / 2f, plaqueSize.Y / 2f - 3f), signTextScale, new Vector4(0.25f, 0.17f, 0.09f, 1f));
 }
 
@@ -8361,14 +8465,14 @@ void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wa
 
     if (label is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, label.ToUpperInvariant(),
+        DrawTextCentered(spriteBatch, whiteTexture, label.ToUpperInvariant(),
             new Vector2(headCenter.X, headTop.Y - 14f), 1.6f, new Vector4(1f, 1f, 1f, 0.92f));
 
         // Voir GDD/demande utilisateur — "en dessous du pseudo affiche le niveau du joueur pour
         // que en multijoueur on puisse voir le niveau des autres".
         if (sublabel is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, sublabel.ToUpperInvariant(),
+            DrawTextCentered(spriteBatch, whiteTexture, sublabel.ToUpperInvariant(),
                 new Vector2(headCenter.X, headTop.Y - 2f), 1.2f, new Vector4(0.85f, 0.85f, 0.75f, 0.85f));
         }
     }
@@ -8461,6 +8565,7 @@ void DrawOutdoorHud()
             case PanelKind.Encyclopedia: DrawEncyclopediaPanel(w, h); break;
             case PanelKind.Challenges: DrawChallengesPanel(w, h); break;
             case PanelKind.Reports: DrawReportsPanel(w, h); break;
+            case PanelKind.Settings: DrawSettingsPanel(w, h); break;
         }
     }
     else if (nearbyInteraction is { } interaction)
@@ -8473,13 +8578,13 @@ void DrawOutdoorHud()
         };
 
         DrawPanel(new Vector2(w / 2f - 260f, h - 56f), new Vector2(520f, 30f), new Vector4(0.05f, 0.05f, 0.07f, 0.75f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h - 48f), 2.4f, new Vector4(1f, 0.92f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h - 48f), 2.4f, new Vector4(1f, 0.92f, 0.6f, 1f));
     }
 
     // Rappel des touches en bas à gauche (adapte le libellé à la disposition détectée/choisie —
     // voir GDD, les touches elles-mêmes fonctionnent déjà nativement dans les deux cas).
     var moveKeysLabel = isAzerty ? "ZQSD" : "WASD";
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER - F1 : AIDE",
+    DrawText(spriteBatch, whiteTexture, $"{moveKeysLabel} : SE DEPLACER - F9 : CLAVIER - F1 : AIDE",
         new Vector2(12, h - 26f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 0.85f));
 
     if (activeDialogueNpc is null)
@@ -8526,6 +8631,9 @@ void DrawOutdoorHud()
         ("DUEL (Y)", PanelKind.Duel),
         // Voir GDD/demande utilisateur — "ajoute un UI pour les kingdom".
         ("ROYAUME (R)", PanelKind.Kingdom),
+        // Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... un bouton
+        // avec ui (ou raccourci clavier) qui affiche les parametre".
+        ("PARAMETRES (F9)", PanelKind.Settings),
     ];
 
     // Voir GDD/demande utilisateur — "masque le bouton des gems pour tout le monde sauf au
@@ -8580,7 +8688,7 @@ bool IsPointOverOutdoorHudButtons(Vector2 point, int w)
         labels.Add(adminModeActive ? "ADMIN (F2)" : "MODE ADMIN (/admin)");
     }
 
-    var maxWidth = labels.Count > 0 ? labels.Max(l => TextRenderer.MeasureWidth(l, pixelSize)) : 0f;
+    var maxWidth = labels.Count > 0 ? labels.Max(l => MeasureTextWidth(l, pixelSize)) : 0f;
     var totalHeight = labels.Count * (TextRenderer.LineHeight(pixelSize) + 10f);
     const float pad = 10f;
     var startY = OutdoorHudButtonsStartY();
@@ -8599,8 +8707,8 @@ void DrawOutdoorHudButtons(int w, int h)
     if (myProfile is { } profile)
     {
         var hudLine = $"{profile.Gold} OR - NIV. {profile.Level}";
-        var hudWidth = TextRenderer.MeasureWidth(hudLine, pixelSize);
-        TextRenderer.Draw(spriteBatch, whiteTexture, hudLine, new Vector2(w - 16f - hudWidth, 14f), pixelSize, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+        var hudWidth = MeasureTextWidth(hudLine, pixelSize);
+        DrawText(spriteBatch, whiteTexture, hudLine, new Vector2(w - 16f - hudWidth, 14f), pixelSize, new Vector4(0.95f, 0.85f, 0.5f, 1f));
     }
 
     // Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" :
@@ -8618,9 +8726,9 @@ void DrawOutdoorHudButtons(int w, int h)
 
         void DrawEventBadge(string label, Vector4 color)
         {
-            var badgeWidth = TextRenderer.MeasureWidth(label, badgePixelSize);
+            var badgeWidth = MeasureTextWidth(label, badgePixelSize);
             var pulsedColor = new Vector4(color.X, color.Y, color.Z, 0.75f + 0.25f * pulse);
-            TextRenderer.Draw(spriteBatch, whiteTexture, label, new Vector2(w - 16f - badgeWidth, badgeY), badgePixelSize, pulsedColor);
+            DrawText(spriteBatch, whiteTexture, label, new Vector2(w - 16f - badgeWidth, badgeY), badgePixelSize, pulsedColor);
             badgeY += TextRenderer.LineHeight(badgePixelSize) + 4f;
         }
 
@@ -8639,7 +8747,7 @@ void DrawOutdoorHudButtons(int w, int h)
 
     foreach (var (label, kind) in buttons)
     {
-        var width = TextRenderer.MeasureWidth(label, pixelSize);
+        var width = MeasureTextWidth(label, pixelSize);
         var center = new Vector2(w - 16f - width / 2f, y);
         var color = activePanel == kind ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
 
@@ -8665,7 +8773,7 @@ void DrawOutdoorHudButtons(int w, int h)
     if (activeStoryQuest is not null)
     {
         var questLabel = questTitle is not null ? "QUETE (Q)" : "QUETE (Q) [MASQUEE]";
-        var questWidth = TextRenderer.MeasureWidth(questLabel, pixelSize);
+        var questWidth = MeasureTextWidth(questLabel, pixelSize);
         var questCenter = new Vector2(w - 16f - questWidth / 2f, y);
         var questColor = questTitle is not null ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
 
@@ -8685,7 +8793,7 @@ void DrawOutdoorHudButtons(int w, int h)
     if (adminModeActive && (myIsAdmin || myRank == UserRank.Fondateur))
     {
         const string adminLabel = "ADMIN (F2)";
-        var adminWidth = TextRenderer.MeasureWidth(adminLabel, pixelSize);
+        var adminWidth = MeasureTextWidth(adminLabel, pixelSize);
         var adminCenter = new Vector2(w - 16f - adminWidth / 2f, y);
         var adminColor = isAdminPanelOpen ? new Vector4(0.95f, 0.5f, 0.45f, 1f) : new Vector4(0.85f, 0.65f, 0.6f, 1f);
 
@@ -8736,11 +8844,11 @@ void DrawInventoryPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "INVENTAIRE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
     if (inventoryItems.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -8752,7 +8860,7 @@ void DrawInventoryPanel(int w, int h)
         var y = topLeft.Y + listTop;
         foreach (var item in inventoryItems.Skip(offset).Take(InventoryVisibleRows))
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{item.Name.ToUpperInvariant()} x{item.Quantity}", new Vector2(topLeft.X + 20f, y), 2f, Vector4.One);
+            DrawText(spriteBatch, whiteTexture, $"{item.Name.ToUpperInvariant()} x{item.Quantity}", new Vector2(topLeft.X + 20f, y), 2f, Vector4.One);
             y += rowHeight;
         }
 
@@ -8773,7 +8881,7 @@ void DrawInventoryPanel(int w, int h)
         }
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : DEFILER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : DEFILER - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawGuildPanel(int w, int h)
@@ -8785,11 +8893,11 @@ void DrawGuildPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GUILDE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "GUILDE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
     if (!guildLoaded)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (myGuild is null)
     {
@@ -8797,22 +8905,22 @@ void DrawGuildPanel(int w, int h)
     }
     else if (guildMode == GuildPanelMode.DepositGold)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONTANT A DEPOSER A LA BANQUE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "MONTANT A DEPOSER A LA BANQUE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput, new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, guildTextInput, new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (guildMode == GuildPanelMode.Chest)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "COFFRE PARTAGE", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "COFFRE PARTAGE", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 
         if (!guildChestLoaded)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else if (guildChest.Count == 0)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "LE COFFRE EST VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "LE COFFRE EST VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -8829,22 +8937,22 @@ void DrawGuildPanel(int w, int h)
                 var isSelected = i == guildChestCursor;
                 var prefix = isSelected ? "> " : "  ";
                 var color = isSelected ? new Vector4(0.6f, 0.85f, 0.95f, 1f) : Vector4.One;
-                TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{entry.ItemName.ToUpperInvariant()} x{entry.Quantity}", new Vector2(topLeft.X + 24f, y), 1.9f, color);
+                DrawText(spriteBatch, whiteTexture, $"{prefix}{entry.ItemName.ToUpperInvariant()} x{entry.Quantity}", new Vector2(topLeft.X + 24f, y), 1.9f, color);
                 y += rowHeight;
             }
 
             DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 86f), visibleRows * rowHeight, guildChest.Count, visibleRows, scrollStart);
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "I : DEPOSER 1ER OBJET DE L'INVENTAIRE - O : RETIRER LA SELECTION", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "I : DEPOSER 1ER OBJET DE L'INVENTAIRE - O : RETIRER LA SELECTION", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (guildMode == GuildPanelMode.Leaderboard)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLASSEMENT DES GUILDES", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CLASSEMENT DES GUILDES", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 
         if (!guildLeaderboardLoaded)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -8853,35 +8961,35 @@ void DrawGuildPanel(int w, int h)
             {
                 var entry = guildLeaderboard[i];
                 var color = entry.Id == myGuild.Id ? new Vector4(0.6f, 0.95f, 0.6f, 1f) : Vector4.One;
-                TextRenderer.Draw(spriteBatch, whiteTexture, $"{i + 1}. {entry.Name.ToUpperInvariant()} - NIV. {entry.Level}", new Vector2(topLeft.X + 24f, y), 1.9f, color);
+                DrawText(spriteBatch, whiteTexture, $"{i + 1}. {entry.Name.ToUpperInvariant()} - NIV. {entry.Level}", new Vector2(topLeft.X + 24f, y), 1.9f, color);
                 y += 26f;
             }
         }
     }
     else if (guildMode == GuildPanelMode.War)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GUERRE DE GUILDES", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myGuild.WarPoints} POINTS DE GUERRE CETTE SEMAINE", new Vector2(w / 2f, topLeft.Y + 96f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "GUERRE DE GUILDES", new Vector2(w / 2f, topLeft.Y + 56f), 2.2f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{myGuild.WarPoints} POINTS DE GUERRE CETTE SEMAINE", new Vector2(w / 2f, topLeft.Y + 96f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         if (guildWarReady)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PRET - RECHERCHE D'UNE GUILDE ADVERSE...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "PRET - RECHERCHE D'UNE GUILDE ADVERSE...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
         }
         else
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Affrontez un membre d'une autre guilde en duel amical.", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 10f), 1.6f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "Une victoire rapporte des points de guerre a votre guilde.", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 14f), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "Affrontez un membre d'une autre guilde en duel amical.", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 10f), 1.6f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, "Une victoire rapporte des points de guerre a votre guilde.", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 14f), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
         }
 
         if (guildWarMessage is { Length: > 0 })
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, guildWarMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, guildWarMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
         }
     }
     else
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"NIVEAU {myGuild.Level} - {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 88f), 2f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, myGuild.Name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 60f), 2.4f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"NIVEAU {myGuild.Level} - {myGuild.TreasuryGold} OR", new Vector2(w / 2f, topLeft.Y + 88f), 2f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
 
         // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5 chiffres)" :
         // affiché aux membres pour qu'ils puissent le partager, jamais aux non-membres (voir
@@ -8889,42 +8997,42 @@ void DrawGuildPanel(int w, int h)
         // guilde).
         if (!myGuild.IsPublic && myGuild.JoinCode is { } joinCode)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"GUILDE PRIVEE - CODE D'INVITATION : {joinCode}", new Vector2(w / 2f, topLeft.Y + 106f), 1.5f, new Vector4(0.9f, 0.7f, 0.4f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, $"GUILDE PRIVEE - CODE D'INVITATION : {joinCode}", new Vector2(w / 2f, topLeft.Y + 106f), 1.5f, new Vector4(0.9f, 0.7f, 0.4f, 1f));
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myGuild.GuildExperience} / {myGuild.ExperienceForNextLevel} XP DE GUILDE", new Vector2(w / 2f, topLeft.Y + 124f), 1.6f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{myGuild.GuildExperience} / {myGuild.ExperienceForNextLevel} XP DE GUILDE", new Vector2(w / 2f, topLeft.Y + 124f), 1.6f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
 
         // Voir GDD/demande utilisateur — "Quêtes de guilde".
         var questColor = myGuild.WeeklyQuestCompleted ? new Vector4(0.6f, 0.95f, 0.6f, 1f) : new Vector4(0.8f, 0.8f, 0.85f, 1f);
         var questLabel = myGuild.WeeklyQuestCompleted
             ? "QUETE DE LA SEMAINE : TERMINEE (deposez des objets au coffre)"
             : $"QUETE : DEPOSER DES OBJETS AU COFFRE ({myGuild.WeeklyQuestItemsDeposited}/{myGuild.WeeklyQuestItemTarget})";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, questLabel, new Vector2(w / 2f, topLeft.Y + 142f), 1.3f, questColor);
+        DrawTextCentered(spriteBatch, whiteTexture, questLabel, new Vector2(w / 2f, topLeft.Y + 142f), 1.3f, questColor);
 
         var y = topLeft.Y + 168f;
-        TextRenderer.Draw(spriteBatch, whiteTexture, "MEMBRES :", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, "MEMBRES :", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         y += 28f;
         foreach (var name in myGuild.MemberNames)
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(topLeft.X + 30f, y), 2f, Vector4.One);
+            DrawText(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(topLeft.X + 30f, y), 2f, Vector4.One);
             y += 24f;
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "D : BANQUE   K : COFFRE   L : CLASSEMENT   W : GUERRE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "D : BANQUE   K : COFFRE   L : CLASSEMENT   W : GUERRE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.6f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
     }
 
     if (myGuild is not null && guildActionMessage is { Length: > 0 })
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, guildActionMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, guildActionMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
     }
 
     if (myGuild is null || guildMode == GuildPanelMode.None)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR REVENIR", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP POUR REVENIR", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 }
 
@@ -8936,35 +9044,35 @@ void DrawGuildJoinCreateUi(Vector2 topLeft, float boxWidth, float boxHeight)
     switch (guildMode)
     {
         case GuildPanelMode.None:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "VOUS N'APPARTENEZ A AUCUNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "C : CREER UNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 6f), 2f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "R : RECHERCHER / REJOINDRE UNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 34f), 2f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "VOUS N'APPARTENEZ A AUCUNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "C : CREER UNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 6f), 2f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "R : RECHERCHER / REJOINDRE UNE GUILDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 34f), 2f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
             break;
 
         case GuildPanelMode.Create:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "NOM DE LA NOUVELLE GUILDE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "NOM DE LA NOUVELLE GUILDE :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
             DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
-            TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+            DrawText(spriteBatch, whiteTexture, guildTextInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
 
             // Voir GDD/demande utilisateur — "rendre les guildes publiques/privees".
             var visibilityLabel = guildCreateIsPublic ? "PUBLIQUE (tout le monde peut rejoindre)" : "PRIVEE (code a 5 chiffres requis)";
             var visibilityColor = guildCreateIsPublic ? new Vector4(0.6f, 0.85f, 0.6f, 1f) : new Vector4(0.9f, 0.7f, 0.4f, 1f);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"TAB : {visibilityLabel}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 20f), 1.8f, visibilityColor);
+            DrawTextCentered(spriteBatch, whiteTexture, $"TAB : {visibilityLabel}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 20f), 1.8f, visibilityColor);
 
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 52f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 52f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             break;
 
         case GuildPanelMode.Search when !guildSearchDone:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "NOM A RECHERCHER (VIDE = TOUTES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "NOM A RECHERCHER (VIDE = TOUTES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
             DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
-            TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR RECHERCHER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawText(spriteBatch, whiteTexture, guildTextInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, "ENTREE POUR RECHERCHER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             break;
 
         case GuildPanelMode.Search:
             if (guildSearchResults.Count == 0)
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE GUILDE TROUVEE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+                DrawTextCentered(spriteBatch, whiteTexture, "AUCUNE GUILDE TROUVEE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
             }
             else
             {
@@ -8978,30 +9086,30 @@ void DrawGuildJoinCreateUi(Vector2 topLeft, float boxWidth, float boxHeight)
                     // Voir GDD/demande utilisateur — "guildes privees (peut join avec code 5
                     // chiffres)" : indication visible avant même de tenter de rejoindre.
                     var lockSuffix = guild.IsPublic ? "" : " [PRIVEE]";
-                    TextRenderer.Draw(spriteBatch, whiteTexture, $"{prefix}{guild.Name.ToUpperInvariant()}{lockSuffix} (NIV. {guild.Level}, {guild.MemberNames.Count} MEMBRES)", new Vector2(topLeft.X + 24f, y), 1.9f, color);
+                    DrawText(spriteBatch, whiteTexture, $"{prefix}{guild.Name.ToUpperInvariant()}{lockSuffix} (NIV. {guild.Level}, {guild.MemberNames.Count} MEMBRES)", new Vector2(topLeft.X + 24f, y), 1.9f, color);
                     y += 26f;
                 }
             }
 
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : REJOINDRE - ECHAP : NOUVELLE RECHERCHE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : REJOINDRE - ECHAP : NOUVELLE RECHERCHE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
             break;
 
         case GuildPanelMode.EnterJoinCode:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CODE D'INVITATION (5 CHIFFRES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "CODE D'INVITATION (5 CHIFFRES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
             DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
-            TextRenderer.Draw(spriteBatch, whiteTexture, guildTextInput, new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR REJOINDRE - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawText(spriteBatch, whiteTexture, guildTextInput, new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, "ENTREE POUR REJOINDRE - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             break;
     }
 
     if (guildActionMessage is { Length: > 0 })
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, guildActionMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, guildActionMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
     }
 
     if (guildMode != GuildPanelMode.None)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR REVENIR", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP POUR REVENIR", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 }
 
@@ -9014,26 +9122,26 @@ void DrawMonstersPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.4f, 0.75f, 0.5f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "MONSTRES", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "MONSTRES", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.9f, 0.6f, 1f));
 
     if (!monstersLoaded)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (ownedMonsters.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE CREATURE POUR L'INSTANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUNE CREATURE POUR L'INSTANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     }
     else if (monsterEquipMode)
     {
         var monster = ownedMonsters[monsterCursor];
         var monsterLabel = monster.Nickname.Length > 0 ? monster.Nickname : (speciesById.TryGetValue(monster.SpeciesId, out var s) ? s.Name : "Créature");
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EQUIPER {monsterLabel.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 62f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"EQUIPER {monsterLabel.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 62f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         var equipableItems = inventoryItems.Where(i => i.ItemType is ItemType.Arme or ItemType.Armure or ItemType.Accessoire).ToList();
         if (equipableItems.Count == 0)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE ARME/ARMURE/ACCESSOIRE EN INVENTAIRE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "AUCUNE ARME/ARMURE/ACCESSOIRE EN INVENTAIRE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -9060,7 +9168,7 @@ void DrawMonstersPanel(int w, int h)
             DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 100f), visibleRows * rowHeight, equipableItems.Count, visibleRows, scrollStart);
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : EQUIPER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
     else
@@ -9121,7 +9229,7 @@ void DrawMonstersPanel(int w, int h)
             var barTop = new Vector2(textX, y + 24f);
             DrawPanel(barTop, new Vector2(190f, 6f), new Vector4(0.2f, 0.2f, 0.22f, 1f));
             DrawPanel(barTop, new Vector2(190f * xpRatio, 6f), new Vector4(0.4f, 0.85f, 0.5f, 1f));
-            TextRenderer.Draw(spriteBatch, whiteTexture, $"{monster.Experience}/{xpForNextLevel} XP", barTop + new Vector2(200f, -4f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawText(spriteBatch, whiteTexture, $"{monster.Experience}/{xpForNextLevel} XP", barTop + new Vector2(200f, -4f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
             // Voir GDD/demande utilisateur — "les items équipés peuvent donner des avantages à nos
             // monstres" : équipement affiché sous la barre d'XP, seulement pour la créature
@@ -9133,7 +9241,7 @@ void DrawMonstersPanel(int w, int h)
                 if (monster.EquippedArmorName is { } armorName) equipParts.Add($"Armure: {armorName}");
                 if (monster.EquippedAccessoryName is { } accessoryName) equipParts.Add($"Accessoire: {accessoryName}");
                 var equipText = equipParts.Count > 0 ? string.Join(" - ", equipParts) : "Aucun équipement";
-                TextRenderer.Draw(spriteBatch, whiteTexture, equipText, new Vector2(textX, y + 34f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
+                DrawText(spriteBatch, whiteTexture, equipText, new Vector2(textX, y + 34f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
             }
 
             y += isSelected ? 62f : 48f;
@@ -9147,15 +9255,15 @@ void DrawMonstersPanel(int w, int h)
         var hint = myRank == UserRank.Fondateur && adminModeActive
             ? "I:DETAILS - E:EQUIPER - R:RETIRER - T:EQUIPE - L(ADMIN):+5 NIV."
             : "I:DETAILS - E:EQUIPER - R:RETIRER EQUIPEMENT - T:EQUIPE";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, hint, new Vector2(w / 2f, topLeft.Y + boxHeight + 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
     if (monsterMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, monsterMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, monsterMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.7f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
     if (monsterDetailOpen && ownedMonsters.Count > 0)
     {
@@ -9182,10 +9290,10 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
 
     speciesById.TryGetValue(monster.SpeciesId, out var species);
     var name = monster.Nickname.Length > 0 ? monster.Nickname : (species?.Name ?? "Créature");
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 26f), 2.4f, new Vector4(0.6f, 0.95f, 0.65f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, name.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 26f), 2.4f, new Vector4(0.6f, 0.95f, 0.65f, 1f));
 
     var subtitle = species is not null ? $"{species.Element} - {species.Type} - {species.BaseRarity}".ToUpperInvariant() : "ESPECE INCONNUE";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, subtitle, new Vector2(w / 2f, topLeft.Y + 56f), 1.5f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, subtitle, new Vector2(w / 2f, topLeft.Y + 56f), 1.5f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
 
     var baseStats = species?.BaseStats ?? StatBlock.Zero;
     // Voir GDD/demande utilisateur — "fait en sorte que dans le detail du pokemon on puisse les
@@ -9208,14 +9316,14 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
     var y = topLeft.Y + 90f;
     foreach (var (label, value) in lines)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{label.ToUpperInvariant()} :", new Vector2(topLeft.X + 26f, y), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, TruncateToWidth(value.ToUpperInvariant(), boxWidth - 190f - 20f, 1.35f), new Vector2(topLeft.X + 190f, y), 1.35f, Vector4.One);
+        DrawText(spriteBatch, whiteTexture, $"{label.ToUpperInvariant()} :", new Vector2(topLeft.X + 26f, y), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, TruncateToWidth(value.ToUpperInvariant(), boxWidth - 190f - 20f, 1.35f), new Vector2(topLeft.X + 190f, y), 1.35f, Vector4.One);
         y += 26f;
     }
 
     if (PassiveTalentCatalog.Describe(monster.PassiveTalent) is { Length: > 0 } description)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, description, new Vector2(topLeft.X + 26f, y + 8f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
+        DrawText(spriteBatch, whiteTexture, description, new Vector2(topLeft.X + 26f, y + 8f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
     }
 
     // Voir GDD/demande utilisateur — "Prestige après niveau maximum".
@@ -9223,7 +9331,7 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
         ? "P : PRESTIGE (reinitialise le niveau, +5% de stats permanent) - ECHAP : RETOUR"
         : "ECHAP : RETOUR";
     var footerColor = monster.Level >= MonsterMaxLevel ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.7f, 0.7f, 0.75f, 1f);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footerHint, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, footerColor);
+    DrawTextCentered(spriteBatch, whiteTexture, footerHint, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, footerColor);
 }
 
 void DrawPartyPanel(int w, int h)
@@ -9235,40 +9343,40 @@ void DrawPartyPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.35f, 0.62f, 0.88f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "GROUPE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.75f, 0.95f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "GROUPE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.55f, 0.75f, 0.95f, 1f));
 
     if (partyJoinPromptOpen)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CODE DU GROUPE A REJOINDRE (5 CHIFFRES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CODE DU GROUPE A REJOINDRE (5 CHIFFRES) :", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 40f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         DrawPanel(new Vector2(topLeft.X + 30f, topLeft.Y + boxHeight / 2f - 10f), new Vector2(boxWidth - 60f, 32f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, partyJoinInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, partyJoinInput.ToUpperInvariant(), new Vector2(topLeft.X + 38f, topLeft.Y + boxHeight / 2f - 3f), 1.8f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE POUR VALIDER - ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 40f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (!partyLoaded)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else if (myParty is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "VOUS N'ETES DANS AUCUN GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : CREER UN GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 6f), 2f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "J : REJOINDRE PAR IDENTIFIANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 34f), 2f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "VOUS N'ETES DANS AUCUN GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : CREER UN GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 6f), 2f, new Vector4(0.6f, 0.85f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "J : REJOINDRE PAR IDENTIFIANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 34f), 2f, new Vector4(0.6f, 0.75f, 0.9f, 1f));
     }
     else
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{myParty.Members.Count}/{PartyMaxMembers} JOUEURS", new Vector2(w / 2f, topLeft.Y + 60f), 2.2f, new Vector4(0.7f, 0.85f, 1f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{myParty.Members.Count}/{PartyMaxMembers} JOUEURS", new Vector2(w / 2f, topLeft.Y + 60f), 2.2f, new Vector4(0.7f, 0.85f, 1f, 1f));
 
         var y = topLeft.Y + 96f;
         foreach (var member in myParty.Members)
         {
             var isLeader = member.CharacterId == myParty.LeaderCharacterId;
             var label = $"{(isLeader ? "* " : "  ")}{member.Name.ToUpperInvariant()} (NIV. {member.Level})";
-            TextRenderer.Draw(spriteBatch, whiteTexture, label, new Vector2(topLeft.X + 30f, y), 2f, isLeader ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
+            DrawText(spriteBatch, whiteTexture, label, new Vector2(topLeft.X + 30f, y), 2f, isLeader ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : Vector4.One);
             y += 26f;
         }
 
         y += 14f;
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"CODE : {myParty.JoinCode}", new Vector2(topLeft.X + 20f, y), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, $"CODE : {myParty.JoinCode}", new Vector2(topLeft.X + 20f, y), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
         // Bouton copier (voir GDD/demande utilisateur — "ajoute un bouton pour les copier") :
         // copie le code à 5 chiffres dans le presse-papiers système, plus simple à communiquer
@@ -9281,15 +9389,15 @@ void DrawPartyPanel(int w, int h)
             partyCodeCopied = true;
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "L : QUITTER LE GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.9f, new Vector4(0.9f, 0.55f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "L : QUITTER LE GROUPE", new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.9f, new Vector4(0.9f, 0.55f, 0.5f, 1f));
     }
 
     if (!partyJoinPromptOpen && partyMessage is { Length: > 0 })
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, partyMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.8f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, partyMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 66f), 1.8f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawArenaPanel(int w, int h)
@@ -9301,13 +9409,13 @@ void DrawArenaPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.35f, 0.35f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ARENE CLASSEE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ARENE CLASSEE", new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.55f, 0.5f, 1f));
 
     if (arenaQueued)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"EN FILE : {ArenaFormatLabel(arenaFormats[arenaFormatCursor])}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 20f), 2.2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "RECHERCHE D'ADVERSAIRES...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 14f), 1.9f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.9f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"EN FILE : {ArenaFormatLabel(arenaFormats[arenaFormatCursor])}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 20f), 2.2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "RECHERCHE D'ADVERSAIRES...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 14f), 1.9f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP POUR ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.9f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -9317,21 +9425,21 @@ void DrawArenaPanel(int w, int h)
             var isSelected = i == arenaFormatCursor;
             var prefix = isSelected ? "> " : "  ";
             var color = isSelected ? new Vector4(0.95f, 0.6f, 0.5f, 1f) : Vector4.One;
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{prefix}{ArenaFormatLabel(arenaFormats[i])}", new Vector2(w / 2f, y), 2.2f, color);
+            DrawTextCentered(spriteBatch, whiteTexture, $"{prefix}{ArenaFormatLabel(arenaFormats[i])}", new Vector2(w / 2f, y), 2.2f, color);
             y += 32f;
         }
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES : CHOISIR - ENTREE : REJOINDRE LA FILE", new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "FLECHES : CHOISIR - ENTREE : REJOINDRE LA FILE", new Vector2(w / 2f, topLeft.Y + boxHeight - 40f), 1.8f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
     }
 
     if (arenaMessage is { Length: > 0 })
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, arenaMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 64f), 1.8f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, arenaMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + boxHeight - 64f), 1.8f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
     }
 
     if (!arenaQueued)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP POUR FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 }
 
@@ -9372,7 +9480,7 @@ void DrawQuestPanel(int w, int h)
     var y = topLeft.Y + 40f;
     foreach (var line in displayLines)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, line, topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawText(spriteBatch, whiteTexture, line, topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         y += lineHeight + 4f;
     }
 }
@@ -9386,15 +9494,15 @@ void DrawAdminGamePanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.05f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.35f, 0.3f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PANEL ADMIN", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.5f, 0.45f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "PANEL ADMIN", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.5f, 0.45f, 1f));
 
     var commands = AdminPanelCommands();
 
     if (adminPanelTyping)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, commands[adminPanelCursor], new Vector2(topLeft.X + 20f, topLeft.Y + 60f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, adminPanelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 2f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : VALIDER - ECHAP : ANNULER LA SAISIE", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, commands[adminPanelCursor], new Vector2(topLeft.X + 20f, topLeft.Y + 60f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawText(spriteBatch, whiteTexture, adminPanelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 2f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : VALIDER - ECHAP : ANNULER LA SAISIE", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -9432,12 +9540,12 @@ void DrawAdminGamePanel(int w, int h)
 
         DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 60f), visibleRows * 30f, commands.Length, visibleRows, scrollStart);
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : VALIDER - ECHAP : FERMER (F2)", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - ENTREE : VALIDER - ECHAP : FERMER (F2)", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
     if (adminPanelMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, adminPanelMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, adminPanelMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 46f), 1.7f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 }
 
@@ -9450,7 +9558,7 @@ void DrawAdminBanner(int w, int h)
     }
 
     DrawPanel(new Vector2(0, 60f), new Vector2(w, 70f), new Vector4(0.15f, 0.05f, 0.05f, 0.85f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, adminBannerMessage, new Vector2(w / 2f, 95f), 2.6f, new Vector4(0.98f, 0.85f, 0.3f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, adminBannerMessage, new Vector2(w / 2f, 95f), 2.6f, new Vector4(0.98f, 0.85f, 0.3f, 1f));
 }
 
 /// <summary>Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres doivent accepter" : popup accepter/refuser, envoyée via le bouton DUEL ou <c>/duel &lt;pseudo&gt;</c> dans le tchat (voir PlayerSession.HandleDuelCommand). Si <paramref name="teamSize"/> &gt; 1, précise que tout le groupe doit accepter pour que le combat démarre.</summary>
@@ -9462,10 +9570,10 @@ void DrawDuelInvitePopup(int w, int h, string challengerName, int teamSize)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.12f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.4f, 0.85f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{challengerName} VOUS DEFIE EN DUEL !", new Vector2(w / 2f, topLeft.Y + 34f), 2f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, $"{challengerName} VOUS DEFIE EN DUEL !", new Vector2(w / 2f, topLeft.Y + 34f), 2f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
     if (teamSize > 1)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"Votre groupe entier ({teamSize} joueurs) doit accepter.", new Vector2(w / 2f, topLeft.Y + 66f), 1.6f, new Vector4(0.85f, 0.75f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"Votre groupe entier ({teamSize} joueurs) doit accepter.", new Vector2(w / 2f, topLeft.Y + 66f), 1.6f, new Vector4(0.85f, 0.75f, 0.9f, 1f));
     }
 
     DrawPromptBanner("ENTREE : ACCEPTER - ECHAP : REFUSER", new Vector2(w / 2f, topLeft.Y + boxHeight - 30f));
@@ -9533,25 +9641,25 @@ void DrawGemShopPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.1f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.7f, 0.5f, 0.95f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BOUTIQUE GEMMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.85f, 0.75f, 0.98f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "BOUTIQUE GEMMES", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.85f, 0.75f, 0.98f, 1f));
 
     if (premiumStatus is null)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, "Chargement...", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.7f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawText(spriteBatch, whiteTexture, "Chargement...", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.7f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
     var y = topLeft.Y + 62f;
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"Gemmes : {premiumStatus.Gems}", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.85f, 0.75f, 0.98f, 1f));
+    DrawText(spriteBatch, whiteTexture, $"Gemmes : {premiumStatus.Gems}", new Vector2(topLeft.X + 20f, y), 2f, new Vector4(0.85f, 0.75f, 0.98f, 1f));
     y += 40f;
 
-    TextRenderer.Draw(spriteBatch, whiteTexture,
+    DrawText(spriteBatch, whiteTexture,
         $"[ENTREE] Convertir {premiumStatus.GoldPerGemBlock:N0} pieces -> {premiumStatus.GemsPerGemBlock} gemmes",
         new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.9f, 0.85f, 0.6f, 1f));
     y += 34f;
 
-    TextRenderer.Draw(spriteBatch, whiteTexture,
+    DrawText(spriteBatch, whiteTexture,
         $"Grade actuel : {premiumStatus.GradeName} (+{premiumStatus.GradeBonusPercent:0.0}% xp/or, max {premiumStatus.MaxCharacters} personnages)",
         new Vector2(topLeft.X + 20f, y), 1.6f, new Vector4(0.7f, 0.9f, 0.75f, 1f));
     y += 30f;
@@ -9559,19 +9667,19 @@ void DrawGemShopPanel(int w, int h)
     var gradeLine = premiumStatus.NextGradeTierCostGems is { } gradeCost
         ? $"[G] Passer {premiumStatus.NextGradeTierName} : {gradeCost} gemmes"
         : "Grade au palier maximum (Légende).";
-    TextRenderer.Draw(spriteBatch, whiteTexture, gradeLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.75f, 0.98f, 1f));
+    DrawText(spriteBatch, whiteTexture, gradeLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.75f, 0.98f, 1f));
     y += 44f;
 
-    TextRenderer.Draw(spriteBatch, whiteTexture, "Acheter des gemmes avec de l'argent reel :", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+    DrawText(spriteBatch, whiteTexture, "Acheter des gemmes avec de l'argent reel :", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
     y += 26f;
-    TextRenderer.Draw(spriteBatch, whiteTexture, "BIENTOT DISPONIBLE", new Vector2(topLeft.X + 20f, y), 1.7f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
+    DrawText(spriteBatch, whiteTexture, "BIENTOT DISPONIBLE", new Vector2(topLeft.X + 20f, y), 1.7f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
 
     if (premiumMessage is { } message)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, message, new Vector2(topLeft.X + 20f, topLeft.Y + boxHeight - 46f), 1.4f, new Vector4(0.95f, 0.9f, 0.5f, 1f));
+        DrawText(spriteBatch, whiteTexture, message, new Vector2(topLeft.X + 20f, topLeft.Y + boxHeight - 46f), 1.4f, new Vector4(0.95f, 0.9f, 0.5f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -9615,12 +9723,12 @@ void DrawDuelPanel(int w, int h)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.08f, 0.1f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.4f, 0.85f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "DEFIER EN DUEL", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
-    TextRenderer.Draw(spriteBatch, whiteTexture, "Pseudo du joueur a defier :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-    TextRenderer.Draw(spriteBatch, whiteTexture, duelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
-    TextRenderer.Draw(spriteBatch, whiteTexture, "Si son groupe (ou le votre) compte plusieurs joueurs,", new Vector2(topLeft.X + 20f, topLeft.Y + 132f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-    TextRenderer.Draw(spriteBatch, whiteTexture, "tous ses membres devront accepter pour lancer le combat.", new Vector2(topLeft.X + 20f, topLeft.Y + 148f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : DEFIER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "DEFIER EN DUEL", new Vector2(w / 2f, topLeft.Y + 24f), 2.4f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
+    DrawText(spriteBatch, whiteTexture, "Pseudo du joueur a defier :", new Vector2(topLeft.X + 20f, topLeft.Y + 70f), 1.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    DrawText(spriteBatch, whiteTexture, duelTextInput + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 100f), 1.9f, Vector4.One);
+    DrawText(spriteBatch, whiteTexture, "Si son groupe (ou le votre) compte plusieurs joueurs,", new Vector2(topLeft.X + 20f, topLeft.Y + 132f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawText(spriteBatch, whiteTexture, "tous ses membres devront accepter pour lancer le combat.", new Vector2(topLeft.X + 20f, topLeft.Y + 148f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : DEFIER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawChatToasts(int w, int h)
@@ -9644,11 +9752,11 @@ void DrawChatToasts(int w, int h)
     {
         var (line, _) = toasts[i];
         var text = $"{ChatRankTag(line.Rank)}{line.SenderName} : {line.Message}";
-        var width = TextRenderer.MeasureWidth(text, 1.5f);
+        var width = MeasureTextWidth(text, 1.5f);
         var height = TextRenderer.LineHeight(1.5f);
         var topLeft = new Vector2(w - pad - width - 12f, y - height);
         DrawPanel(topLeft, new Vector2(width + 12f, height + 6f), new Vector4(0.08f, 0.08f, 0.12f, 0.85f));
-        TextRenderer.Draw(spriteBatch, whiteTexture, text, topLeft + new Vector2(6f, 3f), 1.5f, ChatRankColor(line.Rank));
+        DrawText(spriteBatch, whiteTexture, text, topLeft + new Vector2(6f, 3f), 1.5f, ChatRankColor(line.Rank));
         y -= height + 8f;
     }
 }
@@ -9672,10 +9780,10 @@ void DrawSystemToasts(int w, int h)
     var y = 90f;
     foreach (var (text, color, _) in toasts)
     {
-        var width = TextRenderer.MeasureWidth(text, 2f);
+        var width = MeasureTextWidth(text, 2f);
         var topLeft = new Vector2(w / 2f - width / 2f - 14f, y);
         DrawPanel(topLeft, new Vector2(width + 28f, 34f), new Vector4(0.08f, 0.08f, 0.12f, 0.9f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, text, new Vector2(w / 2f, y + 17f), 2f, color);
+        DrawTextCentered(spriteBatch, whiteTexture, text, new Vector2(w / 2f, y + 17f), 2f, color);
         y += 42f;
     }
 }
@@ -9699,7 +9807,7 @@ void DrawChatPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.8f, 0.6f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TCHAT", new Vector2(topLeft.X + chatWidth / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.6f, 0.9f, 0.7f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "TCHAT", new Vector2(topLeft.X + chatWidth / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.6f, 0.9f, 0.7f, 1f));
 
     var globalColor = chatChannel == ChatChannel.Global ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.6f, 0.6f, 0.65f, 1f);
     var guildColor = chatChannel == ChatChannel.Guild ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.6f, 0.6f, 0.65f, 1f);
@@ -9717,7 +9825,7 @@ void DrawChatPanel(int w, int h)
     // Voir GDD/demande utilisateur — "discussion privée" avec un ami (voir DrawFriendsPanel).
     if (chatWhisperTarget is { } whisperTarget)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"MESSAGE PRIVE A {whisperTarget.ToUpperInvariant()} (TAB POUR ANNULER)",
+        DrawTextCentered(spriteBatch, whiteTexture, $"MESSAGE PRIVE A {whisperTarget.ToUpperInvariant()} (TAB POUR ANNULER)",
             new Vector2(topLeft.X + chatWidth / 2f, topLeft.Y + 68f), 1.5f, new Vector4(0.9f, 0.6f, 0.95f, 1f));
     }
 
@@ -9749,13 +9857,13 @@ void DrawChatPanel(int w, int h)
 
         for (var lineIndex = messageLines.Count - 1; lineIndex >= 0; lineIndex--)
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, messageLines[lineIndex], new Vector2(topLeft.X + 32f, y), 1.6f, senderColor);
+            DrawText(spriteBatch, whiteTexture, messageLines[lineIndex], new Vector2(topLeft.X + 32f, y), 1.6f, senderColor);
             y -= chatLineHeight;
         }
 
         if (CreatorCredits.Find(line.SenderName) is not null)
         {
-            var senderWidth = TextRenderer.MeasureWidth(senderTag, 1.6f);
+            var senderWidth = MeasureTextWidth(senderTag, 1.6f);
             if (DrawClickableRow(senderTag, new Vector2(topLeft.X + 20f, y), senderWidth, 1.6f, senderColor))
             {
                 creatorCardTarget = line.SenderName;
@@ -9763,7 +9871,7 @@ void DrawChatPanel(int w, int h)
         }
         else
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, senderTag, new Vector2(topLeft.X + 20f, y), 1.6f, senderColor);
+            DrawText(spriteBatch, whiteTexture, senderTag, new Vector2(topLeft.X + 20f, y), 1.6f, senderColor);
         }
 
         y -= chatLineHeight;
@@ -9774,13 +9882,13 @@ void DrawChatPanel(int w, int h)
     }
 
     DrawPanel(new Vector2(topLeft.X + 16f, messagesBottom + 4f), new Vector2(chatWidth - 16f, 30f), new Vector4(0.12f, 0.12f, 0.16f, 1f));
-    TextRenderer.Draw(spriteBatch, whiteTexture, chatTextInput + "_", new Vector2(topLeft.X + 24f, messagesBottom + 11f), 1.7f, Vector4.One);
+    DrawText(spriteBatch, whiteTexture, chatTextInput + "_", new Vector2(topLeft.X + 24f, messagesBottom + 11f), 1.7f, Vector4.One);
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TAB : CANAL - ENTREE : ENVOYER - ECHAP : FERMER",
+    DrawTextCentered(spriteBatch, whiteTexture, "TAB : CANAL - ENTREE : ENVOYER - ECHAP : FERMER",
         new Vector2(topLeft.X + chatWidth / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
     var listLeft = topLeft.X + chatWidth + 20f;
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "EN LIGNE", new Vector2(listLeft + (listWidth - 10f) / 2f, topLeft.Y + 62f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "EN LIGNE", new Vector2(listLeft + (listWidth - 10f) / 2f, topLeft.Y + 62f), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
     List<KeyValuePair<Guid, RemotePlayer>> others;
     lock (stateLock)
@@ -9789,7 +9897,7 @@ void DrawChatPanel(int w, int h)
     }
 
     var listY = topLeft.Y + 90f;
-    TextRenderer.Draw(spriteBatch, whiteTexture, $"{ChatRankTag(myRank)}Vous", new Vector2(listLeft, listY), 1.5f, ChatRankColor(myRank));
+    DrawText(spriteBatch, whiteTexture, $"{ChatRankTag(myRank)}Vous", new Vector2(listLeft, listY), 1.5f, ChatRankColor(myRank));
     listY += 20f;
 
     foreach (var (_, remote) in others.OrderBy(kv => kv.Value.Name))
@@ -9809,7 +9917,7 @@ void DrawChatPanel(int w, int h)
         }
         else
         {
-            TextRenderer.Draw(spriteBatch, whiteTexture, remoteTag, new Vector2(listLeft, listY), 1.5f, ChatRankColor(remote.Rank));
+            DrawText(spriteBatch, whiteTexture, remoteTag, new Vector2(listLeft, listY), 1.5f, ChatRankColor(remote.Rank));
         }
 
         listY += 20f;
@@ -9830,27 +9938,27 @@ void DrawCreatorCardPopup(int w, int h, CreatorProfile profile)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.1f, 0.97f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.95f, 0.7f, 0.35f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, profile.DisplayName, new Vector2(w / 2f, topLeft.Y + 28f), 2.4f, new Vector4(0.95f, 0.85f, 0.6f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, profile.DisplayName, new Vector2(w / 2f, topLeft.Y + 28f), 2.4f, new Vector4(0.95f, 0.85f, 0.6f, 1f));
 
     var y = topLeft.Y + 70f;
     if (profile.Discord is { } discord)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"Discord : {discord}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.6f, 0.65f, 0.95f, 1f));
+        DrawText(spriteBatch, whiteTexture, $"Discord : {discord}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.6f, 0.65f, 0.95f, 1f));
         y += 26f;
     }
 
     if (profile.Twitch is { } twitch)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"Twitch : {twitch}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.55f, 0.95f, 1f));
+        DrawText(spriteBatch, whiteTexture, $"Twitch : {twitch}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.7f, 0.55f, 0.95f, 1f));
         y += 26f;
     }
 
     if (profile.YouTube is { } youtube)
     {
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"YouTube : {youtube}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.5f, 0.5f, 1f));
+        DrawText(spriteBatch, whiteTexture, $"YouTube : {youtube}", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.5f, 0.5f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>Préfixe affiché devant le pseudo (voir GDD/demande utilisateur — "il est affiché [FONDATEUR] pseudo") : rien pour le grade de base.</summary>
@@ -9912,12 +10020,12 @@ void DrawShopPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
 
     var modeLabel = shopSellMode ? "BOUTIQUE - VENTE" : "BOUTIQUE - ACHAT";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
     // Voir retour utilisateur — "ajouter l'or que l'on a dans la boutique (l'HDV et la boutique)".
     if (myProfile is { } shopProfile)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{shopProfile.Gold} OR", new Vector2(w / 2f, topLeft.Y + 50f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{shopProfile.Gold} OR", new Vector2(w / 2f, topLeft.Y + 50f), 1.7f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     }
 
     // Voir retour utilisateur — "le marchand l'UI tout depasse + ajouter un scroll" : catalogue et
@@ -9933,7 +10041,7 @@ void DrawShopPanel(int w, int h)
     {
         if (inventoryItems.Count == 0)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -9965,7 +10073,7 @@ void DrawShopPanel(int w, int h)
     }
     else if (shopCatalog.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -9993,10 +10101,10 @@ void DrawShopPanel(int w, int h)
 
     if (shopMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, shopMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, shopMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VALIDER - TAB : ACHAT/VENTE - ECHAP : FERMER",
+    DrawTextCentered(spriteBatch, whiteTexture, "CLIC OU ENTREE : VALIDER - TAB : ACHAT/VENTE - ECHAP : FERMER",
         new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
@@ -10011,19 +10119,19 @@ void DrawAuctionPanel(int w, int h)
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.4f, 0.55f, 0.68f, 1f));
 
     var modeLabel = auctionSellMode ? "HOTEL DES VENTES - DEPOSER" : "HOTEL DES VENTES";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.6f, 0.8f, 0.95f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, modeLabel, new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.6f, 0.8f, 0.95f, 1f));
 
     // Voir retour utilisateur — "ajouter l'or que l'on a dans la boutique (l'HDV et la boutique)".
     if (myProfile is { } auctionProfile)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{auctionProfile.Gold} OR", new Vector2(w / 2f, topLeft.Y + 48f), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{auctionProfile.Gold} OR", new Vector2(w / 2f, topLeft.Y + 48f), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
     }
 
     if (auctionSellMode)
     {
         if (inventoryItems.Count == 0)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "INVENTAIRE VIDE", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
         else
         {
@@ -10053,24 +10161,24 @@ void DrawAuctionPanel(int w, int h)
             DrawScrollbar(new Vector2(topLeft.X + boxWidth - 10f, topLeft.Y + 68f), visibleRows * rowHeight, inventoryItems.Count, visibleRows, scrollStart);
 
             var priceLabel = auctionSellIsAuction ? "PRIX DE DEPART" : "PRIX PAR UNITE";
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{priceLabel} : {auctionSellPrice} OR (GAUCHE/DROITE POUR AJUSTER)",
+            DrawTextCentered(spriteBatch, whiteTexture, $"{priceLabel} : {auctionSellPrice} OR (GAUCHE/DROITE POUR AJUSTER)",
                 new Vector2(w / 2f, topLeft.Y + boxHeight - 96f), 1.7f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
 
             // Voir GDD/demande utilisateur — "la possibilité de le mettre aux enchères".
             var auctionToggleLabel = auctionSellIsAuction ? "MODE : ENCHERE (24H) - A POUR VENTE DIRECTE" : "MODE : VENTE DIRECTE - A POUR ENCHERE";
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, auctionToggleLabel, new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.6f, new Vector4(0.7f, 0.85f, 0.95f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, auctionToggleLabel, new Vector2(w / 2f, topLeft.Y + boxHeight - 76f), 1.6f, new Vector4(0.7f, 0.85f, 0.95f, 1f));
         }
     }
     else if (auctionBidMode)
     {
         var listing = auctionListings[auctionCursor];
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ENCHERIR SUR {listing.ItemName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ENCHERE ACTUELLE : {listing.CurrentBid} OR", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VOTRE OFFRE : {auctionBidAmount} OR (GAUCHE/DROITE POUR AJUSTER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 1.9f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"ENCHERIR SUR {listing.ItemName.ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f - 30f), 2.1f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"ENCHERE ACTUELLE : {listing.CurrentBid} OR", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 1.8f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"VOTRE OFFRE : {auctionBidAmount} OR (GAUCHE/DROITE POUR AJUSTER)", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f + 30f), 1.9f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
     }
     else if (auctionListings.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUNE ANNONCE POUR L'INSTANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUNE ANNONCE POUR L'INSTANT", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2.1f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
@@ -10116,7 +10224,7 @@ void DrawAuctionPanel(int w, int h)
 
     if (auctionMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, auctionMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, auctionMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 50f), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f));
     }
 
     var footer = auctionSellMode
@@ -10124,7 +10232,7 @@ void DrawAuctionPanel(int w, int h)
         : auctionBidMode
             ? "GAUCHE/DROITE : MONTANT - ENTREE : ENCHERIR - ECHAP : ANNULER"
             : "TAB : DEPOSER UN OBJET - ENTREE : ACHETER/ENCHERIR (OU ANNULER SI C'EST LA VOTRE) - ECHAP : FERMER";
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawDialogueBox(int w, int h)
@@ -10135,15 +10243,15 @@ void DrawDialogueBox(int w, int h)
     DrawPanel(new Vector2(40, boxTop), new Vector2(w - 80, boxHeight), new Vector4(0.06f, 0.06f, 0.09f, 0.92f));
     DrawPanel(new Vector2(40, boxTop), new Vector2(w - 80, 4f), new Vector4(0.85f, 0.7f, 0.35f, 1f));
 
-    TextRenderer.Draw(spriteBatch, whiteTexture, activeDialogueNpc!.Name.ToUpperInvariant(),
+    DrawText(spriteBatch, whiteTexture, activeDialogueNpc!.Name.ToUpperInvariant(),
         new Vector2(60, boxTop + 14f), 3.2f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
 
     var lines = NpcDialogues.Lines.GetValueOrDefault(activeDialogueNpc.Name, ["..."]);
     var line = lines[Math.Clamp(dialogueLineIndex, 0, lines.Length - 1)];
-    TextRenderer.Draw(spriteBatch, whiteTexture, line, new Vector2(60, boxTop + 48f), 2.6f, Vector4.One);
+    DrawText(spriteBatch, whiteTexture, line, new Vector2(60, boxTop + 48f), 2.6f, Vector4.One);
 
     var footer = dialogueLineIndex < lines.Length - 1 ? "APPUYEZ SUR E POUR CONTINUER" : "APPUYEZ SUR E POUR FERMER";
-    TextRenderer.Draw(spriteBatch, whiteTexture, footer, new Vector2(60, boxTop + boxHeight - 22f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawText(spriteBatch, whiteTexture, footer, new Vector2(60, boxTop + boxHeight - 22f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawInteriorScene()
@@ -10155,7 +10263,7 @@ void DrawInteriorScene()
     DrawPanel(Vector2.Zero, new Vector2(w, h * 0.55f), Vector4.Lerp(new Vector4(0.05f, 0.05f, 0.07f, 1f), interiorAccent, 0.22f));
     DrawPanel(new Vector2(0, h * 0.55f), new Vector2(w, h * 0.45f), Vector4.Lerp(new Vector4(0.05f, 0.05f, 0.07f, 1f), interiorAccent, 0.38f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, interiorTitle.ToUpperInvariant(), new Vector2(w / 2f, h * 0.16f), 5f, Vector4.One);
+    DrawTextCentered(spriteBatch, whiteTexture, interiorTitle.ToUpperInvariant(), new Vector2(w / 2f, h * 0.16f), 5f, Vector4.One);
 
     // Voir retour utilisateur — "pouvoir afficher son inventaire dans les donjons".
     if (activePanel == PanelKind.Inventory)
@@ -10173,7 +10281,7 @@ void DrawInteriorScene()
     var lineY = h * 0.34f;
     foreach (var line in interiorBodyLines)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, line, new Vector2(w / 2f, lineY), 2.6f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, line, new Vector2(w / 2f, lineY), 2.6f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
         lineY += TextRenderer.LineHeight(2.6f) + 6f;
     }
 
@@ -10184,7 +10292,7 @@ void DrawInteriorScene()
         var topLeft = new Vector2(item.RelativeX * w, item.RelativeY * h);
         var size = new Vector2(item.RelativeWidth * w, item.RelativeHeight * h);
         DrawPanel(topLeft, size, item.Color);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, item.Label.ToUpperInvariant(), topLeft + new Vector2(size.X / 2f, -14f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, item.Label.ToUpperInvariant(), topLeft + new Vector2(size.X / 2f, -14f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
 
     if (activeDialogueNpc is not null)
@@ -10198,18 +10306,18 @@ void DrawInteriorScene()
             var npc = interiorNpcs[0];
             var npcCenter = new Vector2(w * 0.5f, h * 0.72f);
             DrawStarterPortrait(npcCenter, 46f, npc.BodyColor);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, npc.Name.ToUpperInvariant(), npcCenter + new Vector2(0, 60f), 1.8f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR E POUR PARLER", npcCenter + new Vector2(0, 84f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, npc.Name.ToUpperInvariant(), npcCenter + new Vector2(0, 60f), 1.8f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, "APPUYEZ SUR E POUR PARLER", npcCenter + new Vector2(0, 84f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         }
 
         if (interiorIsDungeon)
         {
             var prompt = combatStartTask is not null ? "..." : "APPUYEZ SUR ENTREE POUR AFFRONTER UN MONSTRE SAUVAGE";
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h * 0.80f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, prompt, new Vector2(w / 2f, h * 0.80f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 
             if (combatMessage is not null)
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+                DrawTextCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.85f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
             }
         }
 
@@ -10233,18 +10341,18 @@ void DrawInteriorScene()
 
 void DrawDungeonCorridor(int w, int h)
 {
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ETAGE {dungeonFloorNumber}", new Vector2(w / 2f, h * 0.20f), 2.4f, new Vector4(0.85f, 0.7f, 0.95f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, $"ETAGE {dungeonFloorNumber}", new Vector2(w / 2f, h * 0.20f), 2.4f, new Vector4(0.85f, 0.7f, 0.95f, 1f));
 
     if (dungeonFloorTask is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, h * 0.5f), 2.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, h * 0.5f), 2.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return;
     }
 
     if (dungeonFloor is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, dungeonRoomMessage ?? "ETAGE INDISPONIBLE", new Vector2(w / 2f, h * 0.5f), 2.2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, dungeonRoomMessage ?? "ETAGE INDISPONIBLE", new Vector2(w / 2f, h * 0.5f), 2.2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ECHAP POUR SORTIR", new Vector2(w / 2f, h * 0.90f), 2.6f, new Vector4(0.85f, 0.80f, 0.5f, 1f));
         return;
     }
 
@@ -10252,7 +10360,7 @@ void DrawDungeonCorridor(int w, int h)
     var isCleared = dungeonClearedRooms.Contains(dungeonRoomIndex);
     var allCleared = dungeonClearedRooms.Count >= dungeonFloor.Rooms.Count;
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"SALLES NETTOYEES : {dungeonClearedRooms.Count}/{dungeonFloor.Rooms.Count}",
+    DrawTextCentered(spriteBatch, whiteTexture, $"SALLES NETTOYEES : {dungeonClearedRooms.Count}/{dungeonFloor.Rooms.Count}",
         new Vector2(w / 2f, h * 0.26f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
     DrawDungeonMinimap(w, dungeonFloor, room);
@@ -10309,13 +10417,13 @@ void DrawDungeonCorridor(int w, int h)
             var previewCenter = roomTopLeft + new Vector2(roomSize.X / 2f, roomSize.Y * 0.35f);
             DrawStarterPortrait(previewCenter, 34f, new Vector4(0.95f, 0.25f, 0.25f, 1f));
             DrawStarterPortrait(previewCenter, 30f, CombatTypeColor(preview.Type));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{preview.Name.ToUpperInvariant()} ({preview.Element})",
+            DrawTextCentered(spriteBatch, whiteTexture, $"{preview.Name.ToUpperInvariant()} ({preview.Element})",
                 previewCenter + new Vector2(0, 46f), 1.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         }
 
         if (combatStartTask is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.86f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.86f), 2.1f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         }
         else if (room.EncounterType == DungeonEncounterType.Coffre)
         {
@@ -10330,16 +10438,16 @@ void DrawDungeonCorridor(int w, int h)
 
     // Voir GDD/demande utilisateur — "ajoute une touche pour quitter le donjon hors des combats"
     // : Échap le fait déjà (voir UpdateDungeonCorridor), rappelé ici en permanence.
-    TextRenderer.Draw(spriteBatch, whiteTexture, "ECHAP : QUITTER LE DONJON - ZQSD/FLECHES : SE DEPLACER", new Vector2(16f, h - 30f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+    DrawText(spriteBatch, whiteTexture, "ECHAP : QUITTER LE DONJON - ZQSD/FLECHES : SE DEPLACER", new Vector2(16f, h - 30f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
 
     if (dungeonRoomMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, dungeonRoomMessage, new Vector2(w / 2f, h * 0.14f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, dungeonRoomMessage, new Vector2(w / 2f, h * 0.14f), 2f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
     }
 
     if (combatMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.14f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h * 0.14f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
     }
 
     // Voir GDD/demande utilisateur — "avant de quitter le donjon ajoute un texte pour demander
@@ -10347,7 +10455,7 @@ void DrawDungeonCorridor(int w, int h)
     if (dungeonExitConfirmOpen)
     {
         DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0f, 0f, 0f, 0.6f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "QUITTER LE DONJON ?", new Vector2(w / 2f, h * 0.44f), 3f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "QUITTER LE DONJON ?", new Vector2(w / 2f, h * 0.44f), 3f, Vector4.One);
         DrawPromptBanner("ENTREE : CONFIRMER - ECHAP : ANNULER", new Vector2(w / 2f, h * 0.56f));
     }
 }
@@ -10418,7 +10526,7 @@ void DrawPromptBanner(string text, Vector2 center)
 {
     var pulse = 0.6f + 0.4f * MathF.Sin(animationClock * 4f);
     const float pixelSize = 2.3f;
-    var textWidth = TextRenderer.MeasureWidth(text, pixelSize);
+    var textWidth = MeasureTextWidth(text, pixelSize);
     var boxSize = new Vector2(textWidth + 48f, 44f);
     var topLeft = center - boxSize / 2f;
 
@@ -10426,7 +10534,7 @@ void DrawPromptBanner(string text, Vector2 center)
     DrawPanel(topLeft, new Vector2(boxSize.X, 4f), new Vector4(0.95f, 0.55f + 0.35f * pulse, 0.25f, 1f));
     DrawPanel(new Vector2(topLeft.X, topLeft.Y + boxSize.Y - 4f), new Vector2(boxSize.X, 4f), new Vector4(0.95f, 0.55f + 0.35f * pulse, 0.25f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, text,
+    DrawTextCentered(spriteBatch, whiteTexture, text,
         center - new Vector2(0, TextRenderer.LineHeight(pixelSize) / 2f - 4f),
         pixelSize, new Vector4(1f, 0.75f + 0.25f * pulse, 0.35f, 1f));
 }
@@ -10525,7 +10633,7 @@ void DrawCombat()
 
     if (combatState is null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHARGEMENT DU COMBAT...", new Vector2(w / 2f, h / 2f), 3f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT DU COMBAT...", new Vector2(w / 2f, h / 2f), 3f, Vector4.One);
         return;
     }
 
@@ -10569,7 +10677,7 @@ void DrawCombat()
                 TileEffect.Destructible => "MUR",
                 _ => "",
             };
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, label, topLeft + new Vector2(cellSize / 2f - 1, cellSize / 2f - 4), 0.95f, new Vector4(1f, 1f, 1f, 0.85f));
+            DrawTextCentered(spriteBatch, whiteTexture, label, topLeft + new Vector2(cellSize / 2f - 1, cellSize / 2f - 4), 0.95f, new Vector4(1f, 1f, 1f, 0.85f));
         }
     }
 
@@ -10637,10 +10745,10 @@ void DrawCombat()
         DrawPanel(barTop, new Vector2(barWidth, 6f), new Vector4(0.2f, 0.05f, 0.05f, 1f));
         DrawPanel(barTop, new Vector2(barWidth * hpRatio, 6f), new Vector4(0.3f, 0.8f, 0.3f, 1f));
 
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatant.Name.ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f), 1.1f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, combatant.Name.ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f), 1.1f, Vector4.One);
         // Voir GDD/demande utilisateur — "chaque monstre a un type affiché" : en plus de la
         // couleur du portrait (déjà par type), le nom du type en toutes lettres sous le nom.
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatant.Type.ToString().ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f + 14f), 0.9f, typeColor);
+        DrawTextCentered(spriteBatch, whiteTexture, combatant.Type.ToString().ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f + 14f), 0.9f, typeColor);
     }
 
     if (combatState.IsFinished)
@@ -10650,7 +10758,7 @@ void DrawCombat()
 
         if (activeLoot is { IsResolved: false })
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, h - 120f), 4f, resultColor);
+            DrawTextCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, h - 120f), 4f, resultColor);
             DrawLootClaim(w, h);
         }
         else
@@ -10668,12 +10776,12 @@ void DrawCombat()
             var promptY = h - 24f;
             var firstY = promptY - (messagePresent ? 28f : 0f) - lootLineCount * 24f - 16f;
             var bannerY = firstY - 8f - TextRenderer.LineHeight(4f);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, bannerY), 4f, resultColor);
+            DrawTextCentered(spriteBatch, whiteTexture, resultText, new Vector2(w / 2f, bannerY), 4f, resultColor);
 
             var y = firstY;
             if (combatState.LastMessage is not null)
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, y), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+                DrawTextCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, y), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
                 y += 28f;
             }
 
@@ -10682,14 +10790,14 @@ void DrawCombat()
                 y = DrawLootResult(resolved, w, h, y);
             }
 
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE POUR CONTINUER", new Vector2(w / 2f, promptY), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "ENTREE POUR CONTINUER", new Vector2(w / 2f, promptY), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         }
     }
     else
     {
         if (combatState.LastMessage is not null)
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 150f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, combatState.LastMessage, new Vector2(w / 2f, h - 150f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         }
 
         // Voir GDD/demande utilisateur — "un petit texte pour dire à qui est le tour".
@@ -10697,7 +10805,7 @@ void DrawCombat()
         {
             var turnLabel = turnOwner.Team == 0 ? $"Tour de {turnOwner.Name} (vous)" : $"Tour de {turnOwner.Name}";
             var turnColor = turnOwner.Team == 0 ? new Vector4(0.55f, 0.85f, 0.6f, 1f) : new Vector4(0.9f, 0.6f, 0.55f, 1f);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, turnLabel, new Vector2(w / 2f, h - 195f), 1.8f, turnColor);
+            DrawTextCentered(spriteBatch, whiteTexture, turnLabel, new Vector2(w / 2f, h - 195f), 1.8f, turnColor);
         }
 
         // Compte à rebours du tour (voir GDD/demande utilisateur — "timer de 10 secondes entre
@@ -10706,7 +10814,7 @@ void DrawCombat()
         // une idée claire du temps restant.
         var turnSecondsLeft = Math.Max(0, GameInfo.CombatTurnTimeoutSeconds - (DateTime.UtcNow - combatState.TurnStartedAtUtc).TotalSeconds);
         var timerColor = turnSecondsLeft <= 3 ? new Vector4(0.95f, 0.4f, 0.35f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{turnSecondsLeft:0}s", new Vector2(w / 2f, h - 175f), 2.2f, timerColor);
+        DrawTextCentered(spriteBatch, whiteTexture, $"{turnSecondsLeft:0}s", new Vector2(w / 2f, h - 175f), 2.2f, timerColor);
 
         var myTurn = combatState.CurrentTurnCombatantId is { } currentId
             && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { Team: 0 };
@@ -10772,7 +10880,7 @@ void DrawCombat()
 
                 const float buttonPixelSize = 2f;
                 const float buttonGap = 24f;
-                var widths = actionButtons.Select(b => TextRenderer.MeasureWidth(b.Label, buttonPixelSize)).ToList();
+                var widths = actionButtons.Select(b => MeasureTextWidth(b.Label, buttonPixelSize)).ToList();
                 var totalWidth = widths.Sum() + buttonGap * (actionButtons.Count - 1);
                 var buttonX = w / 2f - totalWidth / 2f;
 
@@ -10813,13 +10921,13 @@ void DrawCombat()
         }
         else
         {
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TOUR ADVERSE...", new Vector2(w / 2f, h - 70f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "TOUR ADVERSE...", new Vector2(w / 2f, h - 70f), 2.2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         }
     }
 
     if (combatMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h - 20f), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, combatMessage, new Vector2(w / 2f, h - 20f), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
     }
 }
 
@@ -10839,14 +10947,14 @@ void DrawLootClaim(int w, int h)
         return;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "BUTIN - CHOISISSEZ UN OBJET", new Vector2(w / 2f, h - 210f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "BUTIN - CHOISISSEZ UN OBJET", new Vector2(w / 2f, h - 210f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
 
     // Compte à rebours du choix (voir GDD/demande utilisateur — "timer de 10 secondes pour le
     // choix des gains") : approximatif côté client, le serveur fait foi et résout réellement le
     // butin au-delà du délai (voir GameInfo.LootChoiceTimeoutSeconds).
     var lootSecondsLeft = Math.Max(0, GameInfo.LootChoiceTimeoutSeconds - (DateTime.UtcNow - loot.CreatedAtUtc).TotalSeconds);
     var lootTimerColor = lootSecondsLeft <= 3 ? new Vector4(0.95f, 0.4f, 0.35f, 1f) : new Vector4(0.75f, 0.75f, 0.8f, 1f);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{lootSecondsLeft:0}s", new Vector2(w / 2f, h - 185f), 2f, lootTimerColor);
+    DrawTextCentered(spriteBatch, whiteTexture, $"{lootSecondsLeft:0}s", new Vector2(w / 2f, h - 185f), 2f, lootTimerColor);
 
     const float rowWidth = 440f;
     const float rowHeight = 32f;
@@ -10869,14 +10977,14 @@ void DrawLootClaim(int w, int h)
         // rareté (pas écrasée par la sélection), pour rester visible d'un coup d'œil.
         var textColor = RarityColor(loot.Items[i].Rarity);
         var label = $"{loot.Items[i].Name.ToUpperInvariant()} ({RarityLabel(loot.Items[i].Rarity).ToUpperInvariant()})";
-        TextRenderer.Draw(spriteBatch, whiteTexture, label, rowTopLeft + new Vector2(16f, 8f), 1.9f, textColor);
+        DrawText(spriteBatch, whiteTexture, label, rowTopLeft + new Vector2(16f, 8f), 1.9f, textColor);
 
         if (loot.ClaimCountsByItemIndex.TryGetValue(i, out var claimCount) && claimCount > 0)
         {
             var badgeSize = new Vector2(28f, 24f);
             var badgeTopLeft = rowTopLeft + new Vector2(rowWidth - badgeSize.X - 8f, (rowHeight - badgeSize.Y) / 2f);
             DrawPanel(badgeTopLeft, badgeSize, new Vector4(0.25f, 0.6f, 0.9f, 0.95f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, claimCount.ToString(), badgeTopLeft + badgeSize / 2f, 1.8f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, claimCount.ToString(), badgeTopLeft + badgeSize / 2f, 1.8f, Vector4.One);
         }
 
         if (lootTask is null
@@ -10893,11 +11001,11 @@ void DrawLootClaim(int w, int h)
     var messageY = top + loot.Items.Count * (rowHeight + rowGap) + 14f;
     if (lootMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, lootMessage, new Vector2(w / 2f, messageY), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, lootMessage, new Vector2(w / 2f, messageY), 1.8f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
         messageY += 24f;
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES OU CLIC : CHOISIR - ENTREE : RECLAMER", new Vector2(w / 2f, messageY + 6f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "FLECHES OU CLIC : CHOISIR - ENTREE : RECLAMER", new Vector2(w / 2f, messageY + 6f), 2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 }
 
 /// <summary>Résultat du tirage de butin, une fois tous les joueurs éligibles passés (voir <see cref="LootRoll"/> côté serveur).</summary>
@@ -10906,7 +11014,7 @@ float DrawLootResult(LootSessionState resolved, int w, int h, float startY)
 {
     if (resolved.Winners is not { } winners || winners.Count == 0)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AUCUN OBJET RECLAME", new Vector2(w / 2f, startY), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "AUCUN OBJET RECLAME", new Vector2(w / 2f, startY), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
         return startY + 24f;
     }
 
@@ -10918,7 +11026,7 @@ float DrawLootResult(LootSessionState resolved, int w, int h, float startY)
         var wonByMe = mine == winnerCharacterId;
         var itemLabel = $"{item.Name.ToUpperInvariant()} ({RarityLabel(item.Rarity).ToUpperInvariant()})";
         var label = wonByMe ? $"VOUS REMPORTEZ : {itemLabel}" : $"{itemLabel} : ATTRIBUE";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, label, new Vector2(w / 2f, y), 1.9f, RarityColor(item.Rarity));
+        DrawTextCentered(spriteBatch, whiteTexture, label, new Vector2(w / 2f, y), 1.9f, RarityColor(item.Rarity));
         y += 24f;
     }
 
@@ -11031,15 +11139,15 @@ void DrawTitleScreen()
     DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.03f, 0.03f, 0.05f, 0.88f));
 
     var titlePulse = 0.7f + 0.3f * MathF.Sin(animationClock * 1.5f);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "AETHERIA", new Vector2(w / 2f, h * 0.28f), 6f, new Vector4(0.95f, 0.8f, 0.4f, titlePulse));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"VERSION {GameInfo.Version}", new Vector2(w / 2f, h * 0.28f + 56f), 1.6f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "AETHERIA", new Vector2(w / 2f, h * 0.28f), 6f, new Vector4(0.95f, 0.8f, 0.4f, titlePulse));
+    DrawTextCentered(spriteBatch, whiteTexture, $"VERSION {GameInfo.Version}", new Vector2(w / 2f, h * 0.28f + 56f), 1.6f, new Vector4(0.6f, 0.6f, 0.65f, 1f));
 
     if (titleShowOptions)
     {
         var layoutLabel = $"DISPOSITION CLAVIER : {gameSettings.KeyboardLayout.ToString().ToUpperInvariant()} ({(isAzerty ? "ZQSD" : "WASD")})";
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "OPTIONS", new Vector2(w / 2f, h * 0.5f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, layoutLabel, new Vector2(w / 2f, h * 0.58f), 1.8f, Vector4.One);
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "F9 POUR CHANGER", new Vector2(w / 2f, h * 0.58f + 26f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "OPTIONS", new Vector2(w / 2f, h * 0.5f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, layoutLabel, new Vector2(w / 2f, h * 0.58f), 1.8f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "F9 POUR CHANGER", new Vector2(w / 2f, h * 0.58f + 26f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
 
         if (DrawClickableCentered("RETOUR (ECHAP)", new Vector2(w / 2f, h * 0.74f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f)))
         {
@@ -11071,7 +11179,7 @@ void DrawLoading()
     var h = uiCamera.ViewportHeight;
 
     DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.04f, 0.05f, 0.09f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CONNEXION EN COURS...", new Vector2(w / 2f, h / 2f), 3.2f, Vector4.One);
+    DrawTextCentered(spriteBatch, whiteTexture, "CONNEXION EN COURS...", new Vector2(w / 2f, h / 2f), 3.2f, Vector4.One);
 }
 
 void DrawCharacterSelect()
@@ -11080,7 +11188,7 @@ void DrawCharacterSelect()
     var h = uiCamera.ViewportHeight;
 
     DrawPanel(Vector2.Zero, new Vector2(w, h), new Vector4(0.04f, 0.05f, 0.09f, 1f));
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHOISIS TON PERSONNAGE", new Vector2(w / 2f, 60f), 3.6f, Vector4.One);
+    DrawTextCentered(spriteBatch, whiteTexture, "CHOISIS TON PERSONNAGE", new Vector2(w / 2f, 60f), 3.6f, Vector4.One);
 
     const float rowHeight = 70f;
     var totalRows = myCharacters.Count + 1;
@@ -11099,7 +11207,7 @@ void DrawCharacterSelect()
 
         DrawCharacterPreview(new Vector2(w / 2f - 160f, y + rowHeight / 2f + 24f), 0.34f,
             character.SkinColorIndex, character.HairStyleIndex, character.HairColorIndex, character.ClothesColorIndex, character.AccessoryIndex, animationClock);
-        TextRenderer.Draw(spriteBatch, whiteTexture, $"{character.Name.ToUpperInvariant()} - NIV. {character.Level}",
+        DrawText(spriteBatch, whiteTexture, $"{character.Name.ToUpperInvariant()} - NIV. {character.Level}",
             new Vector2(w / 2f - 50f, y + rowHeight / 2f - 8f), 2.2f, Vector4.One);
     }
 
@@ -11109,9 +11217,9 @@ void DrawCharacterSelect()
         DrawPanel(new Vector2(w / 2f - 220f, newY), new Vector2(440f, rowHeight - 8f), new Vector4(1f, 1f, 1f, 0.10f));
     }
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "+ NOUVEAU PERSONNAGE", new Vector2(w / 2f, newY + rowHeight / 2f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "+ NOUVEAU PERSONNAGE", new Vector2(w / 2f, newY + rowHeight / 2f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "FLECHES POUR CHOISIR - ENTREE POUR VALIDER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "FLECHES POUR CHOISIR - ENTREE POUR VALIDER", new Vector2(w / 2f, h - 40f), 2.2f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
 }
 
 void DrawCharacterCreate()
@@ -11125,10 +11233,10 @@ void DrawCharacterCreate()
     switch (createStage)
     {
         case CreateStage.Name:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "QUEL EST TON NOM ?", new Vector2(w / 2f, h * 0.62f), 3.2f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, createName.Length > 0 ? createName.ToUpperInvariant() : "_",
+            DrawTextCentered(spriteBatch, whiteTexture, "QUEL EST TON NOM ?", new Vector2(w / 2f, h * 0.62f), 3.2f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, createName.Length > 0 ? createName.ToUpperInvariant() : "_",
                 new Vector2(w / 2f, h * 0.70f), 3.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "TAPEZ VOTRE NOM (3 LETTRES MIN.) - ENTREE POUR CONTINUER",
+            DrawTextCentered(spriteBatch, whiteTexture, "TAPEZ VOTRE NOM (3 LETTRES MIN.) - ENTREE POUR CONTINUER",
                 new Vector2(w / 2f, h * 0.90f), 2f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
             break;
 
@@ -11143,7 +11251,7 @@ void DrawCharacterCreate()
                 CharacterAppearancePalette.AccessoryNames[createAccessoryIndex],
             ];
 
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "PERSONNALISE TON APPARENCE", new Vector2(w / 2f, h * 0.60f), 3f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, "PERSONNALISE TON APPARENCE", new Vector2(w / 2f, h * 0.60f), 3f, Vector4.One);
             for (var i = 0; i < fieldNames.Length; i++)
             {
                 var y = h * 0.68f + i * 28f;
@@ -11151,39 +11259,39 @@ void DrawCharacterCreate()
                 var color = active ? new Vector4(0.9f, 0.75f, 0.35f, 1f) : new Vector4(0.8f, 0.8f, 0.85f, 1f);
                 var prefix = active ? "< " : "  ";
                 var suffix = active ? " >" : "  ";
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{prefix}{fieldNames[i]} : {fieldValues[i]}{suffix}", new Vector2(w / 2f, y), 2f, color);
+                DrawTextCentered(spriteBatch, whiteTexture, $"{prefix}{fieldNames[i]} : {fieldValues[i]}{suffix}", new Vector2(w / 2f, y), 2f, color);
             }
 
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHAMP - GAUCHE/DROITE : VALEUR - ENTREE : CONTINUER",
+            DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHAMP - GAUCHE/DROITE : VALEUR - ENTREE : CONTINUER",
                 new Vector2(w / 2f, h * 0.95f), 1.8f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
             break;
 
         case CreateStage.ClassKingdom:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ROYAUME", new Vector2(w / 2f, h * 0.62f), 3f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"ROYAUME : {kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
+            DrawTextCentered(spriteBatch, whiteTexture, "ROYAUME", new Vector2(w / 2f, h * 0.62f), 3f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, $"ROYAUME : {kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
                 new Vector2(w / 2f, h * 0.73f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "HAUT/BAS : ROYAUME - ENTREE : CONTINUER",
+            DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : ROYAUME - ENTREE : CONTINUER",
                 new Vector2(w / 2f, h * 0.92f), 1.8f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
             break;
 
         case CreateStage.Confirm:
         case CreateStage.Sending:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, createName.ToUpperInvariant(), new Vector2(w / 2f, h * 0.60f), 3.4f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, $"{kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
+            DrawTextCentered(spriteBatch, whiteTexture, createName.ToUpperInvariant(), new Vector2(w / 2f, h * 0.60f), 3.4f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture, $"{kingdomValues[createKingdomIndex]}".ToUpperInvariant(),
                 new Vector2(w / 2f, h * 0.67f), 2.4f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
             if (createStage == CreateStage.Sending)
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.88f), 2.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+                DrawTextCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.88f), 2.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
             }
             else
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : CONFIRMER - ECHAP : RETOUR", new Vector2(w / 2f, h * 0.88f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+                DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : CONFIRMER - ECHAP : RETOUR", new Vector2(w / 2f, h * 0.88f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
             }
 
             if (createErrorMessage is not null)
             {
-                TextRenderer.DrawCentered(spriteBatch, whiteTexture, createErrorMessage, new Vector2(w / 2f, h * 0.94f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+                DrawTextCentered(spriteBatch, whiteTexture, createErrorMessage, new Vector2(w / 2f, h * 0.94f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
             }
 
             break;
@@ -11226,7 +11334,7 @@ void DrawStarterPortrait(Vector2 center, float radius, Vector4 color)
 
 void DrawStarterGrid(int w, int h)
 {
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, "CHOISIS TON COMPAGNON", new Vector2(w / 2f, 56f), 3.6f, Vector4.One);
+    DrawTextCentered(spriteBatch, whiteTexture, "CHOISIS TON COMPAGNON", new Vector2(w / 2f, 56f), 3.6f, Vector4.One);
 
     const float cellWidth = 190f;
     const float cellHeight = 168f;
@@ -11251,7 +11359,7 @@ void DrawStarterGrid(int w, int h)
         }
 
         DrawStarterPortrait(cellCenter + new Vector2(0, -14f + bob), 44f, ElementColor(species.Element));
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, species.Name.ToUpperInvariant(), cellCenter + new Vector2(0, 56f), 2f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, species.Name.ToUpperInvariant(), cellCenter + new Vector2(0, 56f), 2f, Vector4.One);
     }
 
     // Voir GDD/demande utilisateur — "pour les indications de touche, fais comme Amis/Profil".
@@ -11266,22 +11374,22 @@ void DrawStarterConfirm(int w, int h)
 
     DrawStarterPortrait(new Vector2(w / 2f, h * 0.36f), 90f * scale, elementColor);
 
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, species.Name.ToUpperInvariant(), new Vector2(w / 2f, h * 0.58f), 4.4f, Vector4.One);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, species.Element.ToString().ToUpperInvariant(), new Vector2(w / 2f, h * 0.65f), 2.2f, elementColor);
-    TextRenderer.DrawCentered(spriteBatch, whiteTexture, WrapText(species.Lore, 42), new Vector2(w / 2f, h * 0.73f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, species.Name.ToUpperInvariant(), new Vector2(w / 2f, h * 0.58f), 4.4f, Vector4.One);
+    DrawTextCentered(spriteBatch, whiteTexture, species.Element.ToString().ToUpperInvariant(), new Vector2(w / 2f, h * 0.65f), 2.2f, elementColor);
+    DrawTextCentered(spriteBatch, whiteTexture, WrapText(species.Lore, 42), new Vector2(w / 2f, h * 0.73f), 2f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
     if (starterStage == StarterStage.Sending)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.88f), 2.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "...", new Vector2(w / 2f, h * 0.88f), 2.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     }
     else
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, "ENTREE : CONFIRMER - ECHAP : RETOUR", new Vector2(w / 2f, h * 0.88f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : CONFIRMER - ECHAP : RETOUR", new Vector2(w / 2f, h * 0.88f), 2.2f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
     }
 
     if (starterErrorMessage is not null)
     {
-        TextRenderer.DrawCentered(spriteBatch, whiteTexture, starterErrorMessage, new Vector2(w / 2f, h * 0.94f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, starterErrorMessage, new Vector2(w / 2f, h * 0.94f), 2f, new Vector4(0.9f, 0.4f, 0.4f, 1f));
     }
 }
 
@@ -11295,11 +11403,11 @@ void DrawStarterSelection()
     switch (starterStage)
     {
         case StarterStage.Introduction:
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "UN VIEUX GARDIEN VOUS ACCUEILLE", new Vector2(w / 2f, h * 0.35f), 4.2f, Vector4.One);
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture,
+            DrawTextCentered(spriteBatch, whiteTexture, "UN VIEUX GARDIEN VOUS ACCUEILLE", new Vector2(w / 2f, h * 0.35f), 4.2f, Vector4.One);
+            DrawTextCentered(spriteBatch, whiteTexture,
                 "\"AVANT DE PARTIR A L'AVENTURE,\nCHOISIS TON PREMIER COMPAGNON...\"",
                 new Vector2(w / 2f, h * 0.48f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
-            TextRenderer.DrawCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ENTREE", new Vector2(w / 2f, h * 0.80f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, "APPUYEZ SUR ENTREE", new Vector2(w / 2f, h * 0.80f), 2.6f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
             break;
 
         case StarterStage.Choosing:
@@ -11393,6 +11501,9 @@ enum PanelKind
 
     /// <summary>Voir GDD/demande utilisateur — "les admin peut voir les report... sur un ui que seul les admin peuvent voir" : accessible uniquement en mode admin (voir adminModeActive).</summary>
     Reports,
+
+    /// <summary>Voir GDD/demande utilisateur — "ajoute un parametre pour changer la langue... ajoute le fait que quand on appuie sur un bouton avec ui (ou raccourci clavier) sa nous affiche les parametre" : disposition clavier + langue (voir GameSettings), touche F9 ou bouton HUD.</summary>
+    Settings,
 }
 
 /// <summary>Sous-état du panneau Guilde (voir GDD — rejoindre/rechercher/créer).</summary>
