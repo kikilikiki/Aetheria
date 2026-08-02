@@ -610,7 +610,6 @@ var battlePassCursor = 0;
 // Voir GDD/demande utilisateur — "un boss monde... barre de vie... leaderboard du boss actuel et de toujours".
 WorldBossStatus? worldBossStatus = null;
 Task<WorldBossStatus?>? worldBossLoadTask = null;
-Task<WorldBossAttackResponse>? worldBossAttackTask = null;
 List<WorldBossLeaderboardRow> worldBossCurrentLeaderboard = [];
 List<WorldBossLeaderboardRow> worldBossAllTimeLeaderboard = [];
 Task<List<WorldBossLeaderboardRow>>? worldBossLeaderboardLoadTask = null;
@@ -2926,14 +2925,6 @@ void UpdateWorldBossPanel()
         worldBossLeaderboardLoadTask = null;
     }
 
-    if (worldBossAttackTask is { IsCompleted: true } attackTask)
-    {
-        worldBossMessage = attackTask.IsFaulted ? "Connexion au serveur impossible." : attackTask.Result.Message;
-        worldBossAttackTask = null;
-        worldBossLoadTask = gameDataApi?.GetWorldBossStatusAsync();
-        worldBossLeaderboardLoadTask = gameDataApi?.GetWorldBossLeaderboardAsync(worldBossShowAllTime);
-    }
-
     if (keyboard.WasJustPressed(Key.Escape))
     {
         activePanel = PanelKind.None;
@@ -2946,11 +2937,17 @@ void UpdateWorldBossPanel()
         worldBossLeaderboardLoadTask = gameDataApi?.GetWorldBossLeaderboardAsync(worldBossShowAllTime);
     }
 
-    if (keyboard.WasJustPressed(Key.Enter) && worldBossStatus is { IsAlive: true } && worldBossAttackTask is null
+    // Voir GDD/demande utilisateur — "fait que sa soit un vrai combat" : engage un vrai combat sur
+    // grille (voir StartWorldBossCombatAsync) au lieu de résoudre les dégâts instantanément — le
+    // panneau se ferme, le combat suit le même chemin générique que les autres rencontres (voir
+    // le bloc de traitement de combatStartTask en tête d'UpdateGame).
+    if (keyboard.WasJustPressed(Key.Enter) && worldBossStatus is { IsAlive: true } && combatStartTask is null
         && chosenCharacterId is not null && gameDataApi is not null)
     {
         worldBossMessage = null;
-        worldBossAttackTask = gameDataApi.AttackWorldBossAsync(options.SessionToken!, chosenCharacterId.Value);
+        activePanel = PanelKind.None;
+        combatReturnScene = SceneMode.Outdoor;
+        combatStartTask = StartWorldBossCombatAsync();
     }
 }
 
@@ -3000,11 +2997,13 @@ void DrawWorldBossPanel(int w, int h)
                 DrawTextCentered(spriteBatch, whiteTexture, $"ROYAUME VAINQUEUR : {winningKingdom.ToString().ToUpperInvariant()}", new Vector2(w / 2f, topLeft.Y + 178f), 1.6f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
             }
         }
-        else if (DrawClickableCentered("ATTAQUER (ENTREE)", new Vector2(w / 2f, topLeft.Y + 156f), 2f, new Vector4(0.95f, 0.45f, 0.4f, 1f))
-            && worldBossAttackTask is null && chosenCharacterId is not null && gameDataApi is not null)
+        else if (DrawClickableCentered("AFFRONTER (ENTREE)", new Vector2(w / 2f, topLeft.Y + 156f), 2f, new Vector4(0.95f, 0.45f, 0.4f, 1f))
+            && combatStartTask is null && chosenCharacterId is not null && gameDataApi is not null)
         {
             worldBossMessage = null;
-            worldBossAttackTask = gameDataApi.AttackWorldBossAsync(options.SessionToken!, chosenCharacterId.Value);
+            activePanel = PanelKind.None;
+            combatReturnScene = SceneMode.Outdoor;
+            combatStartTask = StartWorldBossCombatAsync();
         }
 
         if (worldBossMessage is not null)
@@ -7228,7 +7227,7 @@ void UpdateMonstersPanel()
                 ownedMonsters[index] = updatedMonster;
             }
 
-            monsterMessage = updatedMonster.IsInActiveTeam ? "Ajouté à l'équipe active." : "Retiré de l'équipe active.";
+            monsterMessage = updatedMonster.EquippedSlot is not null ? "Équipée en équipe active." : "Déséquipée (retour à la pension).";
         }
         else
         {
@@ -7392,19 +7391,20 @@ void UpdateMonstersPanel()
     {
         var monster = ownedMonsters[monsterCursor];
         monsterMessage = null;
-        monsterTeamToggleTask = gameDataApi.SetMonsterActiveTeamAsync(options.SessionToken!, monster.Id, !monster.IsInActiveTeam);
+        monsterTeamToggleTask = gameDataApi.SetMonsterEquippedAsync(options.SessionToken!, monster.Id, monster.EquippedSlot is null);
     }
 }
 
 /// <summary>
-/// Voir GDD/demande utilisateur — "déplacer ce que l'on a dans notre team" (panneau Monstres,
-/// touche T) : jusqu'à 4 créatures marquées <see cref="MonsterInstanceData.IsInActiveTeam"/>
-/// combattent. Si aucune n'est marquée (comptes existants avant cette fonctionnalité), retombe
-/// sur les 4 premières comme avant — pas de changement de comportement pour qui n'y touche pas.
+/// Voir GDD/demande utilisateur — "on doit équiper les monstres au lieu de juste les mettre avec
+/// soi via la pension" (panneau Monstres, touche T) : jusqu'à 4 créatures équipées (<see
+/// cref="MonsterInstanceData.EquippedSlot"/> non nul) combattent. Si aucune n'est équipée (comptes
+/// existants avant cette fonctionnalité), retombe sur les 4 premières comme avant — pas de
+/// changement de comportement pour qui n'y touche pas.
 /// </summary>
 static List<Guid> SelectActiveTeamIds(List<MonsterInstanceData> monsters)
 {
-    var active = monsters.Where(m => m.IsInActiveTeam).Select(m => m.Id).Take(4).ToList();
+    var active = monsters.Where(m => m.EquippedSlot is not null).Select(m => m.Id).Take(4).ToList();
     return active.Count > 0 ? active : monsters.Select(m => m.Id).Take(4).ToList();
 }
 
@@ -8408,6 +8408,32 @@ async Task<CombatResult> StartWildEncounterOutdoorAsync()
         var monsterIds = SelectActiveTeamIds(monsters);
 
         return await combatApi.StartWildEncounterAsync(options.SessionToken, chosenCharacterId.Value, monsterIds);
+    }
+    catch (HttpRequestException)
+    {
+        return new CombatResult(null, "Connexion au serveur impossible.");
+    }
+}
+
+/// <summary>
+/// Voir GDD/demande utilisateur — "on peut attaquer plusieurs fois le boss monde, limite le a 3 et
+/// fait que sa soit un vrai combat" : engage un vrai combat sur grille contre le boss mondial
+/// (voir CombatService.StartWorldBossEncounterAsync) — un échec (aucun boss actif, 3 tentatives
+/// déjà utilisées...) revient comme <see cref="CombatResult.Error"/>, affiché par le même chemin
+/// générique que les autres échecs de démarrage de combat.
+/// </summary>
+async Task<CombatResult> StartWorldBossCombatAsync()
+{
+    if (combatApi is null || starterApi is null || gameDataApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return new CombatResult(null, "Connexion requise.");
+    }
+
+    try
+    {
+        var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
+        var monsterIds = SelectActiveTeamIds(monsters);
+        return await combatApi.StartWorldBossEncounterAsync(options.SessionToken, chosenCharacterId.Value, monsterIds);
     }
     catch (HttpRequestException)
     {

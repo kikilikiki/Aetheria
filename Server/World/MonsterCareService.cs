@@ -156,13 +156,17 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         return ToMonsterInstanceData(monster);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "4 créatures maximum participent au combat".</summary>
+    private const int MaxEquippedMonsters = 4;
+
     /// <summary>
-    /// Voir GDD/demande utilisateur — bâtiment "où l'on peut voir tout nos monstres et déplacer
-    /// ce que l'on a dans notre team" : bascule l'appartenance à l'équipe active (max 4, voir
-    /// GDD — "4 créatures maximum participent au combat"), refusé au-delà pour forcer à en
-    /// retirer une d'abord plutôt que de silencieusement en ignorer une au combat.
+    /// Voir GDD/demande utilisateur — "on doit équiper les monstres au lieu de juste les mettre
+    /// avec soi via la pension (pas bien)" : équipe/déséquipe une créature à un vrai emplacement
+    /// (0 à <see cref="MaxEquippedMonsters"/> - 1, assigné automatiquement au premier libre plutôt
+    /// que choisi par le client), refusé au-delà de 4 pour forcer à en retirer une d'abord plutôt
+    /// que de silencieusement en ignorer une au combat.
     /// </summary>
-    public async Task<MonsterInstanceData> SetActiveTeamAsync(string sessionToken, Guid monsterId, bool isInActiveTeam, CancellationToken ct = default)
+    public async Task<MonsterInstanceData> SetEquippedAsync(string sessionToken, Guid monsterId, bool equip, CancellationToken ct = default)
     {
         if (!tokenStore.TryValidate(sessionToken, out var userId))
         {
@@ -175,16 +179,29 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == monster.OwnerCharacterId && c.UserId == userId, ct)
             ?? throw new AccountOperationException("Cette créature n'appartient pas à un personnage de ce compte.");
 
-        if (isInActiveTeam && !monster.IsInActiveTeam)
+        if (equip)
         {
-            var activeCount = await db.Monsters.CountAsync(m => m.OwnerCharacterId == character.Id && m.IsInActiveTeam, ct);
-            if (activeCount >= 4)
+            if (monster.EquippedSlot is null)
             {
-                throw new AccountOperationException("L'équipe active est déjà complète (4 créatures maximum).");
+                var usedSlots = await db.Monsters
+                    .Where(m => m.OwnerCharacterId == character.Id && m.EquippedSlot != null)
+                    .Select(m => m.EquippedSlot!.Value)
+                    .ToListAsync(ct);
+
+                var freeSlot = Enumerable.Range(0, MaxEquippedMonsters).FirstOrDefault(slot => !usedSlots.Contains(slot), -1);
+                if (freeSlot < 0)
+                {
+                    throw new AccountOperationException("L'équipe active est déjà complète (4 créatures maximum).");
+                }
+
+                monster.EquippedSlot = freeSlot;
             }
         }
+        else
+        {
+            monster.EquippedSlot = null;
+        }
 
-        monster.IsInActiveTeam = isInActiveTeam;
         await db.SaveChangesAsync(ct);
 
         return ToMonsterInstanceData(monster);
@@ -202,7 +219,7 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         Personality = entity.Personality,
         PassiveTalent = entity.PassiveTalent,
         Nature = entity.Nature,
-        IsInActiveTeam = entity.IsInActiveTeam,
+        EquippedSlot = entity.EquippedSlot,
         EquippedWeaponItemId = entity.EquippedWeaponItemId,
         EquippedArmorItemId = entity.EquippedArmorItemId,
         EquippedAccessoryItemId = entity.EquippedAccessoryItemId,

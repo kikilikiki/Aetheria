@@ -113,7 +113,7 @@ public sealed class TradeService(AetheriaDbContext db, SessionTokenStore tokenSt
         if (offeredMonster is not null)
         {
             offeredMonster.OwnerCharacterId = character.Id;
-            offeredMonster.IsInActiveTeam = false;
+            offeredMonster.EquippedSlot = null;
         }
 
         offer.Status = TradeOfferStatus.Accepted;

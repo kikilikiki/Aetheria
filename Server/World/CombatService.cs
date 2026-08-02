@@ -188,6 +188,72 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     }
 
     /// <summary>
+    /// Voir GDD/demande utilisateur — "on peut attaquer plusieurs fois le boss monde, limite le a
+    /// 3 et fait que sa soit un vrai combat" : remplace l'ancien <c>WorldBossService.AttackAsync</c>
+    /// (dégâts instantanés) par un vrai combat sur grille contre un combattant représentant le boss
+    /// mondial. L'instance démarre toujours aux PV RÉELS et partagés du boss (voir
+    /// <see cref="CombatSession.WorldBossStartingHealth"/>) : les dégâts infligés pendant ce combat
+    /// (même en cas de défaite/fuite, voir <see cref="ApplyWorldBossResultAsync"/>) sont appliqués
+    /// au total partagé, jusqu'à <see cref="WorldBossService.MaxAttempts"/> tentatives par joueur.
+    /// </summary>
+    public async Task<CombatSessionState> StartWorldBossEncounterAsync(StartWildEncounterRequest request, CancellationToken ct = default)
+    {
+        if (GlobalEventService.AreCombatsDisabled)
+        {
+            throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
+        }
+
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
+
+        var worldBossService = new WorldBossService(db);
+        var (boss, _) = await worldBossService.GetActiveBossAndEntryAsync(character.Id, character.Name, ct);
+
+        var combatants = await BuildTeamCombatantsAsync(character, request.MonsterIds, team: 0, BuildTeamCellQueue(leftSide: true), maxMonsters: 4, ct);
+        if (combatants.Count == 0)
+        {
+            throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
+        }
+
+        // Simplification assumée : seul le total de PV du boss est configurable à l'invocation
+        // (voir WorldBossService.SpawnAsync) — Attaque/Défense/Niveau dérivés de ce total plutôt
+        // que stockés séparément, faute de champs dédiés sur WorldBossEntity.
+        var bossAttack = Math.Max(10, boss.MaxHealth / 150);
+        var bossDefense = Math.Max(10, boss.MaxHealth / 200);
+        var bossLevel = Math.Clamp(boss.MaxHealth / 300, 20, 999);
+
+        combatants.Add(new Combatant
+        {
+            Id = boss.Id, Name = boss.Name, Team = 1,
+            X = CombatSession.GridWidth - 1, Y = CombatSession.GridHeight / 2,
+            MaxHealth = boss.MaxHealth, CurrentHealth = boss.CurrentHealth,
+            Attack = bossAttack, Defense = bossDefense, Speed = 6,
+            MovementRange = 1, AttackRange = 1, IsPlayerControlled = false,
+            Type = MonsterType.Guerrier, Element = boss.BossElement, SpeciesId = boss.SpeciesId,
+            Level = bossLevel,
+        });
+
+        var session = new CombatSession
+        {
+            Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants,
+            IsWorldBossCombat = true, WorldBossId = boss.Id, WorldBossStartingHealth = boss.CurrentHealth,
+        };
+        session.TeamOwnerUserId[0] = userId;
+        session.TeamCharacterId[0] = character.Id;
+
+        CombatEngine.Initialize(session);
+        CombatEngine.RunAiTurnsUntilPlayerTurn(session);
+        combatStore.Add(session);
+
+        return ToState(session);
+    }
+
+    /// <summary>
     /// Simplification assumée : paliers de niveau fixes plutôt qu'une formule continue — voir
     /// <c>Docs/README.md</c>. Le chef de groupe sert de référence, pas la moyenne du groupe.
     /// </summary>
@@ -250,7 +316,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// Duel amical entre un ou plusieurs joueurs de chaque côté (voir GDD/demande utilisateur —
     /// bouton PVP avec pseudo, tous les membres du groupe ciblé doivent accepter). Généralise
     /// l'ancien <c>StartPvpAsync</c> (1 joueur contre 1 joueur) : chaque personnage engage son
-    /// équipe active (<see cref="MonsterEntity.IsInActiveTeam"/>) plutôt qu'une sélection
+    /// équipe active (<see cref="MonsterEntity.EquippedSlot"/>) plutôt qu'une sélection
     /// manuelle par combat — impossible à coordonner entre plusieurs joueurs humains au moment
     /// où l'invitation est acceptée. Utilise le même algorithme de récompense par participant que
     /// l'arène classée (voir <see cref="ApplyArenaResultAsync"/>), qui généralise correctement au
@@ -284,7 +350,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                 }
 
                 var activeMonsterIds = await db.Monsters
-                    .Where(m => m.OwnerCharacterId == characterId && m.IsInActiveTeam)
+                    .Where(m => m.OwnerCharacterId == characterId && m.EquippedSlot != null)
                     .Select(m => m.Id)
                     .ToListAsync(ct);
 
@@ -596,6 +662,10 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             {
                 await ApplyPvpResultAsync(session, ct);
             }
+            else if (session.IsWorldBossCombat && session.WorldBossId is { } worldBossId)
+            {
+                await ApplyWorldBossResultAsync(session, worldBossId, ct);
+            }
             else if (!wasCapture)
             {
                 session.LootId = await ApplyPveVictoryRewardsAsync(session, ct);
@@ -716,6 +786,48 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         var lootService = new LootService(db, lootStore, partyService);
         var loot = await lootService.CreateFromVictoryAsync(winnerCharacterId, ct);
         return loot?.LootId;
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "plus on fait de degat plus on a de point" : les dégâts
+    /// infligés PENDANT ce combat (PV du boss au début de l'instance moins ce qu'il reste, voir
+    /// <see cref="CombatSession.WorldBossStartingHealth"/>) sont appliqués au total partagé même en
+    /// cas de défaite/fuite du joueur — seule une victoire (issue par capture exclue, le boss n'est
+    /// pas capturable) déclencherait normalement <see cref="ApplyPveVictoryRewardsAsync"/>, ici
+    /// remplacé entièrement par la logique dédiée de <c>WorldBossService</c> (or proportionnel aux
+    /// dégâts + bonus de royaume, pas d'XP/loot classique).
+    /// </summary>
+    private async Task ApplyWorldBossResultAsync(CombatSession session, Guid worldBossId, CancellationToken ct)
+    {
+        const int playerTeam = 0;
+        if (!session.TeamCharacterId.TryGetValue(playerTeam, out var characterId) || session.WorldBossStartingHealth is not { } startingHealth)
+        {
+            return;
+        }
+
+        var boss = await db.WorldBosses.FirstOrDefaultAsync(b => b.Id == worldBossId, ct);
+        var bossCombatant = session.Combatants.FirstOrDefault(c => c.Team != playerTeam);
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct);
+        if (boss is null || bossCombatant is null || character is null || !boss.IsAlive)
+        {
+            return;
+        }
+
+        var damageDealt = Math.Max(0, startingHealth - bossCombatant.CurrentHealth);
+
+        var worldBossService = new WorldBossService(db);
+        var entry = await db.WorldBossDamageEntries.FirstOrDefaultAsync(e => e.WorldBossId == boss.Id && e.CharacterId == characterId, ct);
+        if (entry is null)
+        {
+            entry = new WorldBossDamageEntity { Id = Guid.NewGuid(), WorldBossId = boss.Id, CharacterId = characterId, CharacterName = character.Name };
+            db.WorldBossDamageEntries.Add(entry);
+        }
+
+        var bossKilled = await worldBossService.ApplyDamageAsync(boss, entry, character, damageDealt, ct);
+
+        session.LastMessage = bossKilled
+            ? $"{boss.Name} a été vaincu ! Récompenses distribuées à tous les participants."
+            : $"{damageDealt} dégâts infligés à {boss.Name} ({boss.CurrentHealth}/{boss.MaxHealth} PV restants). Tentative {entry.AttackCount}/{WorldBossService.MaxAttempts}.";
     }
 
     private static readonly string[] RelicItemNames =

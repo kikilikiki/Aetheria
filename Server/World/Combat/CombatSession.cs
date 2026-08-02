@@ -28,6 +28,15 @@ public sealed class CombatSession
     /// <summary>Vrai si le mode hardcore a été choisi pour ce combat de donjon (voir <c>StartDungeonCombatRequest.HardcoreRequested</c>) — le hardcore/mythique ne consomme pas de vie (voir <c>ApplyPveVictoryRewardsAsync</c>).</summary>
     public bool IsHardcoreCombat { get; init; }
 
+    /// <summary>Vrai pour un combat contre le boss mondial (voir GDD/demande utilisateur — "fait que sa soit un vrai combat") : voir <c>CombatService.StartWorldBossEncounterAsync</c>/<c>ApplyWorldBossResultAsync</c>, dégâts appliqués au total de PV partagé même en cas de défaite/fuite.</summary>
+    public bool IsWorldBossCombat { get; init; }
+
+    /// <summary><c>null</c> hors combat de boss mondial. Voir <see cref="IsWorldBossCombat"/>.</summary>
+    public Guid? WorldBossId { get; init; }
+
+    /// <summary>PV réels du boss mondial au tout début de cette instance (voir <see cref="IsWorldBossCombat"/>) : sert de référence pour calculer les dégâts effectivement infligés pendant CE combat (<c>WorldBossStartingHealth - PV du combattant boss à la fin</c>), le combattant lui-même gardant son <c>MaxHealth</c> réel pour un affichage correct de la barre de vie.</summary>
+    public int? WorldBossStartingHealth { get; init; }
+
     /// <summary>
     /// Groupe à l'origine de ce combat PvE (voir GDD/demande utilisateur — "en groupe, les 2
     /// doivent voir le même combat, pas deux combats séparés") : un membre du groupe qui engage

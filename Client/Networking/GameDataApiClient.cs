@@ -492,14 +492,14 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ProfessionActionResponse>(JsonOptions, ct) : null;
     }
 
-    /// <summary>Voir GDD/demande utilisateur — "déplacer ce que l'on a dans notre team" (max 4, voir MonsterCareService.SetActiveTeamAsync).</summary>
-    public async Task<MonsterInstanceData?> SetMonsterActiveTeamAsync(string sessionToken, Guid monsterId, bool isInActiveTeam, CancellationToken ct = default)
+    /// <summary>Voir GDD/demande utilisateur — "on doit équiper les monstres au lieu de juste les mettre avec soi via la pension" (max 4, emplacement assigné automatiquement — voir MonsterCareService.SetEquippedAsync).</summary>
+    public async Task<MonsterInstanceData?> SetMonsterEquippedAsync(string sessionToken, Guid monsterId, bool equip, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync($"/api/monsters/{monsterId}/set-active-team", new SetMonsterActiveTeamRequest
         {
             SessionToken = sessionToken,
             MonsterId = monsterId,
-            IsInActiveTeam = isInActiveTeam,
+            Equip = equip,
         }, JsonOptions, ct);
 
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterInstanceData>(JsonOptions, ct) : null;
@@ -1029,23 +1029,6 @@ public sealed class GameDataApiClient : IDisposable
         return response.StatusCode == System.Net.HttpStatusCode.NoContent
             ? null
             : await response.Content.ReadFromJsonAsync<WorldBossStatus>(JsonOptions, ct);
-    }
-
-    public async Task<WorldBossAttackResponse> AttackWorldBossAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
-    {
-        var response = await _http.PostAsJsonAsync("/api/worldboss/attack", new WorldBossAttackRequest
-        {
-            SessionToken = sessionToken,
-            CharacterId = characterId,
-        }, JsonOptions, ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
-            return new WorldBossAttackResponse(false, error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).", 0, 0, false, 0);
-        }
-
-        return (await response.Content.ReadFromJsonAsync<WorldBossAttackResponse>(JsonOptions, ct))!;
     }
 
     public async Task<List<WorldBossLeaderboardRow>> GetWorldBossLeaderboardAsync(bool allTime, int limit = 10, CancellationToken ct = default)

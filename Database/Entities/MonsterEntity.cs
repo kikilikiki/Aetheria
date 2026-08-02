@@ -28,8 +28,14 @@ public sealed class MonsterEntity
     // (voir MonsterNatureCatalog.RollRandom), appliquée dans MonsterStatMath.
     public MonsterNature Nature { get; set; } = MonsterNature.Neutre;
 
-    /// <summary>Fait partie de l'équipe active (4 créatures maximum combattent — voir GDD).</summary>
-    public bool IsInActiveTeam { get; set; }
+    /// <summary>
+    /// Emplacement d'équipe (0-3, 4 créatures maximum combattent — voir GDD), <c>null</c> si non
+    /// équipée (à la pension). Voir GDD/demande utilisateur — "on doit équiper les monstres au
+    /// lieu de juste les mettre avec soi via la pension" : remplace l'ancien booléen
+    /// <c>IsInActiveTeam</c> par un vrai numéro d'emplacement, assigné automatiquement au premier
+    /// libre par <see cref="Server.World.MonsterCareService.SetEquippedAsync"/>.
+    /// </summary>
+    public int? EquippedSlot { get; set; }
 
     // Voir GDD/demande utilisateur — "si les items équipés peuvent donner des avantages à nos
     // monstres (exemple : une épée en fer donne plus de dégâts)" : un objet équipé est retiré de

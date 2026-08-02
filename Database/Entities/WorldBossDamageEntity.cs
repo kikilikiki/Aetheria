@@ -17,4 +17,7 @@ public sealed class WorldBossDamageEntity
     public Guid CharacterId { get; set; }
     public required string CharacterName { get; set; }
     public long TotalDamage { get; set; }
+
+    /// <summary>Voir GDD/demande utilisateur — "on peut attaquer plusieurs fois le boss monde, limite le a 3" : nombre de combats déjà engagés contre cette instance de boss (voir <see cref="Server.World.WorldBossService.MaxAttempts"/>).</summary>
+    public int AttackCount { get; set; }
 }
