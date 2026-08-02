@@ -61,6 +61,15 @@ appsettings.*.local.json
 # Brouillon de description itch.io (voir demande utilisateur — pas destiné au dépôt public)
 Docs/itch.md
 
+# Musique du jeu (gros fichiers .wav, voir Client/Aetheria.Client.csproj — copiés depuis /Music
+# à la racine, jamais commités, même politique que les autres binaires volumineux ci-dessus).
+/Music/
+
+# Payload.zip dépasse la limite de 100 Mo de GitHub depuis l'ajout de la musique (voir H120) —
+# reconstruit localement (voir Sites/README.md) et servi directement depuis le disque par
+# Server/Program.cs (/api/updates/launcher-package), jamais lu depuis git. Ne plus committer.
+Installer/Resources/Payload.zip
+
 # Divers OS
 .DS_Store
 Thumbs.db

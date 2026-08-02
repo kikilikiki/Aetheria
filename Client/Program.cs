@@ -886,6 +886,7 @@ else
 
 using var host = new GameHost($"{GameInfo.Name} — v{GameInfo.Version}", 1280, 720);
 using var discordPresence = new DiscordPresenceService();
+using var musicService = new MusicService();
 
 SpriteBatch spriteBatch = null!;
 Texture2D whiteTexture = null!;
@@ -939,6 +940,10 @@ host.Update += deltaTime =>
     // coûteux — DiscordPresenceService n'envoie réellement à Discord que si le texte a changé).
     discordPresence.Invoke();
     discordPresence.Update(BuildDiscordPresenceDetails(), BuildDiscordPresenceState());
+
+    // Voir GDD/demande utilisateur — "ajoute les musiques (/music) chill.wav pour la musique en
+    // ville et combat.wav pour les musiques en combat (elles doivent se répéter)".
+    musicService.Update(sceneMode == SceneMode.Combat ? MusicService.Track.Combat : MusicService.Track.Town);
 
     // Voir GDD/demande utilisateur — "quand on appuie sur les touches ça s'affiche aussi dans
     // le tchat même s'il n'est pas ouvert" : les touches de déplacement produisent aussi des
