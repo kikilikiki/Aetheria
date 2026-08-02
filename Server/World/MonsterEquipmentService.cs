@@ -151,7 +151,7 @@ public sealed class MonsterEquipmentService(AetheriaDbContext db, SessionTokenSt
             Personality = entity.Personality,
             PassiveTalent = entity.PassiveTalent,
             Nature = entity.Nature,
-            IsInActiveTeam = entity.IsInActiveTeam,
+            EquippedSlot = entity.EquippedSlot,
             EquippedWeaponItemId = entity.EquippedWeaponItemId,
             EquippedWeaponName = entity.EquippedWeaponItemId is { } w ? itemNames.GetValueOrDefault(w) : null,
             EquippedArmorItemId = entity.EquippedArmorItemId,

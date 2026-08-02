@@ -423,7 +423,7 @@ de gameplay.
    - ✅ Duel amical groupe vs groupe (`/duel <pseudo>` + bouton UI DUEL, `DuelInviteService`,
      `POST /api/pvp/team-challenge`, `CombatService.StartFriendlyTeamDuelAsync`) : si le
      personnage défié est en groupe, tous ses membres connectés doivent accepter avant que le
-     combat ne démarre ; chaque participant engage son équipe active (`IsInActiveTeam`), pas de
+     combat ne démarre ; chaque participant engage son équipe active (`EquippedSlot`), pas de
      sélection manuelle par combat (impossible à coordonner entre plusieurs joueurs humains).
    - ✅ Arènes classées 1v1/2v2/3v3/4v4 + ligues ELO (voir GDD) :
      - `Combatant.OwnerUserId`/`OwnerCharacterId` remplacent `TeamOwnerUserId`/`TeamCharacterId`

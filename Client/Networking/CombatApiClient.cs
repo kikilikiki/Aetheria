@@ -64,6 +64,19 @@ public sealed class CombatApiClient : IDisposable
         return await ReadResultAsync(response, ct);
     }
 
+    /// <summary>Voir GDD/demande utilisateur — "on peut attaquer plusieurs fois le boss monde, limite le a 3 et fait que sa soit un vrai combat" (voir <c>CombatService.StartWorldBossEncounterAsync</c>).</summary>
+    public async Task<CombatResult> StartWorldBossEncounterAsync(string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/worldboss/start-combat", new StartWildEncounterRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            MonsterIds = monsterIds,
+        }, JsonOptions, ct);
+
+        return await ReadResultAsync(response, ct);
+    }
+
     /// <summary>Engage le combat contre le monstre d'une salle de donjon précise (voir GDD — exploration en couloir linéaire).</summary>
     public async Task<CombatResult> StartDungeonCombatAsync(
         string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, int dungeonId, int floorNumber, int roomIndex, bool hardcoreRequested = false, CancellationToken ct = default)

@@ -22,8 +22,8 @@ public sealed class MonsterInstanceData
     /// <summary>Voir GDD/demande utilisateur — "Talents/capacités passives uniques par monstre (comme les 'natures' Pokémon, influençant les stats)" : tirée une seule fois à la capture.</summary>
     public MonsterNature Nature { get; set; } = MonsterNature.Neutre;
 
-    /// <summary>Composante de l'équipe active (4 créatures maximum participent au combat).</summary>
-    public bool IsInActiveTeam { get; set; }
+    /// <summary>Emplacement d'équipe (0-3), <c>null</c> si non équipée/à la pension — voir <c>MonsterEntity.EquippedSlot</c>.</summary>
+    public int? EquippedSlot { get; set; }
 
     // Voir GDD/demande utilisateur — équipement donnant des bonus de stats en combat (voir
     // MonsterEquipmentService/CombatService.BuildTeamCombatantsAsync).

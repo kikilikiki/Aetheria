@@ -5,7 +5,7 @@ namespace Aetheria.Shared.Network.Packets;
 /// demande utilisateur — "si la personne est en team tout les membres doivent accepter"). Son
 /// client appelle alors <c>POST /api/pvp/team-challenge</c> avec ces deux listes de personnages
 /// (voir <c>ChallengeTeamDuelAsync</c>) — le serveur constitue lui-même chaque équipe de combat à
-/// partir de l'équipe active (<c>IsInActiveTeam</c>) de chaque personnage, sans sélection
+/// partir de l'équipe active (<c>EquippedSlot</c>) de chaque personnage, sans sélection
 /// manuelle côté client (impossible à coordonner entre plusieurs joueurs humains en même temps).
 /// </summary>
 public sealed class TeamDuelReadyPacket : IPacket

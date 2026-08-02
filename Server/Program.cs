@@ -398,7 +398,7 @@ app.MapPost("/api/monsters/{monsterId:guid}/set-active-team", async (Guid monste
 
     try
     {
-        return Results.Ok(await careService.SetActiveTeamAsync(request.SessionToken, request.MonsterId, request.IsInActiveTeam));
+        return Results.Ok(await careService.SetEquippedAsync(request.SessionToken, request.MonsterId, request.Equip));
     }
     catch (AccountOperationException ex)
     {
@@ -1319,17 +1319,20 @@ app.MapGet("/api/leaderboard/{category}/kingdom", async (LeaderboardCategory cat
 app.MapGet("/api/worldboss/status", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var status = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).GetStatusAsync();
+    var status = await new WorldBossService(db).GetStatusAsync();
     return status is null ? Results.NoContent() : Results.Ok(status);
 });
 
-app.MapPost("/api/worldboss/attack", async (WorldBossAttackRequest request) =>
+// Voir GDD/demande utilisateur — "on peut attaquer plusieurs fois le boss monde, limite le a 3 et
+// fait que sa soit un vrai combat" : remplace l'ancien "/api/worldboss/attack" (dégâts instantanés)
+// par un vrai combat tactique sur grille (voir CombatService.StartWorldBossEncounterAsync).
+app.MapPost("/api/worldboss/start-combat", async (StartWildEncounterRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var worldBossService = new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
     try
     {
-        return Results.Ok(await worldBossService.AttackAsync(request));
+        return Results.Ok(await combatService.StartWorldBossEncounterAsync(request));
     }
     catch (AccountOperationException ex)
     {
@@ -1340,7 +1343,7 @@ app.MapPost("/api/worldboss/attack", async (WorldBossAttackRequest request) =>
 app.MapGet("/api/worldboss/leaderboard", async (string scope, int limit) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
-    var worldBossService = new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    var worldBossService = new WorldBossService(db);
     var rows = scope == "alltime"
         ? await worldBossService.GetAllTimeLeaderboardAsync(limit <= 0 ? 10 : limit)
         : await worldBossService.GetCurrentLeaderboardAsync(limit <= 0 ? 10 : limit);
@@ -3137,7 +3140,7 @@ app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest req
     WorldBossEntity boss;
     try
     {
-        boss = await new WorldBossService(db, app.Services.GetRequiredService<SessionTokenStore>()).SpawnAsync(request.MaxHealth);
+        boss = await new WorldBossService(db).SpawnAsync(request.MaxHealth);
     }
     catch (AccountOperationException ex)
     {
@@ -3336,7 +3339,7 @@ static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnly
     Personality = entity.Personality,
     PassiveTalent = entity.PassiveTalent,
     Nature = entity.Nature,
-    IsInActiveTeam = entity.IsInActiveTeam,
+    EquippedSlot = entity.EquippedSlot,
     EquippedWeaponItemId = entity.EquippedWeaponItemId,
     EquippedWeaponName = entity.EquippedWeaponItemId is { } weaponId ? itemNames?.GetValueOrDefault(weaponId) : null,
     EquippedArmorItemId = entity.EquippedArmorItemId,

@@ -173,7 +173,7 @@ public sealed class GuildRaidService(AetheriaDbContext db, SessionTokenStore tok
 
     private async Task<int> ComputeDamageAsync(CharacterEntity character, CancellationToken ct)
     {
-        var activeMonsters = await db.Monsters.Where(m => m.OwnerCharacterId == character.Id && m.IsInActiveTeam).ToListAsync(ct);
+        var activeMonsters = await db.Monsters.Where(m => m.OwnerCharacterId == character.Id && m.EquippedSlot != null).ToListAsync(ct);
 
         var damage = 5 + character.Level;
         foreach (var monster in activeMonsters)

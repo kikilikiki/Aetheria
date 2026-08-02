@@ -6,7 +6,7 @@ namespace Aetheria.Shared.Models.Combat;
 /// les membres doivent accepter"). Contrairement à l'ancien défi PvP direct (une créature choisie
 /// par joueur), aucune
 /// liste de créatures n'est fournie par le client : chaque personnage engage son équipe active
-/// (<c>IsInActiveTeam</c>), résolue côté serveur (voir <c>CombatService.StartFriendlyTeamDuelAsync</c>).
+/// (<c>EquippedSlot</c>), résolue côté serveur (voir <c>CombatService.StartFriendlyTeamDuelAsync</c>).
 /// </summary>
 public sealed class StartFriendlyTeamDuelRequest
 {

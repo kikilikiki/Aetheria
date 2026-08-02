@@ -202,7 +202,7 @@ public sealed class BreedingService(AetheriaDbContext db, SessionTokenStore toke
         Personality = entity.Personality,
         PassiveTalent = entity.PassiveTalent,
         Nature = entity.Nature,
-        IsInActiveTeam = entity.IsInActiveTeam,
+        EquippedSlot = entity.EquippedSlot,
         EquippedWeaponItemId = entity.EquippedWeaponItemId,
         EquippedArmorItemId = entity.EquippedArmorItemId,
         EquippedAccessoryItemId = entity.EquippedAccessoryItemId,
