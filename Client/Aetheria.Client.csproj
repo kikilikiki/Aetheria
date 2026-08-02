@@ -16,6 +16,17 @@
 
   <ItemGroup>
     <PackageReference Include="DiscordRichPresence" Version="1.6.1.70" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <!-- Musique (voir GDD/demande utilisateur — "ajoute les musiques (/music)") : fichiers sources
+       dans /Music à la racine du dépôt (non commités, voir .gitignore), copiés à côté de
+       l'exécutable dans Music/ pour que MusicService les retrouve au runtime. -->
+  <ItemGroup>
+    <Content Include="..\Music\*.wav">
+      <Link>Music\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
