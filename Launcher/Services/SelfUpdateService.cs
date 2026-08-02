@@ -94,12 +94,17 @@ public static class SelfUpdateService
 
             progress.Report(100);
 
+            // Pas de -WindowStyle Hidden / -ExecutionPolicy Bypass ni CreateNoWindow : ce
+            // combo (fenetre cachee + contournement de policy) fait qu'un script qui remplace
+            // silencieusement les .exe de l'appli puis la relance ressemble a un dropper de
+            // malware auto-replicant, et se fait bloquer par Smart App Control / la detection
+            // comportementale de Defender independamment de la signature du binaire. RemoteSigned
+            // suffit a executer ce script local (pas telecharge) sans Bypass.
             Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                Arguments = $"-NoProfile -ExecutionPolicy RemoteSigned -File \"{scriptPath}\"",
                 UseShellExecute = false,
-                CreateNoWindow = true,
             });
 
             return null;
