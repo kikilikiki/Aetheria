@@ -80,4 +80,23 @@ public static class DiscordLinkService
         await db.SaveChangesAsync(ct);
         return (LinkResult.Success, user);
     }
+
+    /// <summary>
+    /// Voir demande utilisateur — "ajoute une commande de unlink" : délie le compte Aetheria
+    /// actuellement lié à <paramref name="discordUserId"/> (identité garantie par Discord, pas de
+    /// code nécessaire contrairement au link). Retourne <c>null</c> si aucun compte n'était lié à
+    /// ce compte Discord.
+    /// </summary>
+    public static async Task<UserEntity?> UnlinkAsync(AetheriaDbContext db, string discordUserId, CancellationToken ct = default)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.DiscordUserId == discordUserId, ct);
+        if (user is null)
+        {
+            return null;
+        }
+
+        user.DiscordUserId = null;
+        await db.SaveChangesAsync(ct);
+        return user;
+    }
 }

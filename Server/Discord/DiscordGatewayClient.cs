@@ -89,7 +89,7 @@ public sealed class DiscordGatewayClient(
 
     private async Task RegisterSlashCommandAsync(CancellationToken ct)
     {
-        var command = new
+        var linkCommand = new
         {
             name = "link",
             description = "Lie ton compte Discord à ton compte Aetheria",
@@ -105,13 +105,21 @@ public sealed class DiscordGatewayClient(
             },
         };
 
+        // Voir demande utilisateur — "ajoute une commande de unlink" : aucun code nécessaire,
+        // l'identité Discord de l'auteur de la commande suffit à retrouver le compte à délier.
+        var unlinkCommand = new
+        {
+            name = "unlink",
+            description = "Délie ton compte Discord de ton compte Aetheria",
+        };
+
         foreach (var guildId in _guildIds)
         {
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Put, $"applications/{_applicationId}/guilds/{guildId}/commands")
                 {
-                    Content = JsonContent.Create(new[] { command }),
+                    Content = JsonContent.Create(new object[] { linkCommand, unlinkCommand }),
                 };
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bot", _botToken);
 
@@ -119,12 +127,12 @@ public sealed class DiscordGatewayClient(
                 if (!response.IsSuccessStatusCode)
                 {
                     var body = await response.Content.ReadAsStringAsync(ct);
-                    logger.LogWarning("Échec d'enregistrement de la commande /link sur la guilde {GuildId} : {Status} {Body}", guildId, response.StatusCode, body);
+                    logger.LogWarning("Échec d'enregistrement des commandes /link et /unlink sur la guilde {GuildId} : {Status} {Body}", guildId, response.StatusCode, body);
                 }
             }
             catch (HttpRequestException ex)
             {
-                logger.LogWarning(ex, "Impossible de contacter Discord pour enregistrer la commande /link sur la guilde {GuildId}.", guildId);
+                logger.LogWarning(ex, "Impossible de contacter Discord pour enregistrer les commandes /link et /unlink sur la guilde {GuildId}.", guildId);
             }
         }
     }
@@ -235,19 +243,33 @@ public sealed class DiscordGatewayClient(
         }
 
         var commandName = interaction["data"]?["name"]?.GetValue<string>();
-        if (commandName != "link")
-        {
-            return;
-        }
-
         var interactionId = interaction["id"]!.GetValue<string>();
         var interactionToken = interaction["token"]!.GetValue<string>();
         var discordUserId = interaction["member"]?["user"]?["id"]?.GetValue<string>()
             ?? interaction["user"]?["id"]?.GetValue<string>();
+
+        if (discordUserId is null)
+        {
+            return;
+        }
+
+        switch (commandName)
+        {
+            case "link":
+                await HandleLinkCommandAsync(interaction, interactionId, interactionToken, discordUserId, ct);
+                break;
+            case "unlink":
+                await HandleUnlinkCommandAsync(interactionId, interactionToken, discordUserId, ct);
+                break;
+        }
+    }
+
+    private async Task HandleLinkCommandAsync(JsonNode interaction, string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
+    {
         var code = interaction["data"]?["options"]?.AsArray()
             .FirstOrDefault(o => o?["name"]?.GetValue<string>() == "code")?["value"]?.GetValue<string>();
 
-        if (discordUserId is null || code is null)
+        if (code is null)
         {
             await RespondAsync(interactionId, interactionToken, "Commande invalide.", ct);
             return;
@@ -272,6 +294,21 @@ public sealed class DiscordGatewayClient(
         }
 
         await RespondAsync(interactionId, interactionToken, responseMessage, ct);
+    }
+
+    private async Task HandleUnlinkCommandAsync(string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var user = await DiscordLinkService.UnlinkAsync(db, discordUserId, ct);
+
+        if (user is null)
+        {
+            await RespondAsync(interactionId, interactionToken, "Aucun compte Aetheria n'est lié à ton compte Discord.", ct);
+            return;
+        }
+
+        await roleSyncService.RevokeAllRolesAsync(discordUserId, ct);
+        await RespondAsync(interactionId, interactionToken, $"Compte **{user.Username}** délié. Tes rôles liés à la vérification ont été retirés.", ct);
     }
 
     private async Task RespondAsync(string interactionId, string interactionToken, string message, CancellationToken ct)

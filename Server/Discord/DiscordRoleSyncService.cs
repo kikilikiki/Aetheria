@@ -119,6 +119,32 @@ public sealed class DiscordRoleSyncService
         }
     }
 
+    /// <summary>
+    /// Voir demande utilisateur — "ajoute une commande de unlink" : retire tous les rôles gérés
+    /// par ce service (vérifié + tous les grades connus) d'un compte Discord qui vient d'être
+    /// délié, dans tous les serveurs configurés. Ne fait rien si le service n'est pas configuré.
+    /// </summary>
+    public async Task RevokeAllRolesAsync(string discordUserId, CancellationToken ct = default)
+    {
+        if (!IsConfigured)
+        {
+            return;
+        }
+
+        foreach (var guildId in _guildIds)
+        {
+            if (_verifiedRoleId is { Length: > 0 })
+            {
+                await SendRoleRequestAsync(HttpMethod.Delete, guildId, discordUserId, _verifiedRoleId, ct);
+            }
+
+            foreach (var roleId in _roleIdsByRank.Values)
+            {
+                await SendRoleRequestAsync(HttpMethod.Delete, guildId, discordUserId, roleId, ct);
+            }
+        }
+    }
+
     private async Task SendRoleRequestAsync(HttpMethod method, string guildId, string discordUserId, string roleId, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(method, $"guilds/{guildId}/members/{discordUserId}/roles/{roleId}");
