@@ -403,6 +403,8 @@ public static class Localization
         ["Pseudo"] = "Username",
         ["Raison"] = "Reason",
         ["Rechercher"] = "Search",
+        ["Copier tous les emails"] = "Copy all emails",
+        ["Copie les emails ci-dessous, séparés par des virgules — à coller dans le champ Cci de Gmail pour écrire à tout le monde"] = "Copies the emails below, comma-separated — paste into Gmail's Bcc field to email everyone",
         ["Renommer / changer l'email"] = "Rename / change email",
         ["Réglable aussi en jeu avec la touche F9."] = "Also adjustable in-game with the F9 key.",
         ["Réinitialiser le profil de jeu"] = "Reset game profile",

@@ -256,14 +256,22 @@ public sealed class DiscordGatewayClient(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var (result, user) = await DiscordLinkService.TryLinkAsync(db, code, discordUserId, ct);
 
-        if (result != DiscordLinkService.LinkResult.Success || user is null)
+        // Voir demande utilisateur — "un utilisateur ne peut se vérifier plus de 1 fois" : message
+        // distinct pour chaque cas plutôt qu'un "code invalide" générique trompeur.
+        var responseMessage = result switch
         {
-            await RespondAsync(interactionId, interactionToken, "Code invalide ou expiré. Tape /discord en jeu pour en générer un nouveau.", ct);
-            return;
+            DiscordLinkService.LinkResult.Success => $"Compte lié avec succès à **{user!.Username}** ! Ton rôle a été attribué.",
+            DiscordLinkService.LinkResult.AccountAlreadyLinked => "Ce compte Aetheria est déjà vérifié — impossible de le lier une seconde fois.",
+            DiscordLinkService.LinkResult.DiscordAccountAlreadyLinked => "Ton compte Discord est déjà lié à un autre compte Aetheria.",
+            _ => "Code invalide ou expiré. Tape /discord en jeu pour en générer un nouveau.",
+        };
+
+        if (result == DiscordLinkService.LinkResult.Success && user is not null)
+        {
+            await roleSyncService.SyncUserRoleAsync(user, ct);
         }
 
-        await roleSyncService.SyncUserRoleAsync(user, ct);
-        await RespondAsync(interactionId, interactionToken, $"Compte lié avec succès à **{user.Username}** ! Ton rôle Discord a été mis à jour selon ton grade en jeu.", ct);
+        await RespondAsync(interactionId, interactionToken, responseMessage, ct);
     }
 
     private async Task RespondAsync(string interactionId, string interactionToken, string message, CancellationToken ct)

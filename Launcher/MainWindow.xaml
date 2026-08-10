@@ -893,6 +893,9 @@
                                        Foreground="#E7E5E3" Margin="0,0,0,12" />
 
                             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                                <Button DockPanel.Dock="Right" Content="{loc:Tr 'Copier tous les emails'}" Command="{Binding AdminCopyAllEmailsCommand}"
+                                        Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                        ToolTip="{loc:Tr 'Copie les emails ci-dessous, séparés par des virgules — à coller dans le champ Cci de Gmail pour écrire à tout le monde'}" />
                                 <TextBox DockPanel.Dock="Left" Width="240" Padding="10,7"
                                          Text="{Binding AdminSearchText, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button DockPanel.Dock="Left" Content="{loc:Tr 'Rechercher'}" Command="{Binding AdminSearchCommand}"
