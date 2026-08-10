@@ -23,10 +23,25 @@ public sealed class MusicService : IDisposable
     private WaveOutEvent? _output;
     private AudioFileReader? _reader;
     private Track _currentTrack = Track.None;
+    private float _volume = 1f;
 
     public MusicService()
     {
         _musicDirectory = Path.Combine(AppContext.BaseDirectory, "Music");
+    }
+
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute dans les options un paramètre de volume de la
+    /// musique" : appliqué immédiatement à la piste en cours (pas besoin de relancer la lecture),
+    /// et mémorisé pour la prochaine piste lancée par <see cref="Update"/>.
+    /// </summary>
+    public void SetVolume(float volume)
+    {
+        _volume = Math.Clamp(volume, 0f, 1f);
+        if (_output is not null)
+        {
+            _output.Volume = _volume;
+        }
     }
 
     /// <summary>À appeler à chaque frame avec la catégorie de musique désirée pour la scène active.</summary>
@@ -65,7 +80,7 @@ public sealed class MusicService : IDisposable
         try
         {
             _reader = new AudioFileReader(path);
-            _output = new WaveOutEvent();
+            _output = new WaveOutEvent { Volume = _volume };
             _output.Init(new LoopStream(_reader));
             _output.Play();
         }
