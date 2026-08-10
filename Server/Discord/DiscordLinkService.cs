@@ -16,7 +16,7 @@ namespace Aetheria.Server.Discord;
 /// </summary>
 public static class DiscordLinkService
 {
-    private const int CodeLength = 6;
+    private const int CodeLength = 5;
     private static readonly TimeSpan CodeLifetime = TimeSpan.FromMinutes(10);
     private const string CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sans caractères ambigus (0/O, 1/I/L)
 
@@ -33,12 +33,22 @@ public static class DiscordLinkService
     {
         Success,
         InvalidOrExpiredCode,
+
+        /// <summary>Le compte Aetheria propriétaire du code est déjà lié à un compte Discord (voir demande utilisateur — "un utilisateur ne peut se vérifier plus de 1 fois").</summary>
+        AccountAlreadyLinked,
+
+        /// <summary>Ce compte Discord est déjà lié à un autre compte Aetheria — une vérification n'engage qu'un seul compte de chaque côté.</summary>
+        DiscordAccountAlreadyLinked,
     }
 
     /// <summary>
-    /// Consomme un code saisi côté Discord : si valide, lie <paramref name="discordUserId"/> au
-    /// compte propriétaire du code (en retirant d'abord ce même identifiant Discord de tout autre
-    /// compte auquel il serait déjà lié, pour permettre un re-link après changement de compte).
+    /// Consomme un code saisi côté Discord : si valide et qu'aucun des deux comptes n'est déjà
+    /// lié, lie <paramref name="discordUserId"/> au compte propriétaire du code. Voir demande
+    /// utilisateur — "un utilisateur ne peut se vérifier plus de 1 fois", "les vérif se font pas
+    /// par personnage mais par compte" : un lien est définitif une fois établi, dans les deux
+    /// sens (un compte Aetheria ne peut avoir qu'un seul compte Discord lié, et réciproquement),
+    /// contrairement à une première version qui permettait de voler silencieusement le lien d'un
+    /// compte à un autre.
     /// </summary>
     public static async Task<(LinkResult Result, UserEntity? User)> TryLinkAsync(AetheriaDbContext db, string code, string discordUserId, CancellationToken ct = default)
     {
@@ -52,10 +62,15 @@ public static class DiscordLinkService
             return (LinkResult.InvalidOrExpiredCode, null);
         }
 
-        var previousOwner = await db.Users.FirstOrDefaultAsync(u => u.DiscordUserId == discordUserId && u.Id != user.Id, ct);
-        if (previousOwner is not null)
+        if (user.DiscordUserId is { Length: > 0 })
         {
-            previousOwner.DiscordUserId = null;
+            return (LinkResult.AccountAlreadyLinked, null);
+        }
+
+        var alreadyLinkedTo = await db.Users.FirstOrDefaultAsync(u => u.DiscordUserId == discordUserId, ct);
+        if (alreadyLinkedTo is not null)
+        {
+            return (LinkResult.DiscordAccountAlreadyLinked, null);
         }
 
         user.DiscordUserId = discordUserId;

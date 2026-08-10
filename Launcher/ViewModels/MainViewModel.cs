@@ -745,6 +745,29 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute un bouton pour copier tout les mail et le coller
+    /// dans gmail pour envoyer les mail a tout le monde simplement" : copie les emails de la
+    /// liste actuellement chargée (voir <see cref="AdminUsers"/>, tous les comptes par défaut à
+    /// l'ouverture du panneau — voir <see cref="ToggleAdminPanel"/>, ou le résultat filtré d'une
+    /// recherche) séparés par une virgule, format directement collable dans le champ "Cci"
+    /// (copie cachée) de Gmail pour envoyer un message à tout le monde sans exposer les adresses
+    /// des uns aux autres.
+    /// </summary>
+    [RelayCommand]
+    private void AdminCopyAllEmails()
+    {
+        if (AdminUsers.Count == 0)
+        {
+            AdminStatusMessage = "Aucun email à copier.";
+            return;
+        }
+
+        var emails = string.Join(", ", AdminUsers.Select(u => u.Email));
+        System.Windows.Clipboard.SetText(emails);
+        AdminStatusMessage = $"{AdminUsers.Count} email(s) copié(s) dans le presse-papiers.";
+    }
+
     // ===== Panneau "Signalements" (voir GDD/demande utilisateur — "les admin peut voir les
     // report sur une page sur le launcher") : même modèle que le panneau Communauté ci-dessus.
 

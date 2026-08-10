@@ -14,6 +14,8 @@ namespace Aetheria.Server.Discord;
 /// contrairement à <see cref="DiscordGatewayClient"/> qui doit lui recevoir les commandes.
 /// Un identifiant de rôle par grade est configuré via variable d'environnement
 /// (<c>DISCORD_ROLE_ID_&lt;GRADE&gt;</c>), absent = grade non synchronisé (pas d'erreur).
+/// <c>DISCORD_VERIFIED_ROLE_ID</c> (optionnel) est un rôle unique accordé dès la première
+/// vérification, indépendant du grade — voir demande utilisateur.
 /// </summary>
 public sealed class DiscordRoleSyncService
 {
@@ -21,12 +23,17 @@ public sealed class DiscordRoleSyncService
     private readonly string? _botToken;
     private readonly IReadOnlyList<string> _guildIds;
     private readonly IReadOnlyDictionary<UserRank, string> _roleIdsByRank;
+    private readonly string? _verifiedRoleId;
     private readonly ILogger<DiscordRoleSyncService> _logger;
 
     public DiscordRoleSyncService(ILogger<DiscordRoleSyncService> logger)
     {
         _logger = logger;
         _botToken = Environment.GetEnvironmentVariable("DISCORD_BOT_TOKEN");
+
+        // Voir demande utilisateur — rôle unique donné dès qu'un compte est vérifié (lié), en plus
+        // du rôle de grade optionnel ci-dessous (DISCORD_ROLE_ID_<GRADE>).
+        _verifiedRoleId = Environment.GetEnvironmentVariable("DISCORD_VERIFIED_ROLE_ID");
 
         // Voir GDD/demande utilisateur — "que le bot sois actif avec le serveur (prod et dev)" :
         // chaque instance (dev/prod) tourne comme processus séparé avec son propre .env (voir
@@ -78,6 +85,12 @@ public sealed class DiscordRoleSyncService
 
         foreach (var guildId in _guildIds)
         {
+            // Rôle "vérifié" : jamais retiré une fois accordé, indépendant du grade.
+            if (_verifiedRoleId is { Length: > 0 })
+            {
+                await SendRoleRequestAsync(HttpMethod.Put, guildId, discordUserId, _verifiedRoleId, ct);
+            }
+
             foreach (var (rank, roleId) in _roleIdsByRank)
             {
                 if (rank == user.Rank)

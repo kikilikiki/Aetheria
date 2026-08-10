@@ -576,6 +576,15 @@ public sealed class PlayerSession(
                     break;
                 }
 
+                // Voir demande utilisateur — "un utilisateur ne peut se vérifier plus de 1 fois" :
+                // la vérification porte sur le compte (pas le personnage), et est définitive une
+                // fois établie — pas de nouveau code une fois déjà lié.
+                if (user.DiscordUserId is { Length: > 0 })
+                {
+                    Reply("Ce compte est déjà lié à un compte Discord.");
+                    break;
+                }
+
                 var code = DiscordLinkService.GenerateLinkCode(user);
                 db.SaveChanges();
                 Reply($"Code de liaison Discord : {code} (valable 10 minutes). Sur Discord, tape /link {code} pour lier ton compte et recevoir ton rôle de grade.");
