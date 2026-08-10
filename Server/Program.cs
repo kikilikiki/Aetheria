@@ -83,6 +83,15 @@ builder.Services.AddSingleton<ArenaQueueService>();
 builder.Services.AddSingleton<KingdomWarQueueService>();
 builder.Services.AddSingleton<GuildWarQueueService>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
+// Voir GDD/demande utilisateur — "système de link le compte discord avec le jeu... roles de
+// grade automatiquement" + "bot actif avec le serveur (prod et dev)" : DiscordRoleSyncService
+// (appels REST sortants, synchronise le rôle Discord au grade) et DiscordGatewayClient (connexion
+// Gateway sortante, reçoit la commande /link) — voir Server/Discord/DiscordGatewayClient.cs pour
+// le détail de pourquoi une connexion Gateway plutôt qu'un endpoint HTTPS entrant. Chaque instance
+// serveur (dev/prod) porte sa propre config via son .env, donc ce câblage est identique pour les
+// deux — pas de distinction de code entre prod et dev ici.
+builder.Services.AddSingleton<DiscordRoleSyncService>();
+builder.Services.AddHostedService<DiscordGatewayClient>();
 // Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le serveur de
 // dev" : les deux ne peuvent pas partager les mêmes ports sur la même machine, d'où ces
 // surcharges optionnelles (non définies = ports par défaut habituels, utilisés par la prod/le
@@ -2380,6 +2389,11 @@ app.MapPost("/api/admin/users/{userId:guid}/set-rank", async (Guid userId, Admin
 
     user.Rank = request.Rank;
     await db.SaveChangesAsync();
+
+    // Voir GDD/demande utilisateur — le rôle Discord du compte (s'il est lié) doit refléter le
+    // nouveau grade immédiatement, pas seulement au prochain /link.
+    await app.Services.GetRequiredService<DiscordRoleSyncService>().SyncUserRoleAsync(user);
+
     return Results.Ok();
 });
 

@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
+using Aetheria.Server.Discord;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World;
 using Aetheria.Shared;
@@ -540,7 +541,7 @@ public sealed class PlayerSession(
         switch (parts[0].ToLowerInvariant())
         {
             case "/help":
-                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /use /report /ping /version" +
+                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /use /report /ping /version /discord" +
                     (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /setiv /give /givemoney /givexp /givemonster /givemount /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : "") +
                     (rank == UserRank.Fondateur ? " — fondateur : /givegems /givepalier /globalboost /globalgive /dev" : ""));
                 break;
@@ -560,6 +561,26 @@ public sealed class PlayerSession(
             case "/settings":
                 Reply("Les paramètres se règlent depuis le launcher (touche F9 en jeu pour la disposition clavier).");
                 break;
+
+            // Voir GDD/demande utilisateur — "système de link le compte discord avec le jeu pour
+            // sur discord avoir les role des grade automatiquement" : génère un code à usage
+            // unique (10 minutes) que le joueur saisit ensuite sur Discord via /link <code> (voir
+            // Server/Discord/DiscordGatewayClient.cs), qui lie son compte et synchronise son rôle
+            // Discord sur son grade actuel.
+            case "/discord":
+            {
+                var user = db.Users.FirstOrDefault(u => u.Id == UserId);
+                if (user is null)
+                {
+                    Reply("Compte introuvable.");
+                    break;
+                }
+
+                var code = DiscordLinkService.GenerateLinkCode(user);
+                db.SaveChanges();
+                Reply($"Code de liaison Discord : {code} (valable 10 minutes). Sur Discord, tape /link {code} pour lier ton compte et recevoir ton rôle de grade.");
+                break;
+            }
 
             case "/profile":
             {
