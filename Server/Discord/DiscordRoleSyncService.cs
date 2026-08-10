@@ -68,11 +68,16 @@ public sealed class DiscordRoleSyncService
 
     /// <summary>
     /// Synchronise le rôle Discord du compte avec son grade actuel, dans tous les serveurs Discord
-    /// configurés : retire les autres rôles de grade connus puis ajoute celui du grade actuel (si
-    /// un rôle est configuré pour ce grade). Ne fait rien si le compte n'est pas lié
-    /// (<see cref="UserEntity.DiscordUserId"/> null) ou si le service n'est pas configuré.
-    /// N'écrit jamais d'exception vers l'appelant : un échec de synchronisation Discord ne doit
-    /// jamais faire échouer une action de jeu (changement de grade, link, ...).
+    /// configurés. Voir demande utilisateur — "donne le role de tout les joueur au gens qui link
+    /// leur discord" : le rôle <see cref="UserRank.Joueur"/> est un rôle de base commun à tous les
+    /// comptes vérifiés, accordé une fois pour toutes et jamais retiré (même logique que le rôle
+    /// <c>DISCORD_VERIFIED_ROLE_ID</c>) — contrairement aux rôles de grade supérieurs
+    /// (VIP/Testeur/Ami/Modérateur/Fondateur), mutuellement exclusifs entre eux (le rôle de grade
+    /// précédent est retiré quand un nouveau est accordé, ou en cas de rétrogradation vers
+    /// Joueur). Ne fait rien si le compte n'est pas lié (<see cref="UserEntity.DiscordUserId"/>
+    /// null) ou si le service n'est pas configuré. N'écrit jamais d'exception vers l'appelant : un
+    /// échec de synchronisation Discord ne doit jamais faire échouer une action de jeu (changement
+    /// de grade, link, ...).
     /// </summary>
     public async Task SyncUserRoleAsync(UserEntity user, CancellationToken ct = default)
     {
@@ -81,19 +86,25 @@ public sealed class DiscordRoleSyncService
             return;
         }
 
-        var targetRoleId = _roleIdsByRank.GetValueOrDefault(user.Rank);
+        var baseRoleId = _roleIdsByRank.GetValueOrDefault(UserRank.Joueur);
+        var higherRankRoleId = user.Rank != UserRank.Joueur ? _roleIdsByRank.GetValueOrDefault(user.Rank) : null;
 
         foreach (var guildId in _guildIds)
         {
-            // Rôle "vérifié" : jamais retiré une fois accordé, indépendant du grade.
+            // Rôle "vérifié" et rôle de base Joueur : jamais retirés une fois accordés.
             if (_verifiedRoleId is { Length: > 0 })
             {
                 await SendRoleRequestAsync(HttpMethod.Put, guildId, discordUserId, _verifiedRoleId, ct);
             }
 
+            if (baseRoleId is { Length: > 0 })
+            {
+                await SendRoleRequestAsync(HttpMethod.Put, guildId, discordUserId, baseRoleId, ct);
+            }
+
             foreach (var (rank, roleId) in _roleIdsByRank)
             {
-                if (rank == user.Rank)
+                if (rank == UserRank.Joueur || rank == user.Rank)
                 {
                     continue;
                 }
@@ -101,9 +112,9 @@ public sealed class DiscordRoleSyncService
                 await SendRoleRequestAsync(HttpMethod.Delete, guildId, discordUserId, roleId, ct);
             }
 
-            if (targetRoleId is { Length: > 0 })
+            if (higherRankRoleId is { Length: > 0 })
             {
-                await SendRoleRequestAsync(HttpMethod.Put, guildId, discordUserId, targetRoleId, ct);
+                await SendRoleRequestAsync(HttpMethod.Put, guildId, discordUserId, higherRankRoleId, ct);
             }
         }
     }
