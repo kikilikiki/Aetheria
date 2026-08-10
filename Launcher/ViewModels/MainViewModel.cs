@@ -636,7 +636,10 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        System.Windows.Application.Current.Shutdown();
+        if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
+        }
     }
 
     partial void OnIsUpdatingChanged(bool value)
@@ -755,7 +758,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// des uns aux autres.
     /// </summary>
     [RelayCommand]
-    private void AdminCopyAllEmails()
+    private async Task AdminCopyAllEmailsAsync()
     {
         if (AdminUsers.Count == 0)
         {
@@ -764,7 +767,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         var emails = string.Join(", ", AdminUsers.Select(u => u.Email));
-        System.Windows.Clipboard.SetText(emails);
+        await ClipboardService.SetTextAsync(emails);
         AdminStatusMessage = $"{AdminUsers.Count} email(s) copié(s) dans le presse-papiers.";
     }
 

@@ -1,13 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Aetheria.Launcher : launcher Windows (login, inscription, téléchargement, mises à jour). -->
+  <!--
+    Aetheria.Launcher : launcher multiplateforme (login, inscription, téléchargement, mises à
+    jour) en Avalonia UI — porté depuis WPF (voir Sites/README.md, section "Paquet Linux") pour
+    obtenir un vrai Launcher installable sur Linux, pas seulement le Client. Même stack
+    CommunityToolkit.Mvvm que la version WPF, ViewModels quasi inchangés.
+  -->
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWPF>true</UseWPF>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Aetheria.Launcher</RootNamespace>
     <AssemblyName>Aetheria.Launcher</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +22,12 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.2.3" Condition="'$(Configuration)' == 'Debug'" />
   </ItemGroup>
 
 </Project>

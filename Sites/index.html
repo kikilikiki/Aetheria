@@ -293,16 +293,15 @@
 
   <div id="os-panel-linux" class="os-panel">
     <div>
-      <a class="btn btn-primary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-client_0.2.0_amd64.deb">Télécharger le .deb</a>
-      <a class="btn btn-secondary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-client-linux-x64.tar.gz">Archive .tar.gz</a>
+      <a class="btn btn-primary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-amd64.deb" id="telecharger-linux">Installer le Launcher (.deb)</a>
+      <a class="btn btn-secondary" href="https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-linux-x64.tar.gz">Archive .tar.gz</a>
     </div>
     <span class="note">
-      Support Linux partiel pour le moment : le moteur de jeu (client) se compile nativement
-      pour Linux, mais le Launcher (connexion, création de compte) est encore réservé à
-      Windows. Le paquet installe le client seul ; voir le
-      <code>README-linux.txt</code> inclus pour s'y connecter sans Launcher
-      (<code>--host=</code>, <code>--token=</code>). Pas encore d'AppImage — les outils pour
-      le générer ne sont pas disponibles sur la machine de build actuelle, voir
+      Le paquet installe le Launcher (compte, connexion, mises à jour automatiques) et le
+      client : lancez <code>aetheria</code> pour jouer, comme sous Windows. Le client seul reste
+      utilisable sans Launcher (mode démo hors-ligne, ou <code>--host=</code>/<code>--token=</code>
+      manuels — voir le <code>README-linux.txt</code> inclus). Pas encore d'AppImage — les outils
+      pour le générer ne sont pas disponibles sur la machine de build actuelle, voir
       <a href="https://github.com/kikilikiki/Aetheria/tree/main/Sites/downloads/linux">le
       scaffolding sur GitHub</a>.
     </span>

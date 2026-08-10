@@ -1,17 +1,17 @@
-Aetheria — build Linux (Client uniquement)
+Aetheria — build Linux (Launcher + Client)
 ============================================
 
-Le moteur de jeu (Aetheria.Client, rendu OpenGL via Silk.NET) est multiplateforme et
-tourne nativement sur Linux. Le Launcher (création de compte, connexion, sélection de
-personnage, mise à jour automatique) est en revanche écrit en WPF, une interface
-réservée à Windows — il n'existe donc pas encore de Launcher Linux.
+Le Launcher (compte, connexion, mise à jour automatique) est desormais multiplateforme
+(porté vers Avalonia UI, voir Sites/README.md — section "Paquet Linux") — plus besoin de
+passer par le Client seul pour se connecter avec un vrai compte :
 
-Sans Launcher, Aetheria.Client démarre en mode démo hors-ligne (aucune connexion à un
-vrai compte). Pour se connecter à un serveur avec un jeton de session déjà obtenu
-autrement (ex. compte de test, script), utilisez :
+    ./Aetheria.Launcher
+
+Le Launcher lance ensuite ./Aetheria.Client à côté de lui avec le jeton de session
+obtenu. Pour se connecter directement avec le Client, sans passer par le Launcher (ex.
+compte de test, script), le mode manuel reste disponible :
 
     ./Aetheria.Client --token="<jeton>" --characterId="<id-personnage>" --host="<adresse-du-serveur>"
 
-Porter le Launcher vers une interface multiplateforme (Avalonia UI, par exemple) pour
-un vrai support Linux avec connexion/inscription est un chantier séparé, pas encore
-réalisé.
+Sans argument ni Launcher, Aetheria.Client démarre en mode démo hors-ligne (aucune
+connexion à un vrai compte).

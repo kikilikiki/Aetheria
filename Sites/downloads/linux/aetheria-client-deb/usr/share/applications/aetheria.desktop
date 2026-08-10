@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Aetheria
-Comment=Client de jeu Aetheria (mode demo hors-ligne sans le Launcher, voir README-linux.txt)
-Exec=/opt/aetheria/Aetheria.Client
+Comment=Launcher Aetheria (compte, connexion, mise a jour automatique)
+Exec=/opt/aetheria/Aetheria.Launcher
 Terminal=false
 Categories=Game;

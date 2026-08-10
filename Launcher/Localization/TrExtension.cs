@@ -1,8 +1,8 @@
 using System.Globalization;
-using System.Windows.Data;
-using System.Windows.Markup;
 using Aetheria.Shared.Localization;
 using Aetheria.Shared.Settings;
+using Avalonia.Data;
+using Avalonia.Data.Converters;
 
 namespace Aetheria.Launcher.Localization;
 
@@ -13,13 +13,14 @@ namespace Aetheria.Launcher.Localization;
 /// dictionnaire à maintenir en double. Se relie à <see cref="LauncherLanguageService"/> via un
 /// Binding pour se retraduire automatiquement dès que la langue change, sans redémarrer le
 /// Launcher (contrairement à un `.resx`/culture qui exigerait de relancer l'application).
+/// Avalonia (contrairement à WPF) ne demande pas d'hériter de MarkupExtension : toute classe
+/// exposant une méthode ProvideValue(IServiceProvider) est reconnue comme extension XAML.
 /// </summary>
-[MarkupExtensionReturnType(typeof(string))]
-public sealed class TrExtension(string text) : MarkupExtension
+public sealed class TrExtension(string text)
 {
     public string Text { get; set; } = text;
 
-    public override object ProvideValue(IServiceProvider serviceProvider)
+    public object ProvideValue(IServiceProvider serviceProvider)
     {
         var binding = new Binding(nameof(LauncherLanguageService.Current))
         {
@@ -28,15 +29,18 @@ public sealed class TrExtension(string text) : MarkupExtension
             Mode = BindingMode.OneWay,
         };
 
-        return binding.ProvideValue(serviceProvider);
+        // Avalonia.Data.Binding, contrairement à System.Windows.Data.Binding, n'a pas de méthode
+        // ProvideValue : c'est le Binding lui-même (IBinding) que le runtime XAML applique
+        // comme valeur de la propriété cible quand une extension personnalisée le retourne.
+        return binding;
     }
 }
 
 internal sealed class TrConverter(string text) : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         Aetheria.Shared.Localization.Localization.Translate(text, value is Language language ? language : Language.Francais);
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }

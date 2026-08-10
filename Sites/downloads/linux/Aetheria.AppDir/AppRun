@@ -1,3 +1,5 @@
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
-exec "${HERE}/usr/bin/Aetheria.Client" "$@"
+# Voir Sites/README.md — section "Paquet Linux" : lance le Launcher, pas le Client directement —
+# voir usr/bin/Aetheria.Client "$@" pour contourner le Launcher (mode démo/jeton manuel).
+exec "${HERE}/usr/bin/Aetheria.Launcher" "$@"
