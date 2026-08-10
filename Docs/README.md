@@ -906,6 +906,10 @@ de documentation en C#. Voir `Engine/Aetheria.Engine.csproj` pour les versions e
 | Variable d'environnement    | Rôle                                                              |
 |------------------------------|--------------------------------------------------------------------|
 | `AETHERIA_DB_CONNECTION`     | Chaîne de connexion PostgreSQL. Absente ⇒ base en mémoire (dev).   |
+| `DISCORD_BOT_TOKEN`          | Jeton du bot Discord (annonces + link de compte, voir `Server/Discord/`). |
+| `DISCORD_APPLICATION_ID`     | Identifiant d'application Discord — requis pour enregistrer la commande `/link`. |
+| `DISCORD_GUILD_IDS`          | Serveurs Discord (guildes) où `/link` est actif, séparés par des virgules. |
+| `DISCORD_ROLE_ID_<GRADE>`    | Rôle Discord attribué automatiquement par grade (`JOUEUR`/`VIP`/`TESTEUR`/`AMI`/`MODERATEUR`/`FONDATEUR`), voir `.env.exemple`. |
 
 Ports par défaut (voir `Shared/GameInfo.cs`) : `7777` (TCP jeu), `7778` (HTTP compte).
 

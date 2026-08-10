@@ -57,5 +57,19 @@ public sealed class UserEntity
     /// </summary>
     public bool IsDeleted { get; set; }
 
+    /// <summary>
+    /// Identifiant Discord (snowflake) du compte lié, une fois la commande <c>/link</c> validée
+    /// sur Discord (voir GDD/demande utilisateur — "système de link le compte discord avec le
+    /// jeu pour avoir les rôles de grade automatiquement", <see cref="Aetheria.Server.Discord.DiscordLinkService"/>).
+    /// Null tant qu'aucun lien n'a été établi.
+    /// </summary>
+    public string? DiscordUserId { get; set; }
+
+    /// <summary>Code court généré en jeu (commande <c>/discord</c>) et consommé côté Discord par la commande <c>/link</c> — voir <see cref="Aetheria.Server.Discord.DiscordLinkService"/>.</summary>
+    public string? PendingDiscordLinkCode { get; set; }
+
+    /// <summary>Expiration du code ci-dessus (courte durée de vie, code à usage unique).</summary>
+    public DateTime? PendingDiscordLinkCodeExpiresUtc { get; set; }
+
     public List<CharacterEntity> Characters { get; set; } = new();
 }
