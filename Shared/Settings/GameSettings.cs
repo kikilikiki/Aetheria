@@ -37,6 +37,14 @@ public sealed class GameSettings
     public Language Language { get; set; } = Language.Francais;
 
     /// <summary>
+    /// Voir GDD/demande utilisateur — "ajoute dans les options un paramètre de volume de la
+    /// musique" (voir Client/Services/MusicService.cs, chill.wav/combat.wav). De 0.0 (muet) à 1.0
+    /// (volume max), réglable par pas de 10% dans le panneau Paramètres en jeu (F9) et l'écran
+    /// titre. Uniquement la musique — pas d'effets sonores distincts pour l'instant.
+    /// </summary>
+    public float MusicVolume { get; set; } = 1f;
+
+    /// <summary>
     /// Adresse (IP publique ou nom de domaine) du serveur Aetheria — voir GDD/demande utilisateur
     /// : "modifie l'adresse du serveur de base pour que ça aille sur le serveur même sur un
     /// réseau distant". Réglée par défaut sur l'IP publique du serveur (redirection de ports

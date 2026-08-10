@@ -886,6 +886,7 @@ else
 using var host = new GameHost($"{GameInfo.Name} — v{GameInfo.Version}", 1280, 720);
 using var discordPresence = new DiscordPresenceService();
 using var musicService = new MusicService();
+musicService.SetVolume(gameSettings.MusicVolume);
 
 SpriteBatch spriteBatch = null!;
 Texture2D whiteTexture = null!;
@@ -3964,7 +3965,7 @@ void UpdateSettingsPanel()
         return;
     }
 
-    if (keyboard.WasJustPressed(Key.Down)) settingsCursor = Math.Min(settingsCursor + 1, 1);
+    if (keyboard.WasJustPressed(Key.Down)) settingsCursor = Math.Min(settingsCursor + 1, 2);
     else if (keyboard.WasJustPressed(Key.Up)) settingsCursor = Math.Max(settingsCursor - 1, 0);
     else if (keyboard.WasJustPressed(Key.Left) || keyboard.WasJustPressed(Key.Right))
     {
@@ -3976,12 +3977,17 @@ void UpdateSettingsPanel()
             gameSettings.KeyboardLayout = layouts[index];
             isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
         }
-        else
+        else if (settingsCursor == 1)
         {
             // Voir retour utilisateur — "laisse tomber le japonais pour l'instant" : Japonais
             // reste dans l'énumération (affiché grisé ci-dessous) mais n'est jamais sélectionnable
             // ici, seul un cycle Francais <-> Anglais est proposé.
             gameSettings.Language = gameSettings.Language == Language.Anglais ? Language.Francais : Language.Anglais;
+        }
+        else
+        {
+            gameSettings.MusicVolume = Math.Clamp(gameSettings.MusicVolume + direction * 0.1f, 0f, 1f);
+            musicService.SetVolume(gameSettings.MusicVolume);
         }
 
         gameSettings.Save();
@@ -4006,6 +4012,7 @@ void DrawSettingsPanel(int w, int h)
             Language.Anglais => "ENGLISH",
             _ => "FRANCAIS",
         }),
+        ("VOLUME MUSIQUE", $"{MathF.Round(gameSettings.MusicVolume * 100f)}%"),
     };
 
     var y = topLeft.Y + 84f;
@@ -5985,7 +5992,7 @@ void UpdateTitleScreen()
         {
             titleShowOptions = false;
         }
-        else if (keyboard.WasJustPressed(Key.Down)) settingsCursor = Math.Min(settingsCursor + 1, 1);
+        else if (keyboard.WasJustPressed(Key.Down)) settingsCursor = Math.Min(settingsCursor + 1, 2);
         else if (keyboard.WasJustPressed(Key.Up)) settingsCursor = Math.Max(settingsCursor - 1, 0);
         else if (keyboard.WasJustPressed(Key.Left) || keyboard.WasJustPressed(Key.Right))
         {
@@ -5997,9 +6004,14 @@ void UpdateTitleScreen()
                 gameSettings.KeyboardLayout = layouts[index];
                 isAzerty = KeyboardLayoutResolver.ShouldUseAzerty(gameSettings.KeyboardLayout);
             }
-            else
+            else if (settingsCursor == 1)
             {
                 gameSettings.Language = gameSettings.Language == Language.Anglais ? Language.Francais : Language.Anglais;
+            }
+            else
+            {
+                gameSettings.MusicVolume = Math.Clamp(gameSettings.MusicVolume + direction * 0.1f, 0f, 1f);
+                musicService.SetVolume(gameSettings.MusicVolume);
             }
 
             gameSettings.Save();
@@ -11819,14 +11831,17 @@ void DrawTitleScreen()
         // Paramètres en jeu (voir DrawSettingsPanel), pour rester cohérent.
         var layoutValue = gameSettings.KeyboardLayout.ToString().ToUpperInvariant() + (gameSettings.KeyboardLayout == KeyboardLayoutPreference.Auto ? $" ({(isAzerty ? "ZQSD" : "WASD")})" : "");
         var languageValue = gameSettings.Language == Language.Anglais ? "ENGLISH" : "FRANCAIS";
+        var volumeValue = $"{MathF.Round(gameSettings.MusicVolume * 100f)}%";
 
         DrawTextCentered(spriteBatch, whiteTexture, "OPTIONS", new Vector2(w / 2f, h * 0.5f), 2.6f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
 
         var row0Color = settingsCursor == 0 ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
         var row1Color = settingsCursor == 1 ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
+        var row2Color = settingsCursor == 2 ? new Vector4(0.65f, 0.85f, 1f, 1f) : Vector4.One;
         DrawTextCentered(spriteBatch, whiteTexture, $"{(settingsCursor == 0 ? "> " : "")}DISPOSITION CLAVIER : < {layoutValue} >", new Vector2(w / 2f, h * 0.58f), 1.8f, row0Color);
         DrawTextCentered(spriteBatch, whiteTexture, $"{(settingsCursor == 1 ? "> " : "")}LANGUE / LANGUAGE : < {languageValue} >", new Vector2(w / 2f, h * 0.58f + 30f), 1.8f, row1Color);
-        DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - GAUCHE/DROITE : CHANGER", new Vector2(w / 2f, h * 0.58f + 60f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, $"{(settingsCursor == 2 ? "> " : "")}VOLUME MUSIQUE : < {volumeValue} >", new Vector2(w / 2f, h * 0.58f + 60f), 1.8f, row2Color);
+        DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : CHOISIR - GAUCHE/DROITE : CHANGER", new Vector2(w / 2f, h * 0.58f + 90f), 1.5f, new Vector4(0.65f, 0.65f, 0.7f, 1f));
 
         if (DrawClickableCentered("RETOUR (ECHAP)", new Vector2(w / 2f, h * 0.78f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f)))
         {
