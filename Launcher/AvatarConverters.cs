@@ -1,6 +1,6 @@
 using System.Globalization;
-using System.Windows.Data;
-using System.Windows.Media;
+using Avalonia.Data.Converters;
+using Avalonia.Media;
 
 namespace Aetheria.Launcher;
 
@@ -57,6 +57,22 @@ public sealed class OnlineStatusToColorConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? OnlineBrush : OfflineBrush;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Avalonia n'a pas de PasswordBox dédié comme WPF — le masquage se fait via
+/// <c>TextBox.PasswordChar</c> sur un TextBox normal (dont le Text EST bindable, contrairement à
+/// WPF PasswordBox.Password). Voir retour utilisateur — "au launcher pouvoir voir le mot de passe
+/// que l'on tape" : ce convertisseur bascule entre masqué ('●') et en clair ('\0', pas de
+/// masquage) selon <see cref="ViewModels.MainViewModel.IsPasswordVisible"/>.
+/// </summary>
+public sealed class BoolToPasswordCharConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? '\0' : '●';
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

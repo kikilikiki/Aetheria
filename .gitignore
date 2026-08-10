@@ -30,10 +30,12 @@ Sites/downloads/CommunityToolkit.Mvvm.dll
 
 # Voir Sites/README.md — section "Paquet Linux" : binaires regenerables via
 # `dotnet publish -r linux-x64`, pas commites (scaffolding/scripts commites, pas les artefacts).
-Sites/downloads/linux/aetheria-client-deb/opt/aetheria/Aetheria.Client
-Sites/downloads/linux/aetheria-client-deb/opt/aetheria/libglfw.so.3
-Sites/downloads/linux/Aetheria.AppDir/usr/bin/Aetheria.Client
-Sites/downloads/linux/Aetheria.AppDir/usr/bin/libglfw.so.3
+# Catch-all (pas une liste de fichiers un par un) : le Launcher self-contained publie des
+# dizaines de .so natifs (SkiaSharp/HarfBuzzSharp/CoreCLR, voir dotnet publish -r linux-x64) en
+# plus du Client et de sa propre libglfw.so.3 — intraitable à énumérer un par un.
+Sites/downloads/linux/aetheria-client-deb/opt/aetheria/*
+!Sites/downloads/linux/aetheria-client-deb/opt/aetheria/README-linux.txt
+Sites/downloads/linux/Aetheria.AppDir/usr/bin/*
 Sites/downloads/linux/*.deb
 Sites/downloads/linux/*.AppImage
 Sites/downloads/linux/*.tar.gz

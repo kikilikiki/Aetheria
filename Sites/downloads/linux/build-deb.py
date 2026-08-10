@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Construit aetheria-client_<version>_amd64.deb depuis aetheria-client-deb/.
+"""Construit aetheria_<version>_amd64.deb depuis aetheria-client-deb/.
 
 Reconstruit le format .deb (ar + control.tar.gz + data.tar.gz) a la main, sans
 dpkg-deb ni WSL - ni l'un ni l'autre n'est disponible sur la machine de build
 Windows de ce projet (voir README.md, section "Paquet Linux"). Usage :
 
-    python3 build-deb.py [version]   # ex: python3 build-deb.py 0.2.0
+    python3 build-deb.py [version]   # ex: python3 build-deb.py 0.3.0
 
-Attend que aetheria-client-deb/opt/aetheria/Aetheria.Client (et libglfw.so.3)
-existent deja - voir README.md pour la commande `dotnet publish -r linux-x64`.
+Attend que aetheria-client-deb/opt/aetheria/ contienne deja Aetheria.Launcher,
+Aetheria.Client et leurs dependances natives (libglfw.so.3, libSkiaSharp.so, ...) -
+voir README.md pour les commandes `dotnet publish -r linux-x64`.
 """
 import hashlib
 import io
@@ -20,7 +21,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "aetheria-client-deb")
 CONTROL_FILE = os.path.join(ROOT, "DEBIAN", "control")
 
-EXECUTABLE_NAMES = {"Aetheria.Client", "aetheria"}
+# Aetheria.Launcher.dll/.pdb/.json etc n'ont pas besoin du bit executable - seuls les deux
+# vrais binaires natifs (Launcher, Client) et le script wrapper en ont besoin.
+EXECUTABLE_NAMES = {"Aetheria.Launcher", "Aetheria.Client", "aetheria"}
 
 
 def mode_for(arcname):
@@ -135,7 +138,7 @@ def main():
         ("data.tar.gz", data_tar),
     ])
 
-    out_path = os.path.join(HERE, f"aetheria-client_{version}_amd64.deb")
+    out_path = os.path.join(HERE, f"aetheria_{version}_amd64.deb")
     with open(out_path, "wb") as fh:
         fh.write(deb_bytes)
     print(f"Wrote {out_path} ({len(deb_bytes)} bytes), {len(files)} data files")

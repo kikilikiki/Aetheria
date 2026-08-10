@@ -30,15 +30,22 @@ dernière release publiée — pas besoin de changer les liens du site à chaque
 #    build/publish/installer-win-x64/AetheriaInstaller.exe
 
 # 2. Build Linux (voir "Paquet Linux" ci-dessous) ->
-#    downloads/linux/aetheria-client_X.Y.Z_amd64.deb
-#    downloads/linux/aetheria-client-linux-x64.tar.gz
+#    downloads/linux/aetheria_X.Y.Z_amd64.deb
+#    downloads/linux/aetheria-linux-x64.tar.gz
 
 # 3. Créer la release et uploader les assets (nécessite `gh` CLI authentifié,
 #    ou l'équivalent via l'API REST GitHub avec un token si `gh` n'est pas installé)
+#
+#    IMPORTANT : le .deb est uploadé sous un nom STABLE ("aetheria-amd64.deb", sans version) via
+#    la syntaxe gh `fichier-local#nom-de-l'asset` — voir bug corrigé, le site liait
+#    auparavant en dur "aetheria-client_0.2.0_amd64.deb" (nom qui change à chaque version) au
+#    lieu de suivre `releases/latest/download/<nom-du-fichier>` (voir "Distribution" ci-dessus,
+#    même logique déjà appliquée à AetheriaSetup.exe) : le lien du site cassait dès qu'une
+#    nouvelle version changeait le nom du fichier dans la dernière release.
 gh release create vX.Y.Z `
     build/publish/installer-win-x64/AetheriaInstaller.exe#AetheriaSetup.exe `
-    Sites/downloads/linux/aetheria-client_X.Y.Z_amd64.deb `
-    Sites/downloads/linux/aetheria-client-linux-x64.tar.gz `
+    Sites/downloads/linux/aetheria_X.Y.Z_amd64.deb#aetheria-amd64.deb `
+    Sites/downloads/linux/aetheria-linux-x64.tar.gz `
     --title "Aetheria vX.Y.Z" --notes "..."
 ```
 
@@ -70,47 +77,50 @@ copier dans `Sites/downloads/`.
 
 ## Paquet Linux
 
-Voir GDD/demande utilisateur — "un installateur pour Linux (.deb, .appimage etc)". **Limite
-architecturale** : le moteur de jeu (`Aetheria.Client`, rendu OpenGL via Silk.NET) est
-multiplateforme et se compile nativement pour Linux (`dotnet publish -r linux-x64`, testé et
-fonctionnel depuis Windows sans machine Linux). Le **Launcher** (création de compte, connexion,
-sélection de personnage, mise à jour automatique), en revanche, est écrit en WPF — une
-interface **réservée à Windows**. Sans Launcher, le Client seul démarre en mode démo hors-ligne
-(voir `Client/LaunchOptions.cs`) ou se connecte manuellement via `--host=`/`--token=`/
-`--characterId=` (voir `README-linux.txt` inclus dans chaque paquet) : pas de vrai flux
-connexion/inscription sur Linux pour l'instant.
+Voir GDD/demande utilisateur — "un installateur pour Linux (.deb, .appimage etc)". Le moteur de
+jeu (`Aetheria.Client`, rendu OpenGL via Silk.NET) est multiplateforme et se compile nativement
+pour Linux (`dotnet publish -r linux-x64`, testé et fonctionnel depuis Windows sans machine
+Linux). Le **Launcher** (création de compte, connexion, mise à jour automatique) a été porté de
+WPF (réservé à Windows) vers **Avalonia UI** (`Launcher/`, même stack CommunityToolkit.Mvvm) —
+il est donc lui aussi multiplateforme désormais, packagé avec le Client dans les mêmes
+`.deb`/`.tar.gz`/AppImage : `aetheria` (le wrapper/raccourci) lance le Launcher, qui lance
+ensuite `Aetheria.Client` à côté de lui. Le mode manuel du Client seul reste disponible via
+`--host=`/`--token=`/`--characterId=` (voir `Client/LaunchOptions.cs`, `README-linux.txt` inclus
+dans chaque paquet) pour les cas sans Launcher (script, compte de test).
 
 `downloads/linux/` contient :
 
-- `aetheria-client-deb/` — arborescence `.deb` (binaire Linux x64 self-contained à copier dans
-  `opt/aetheria/`, `control`, `.desktop`, script `usr/bin/aetheria`).
+- `aetheria-client-deb/` — arborescence `.deb` (Launcher + Client Linux x64 self-contained à
+  copier dans `opt/aetheria/`, `control`, `.desktop`, script `usr/bin/aetheria`).
 - `build-deb.py` — **construit un vrai `.deb` sans `dpkg-deb`** (indisponible sur cette
   machine Windows, ni `wsl` avec une distribution installée) : réimplémente le format à la
   main (archive `ar` + `control.tar.gz` + `data.tar.gz`, permissions/`md5sums` corrects) avec
   uniquement la stdlib Python. Usage : `python3 build-deb.py [version]`. Testé : parsing manuel
   de l'archive `ar` généré, `control`/`md5sums` valides, permissions 755 sur les exécutables.
 - `build-deb.sh` — équivalent utilisant `dpkg-deb` directement, pour une vraie machine Linux.
-- `aetheria-client-linux-x64.tar.gz` — alternative portable (extraire, lancer
-  `./Aetheria.Client`), pas de paquet système requis.
-- `Aetheria.AppDir/` — arborescence AppImage prête (binaire + `AppRun` + `.desktop`), mais
-  **pas de `.AppImage` généré pour l'instant** : contrairement au `.deb`, le format AppImage a
-  besoin de `mksquashfs`/`appimagetool` (vrais binaires Linux), qu'on ne peut pas réimplémenter
-  simplement en Python pur — nécessite une vraie machine Linux, WSL avec une distribution
-  installée, ou un conteneur Docker (`build-appimage.sh`). Il manque aussi une icône
-  `aetheria.png` (TODO dans le script).
+- `aetheria-linux-x64.tar.gz` — alternative portable (extraire, lancer `./Aetheria.Launcher`
+  ou directement `./Aetheria.Client`), pas de paquet système requis.
+- `Aetheria.AppDir/` — arborescence AppImage prête (Launcher + Client + `AppRun` + `.desktop`),
+  mais **pas de `.AppImage` généré pour l'instant** : contrairement au `.deb`, le format
+  AppImage a besoin de `mksquashfs`/`appimagetool` (vrais binaires Linux), qu'on ne peut pas
+  réimplémenter simplement en Python pur — nécessite une vraie machine Linux, WSL avec une
+  distribution installée, ou un conteneur Docker (`build-appimage.sh`). Il manque aussi une
+  icône `aetheria.png` (TODO dans le script).
 
-Régénérer le binaire Linux avant de packager :
+Régénérer les binaires Linux avant de packager (Launcher **et** Client — le Launcher est
+self-contained, il embarque le runtime .NET + SkiaSharp/HarfBuzzSharp d'Avalonia, aucune
+dépendance à installer sur la machine cible) :
 
 ```powershell
+dotnet publish Launcher/Aetheria.Launcher.csproj -c Release -r linux-x64 --self-contained true `
+    -o build/publish/launcher-linux-x64
 dotnet publish Client/Aetheria.Client.csproj -c Release -r linux-x64 --self-contained true `
     -o build/publish/client-linux-x64
+
+Copy-Item build/publish/launcher-linux-x64/* Sites/downloads/linux/aetheria-client-deb/opt/aetheria/ -Recurse -Force
 Copy-Item build/publish/client-linux-x64/Aetheria.Client, build/publish/client-linux-x64/libglfw.so.3 `
     Sites/downloads/linux/aetheria-client-deb/opt/aetheria/ -Force
 ```
-
-**Porter le Launcher vers une interface multiplateforme (Avalonia UI serait le choix le plus
-direct, même stack CommunityToolkit.Mvvm) pour un vrai support Linux avec connexion/inscription
-est un chantier séparé, non commencé.**
 
 ## Déploiement
 

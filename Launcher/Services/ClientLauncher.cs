@@ -4,18 +4,22 @@ using System.IO;
 namespace Aetheria.Launcher.Services;
 
 /// <summary>
-/// Localise et démarre Aetheria.Client.exe avec le jeton de session et le personnage choisi.
-/// En version packagée, Client.exe est attendu à côté de Launcher.exe (même dossier
-/// d'installation) ; en développement, on retombe sur l'arborescence de build du dépôt.
+/// Localise et démarre le Client avec le jeton de session et le personnage choisi. En version
+/// packagée, le Client est attendu à côté du Launcher (même dossier d'installation) ; en
+/// développement, on retombe sur l'arborescence de build du dépôt. Nom d'exécutable
+/// conditionnel à l'OS : "Aetheria.Client.exe" sous Windows, "Aetheria.Client" (sans extension)
+/// sous Linux — voir Sites/README.md, section "Paquet Linux".
 /// </summary>
 public static class ClientLauncher
 {
+    private static readonly string ClientExecutableName = OperatingSystem.IsWindows() ? "Aetheria.Client.exe" : "Aetheria.Client";
+
     public static bool TryLaunch(string sessionToken, string serverHost, out string? error)
     {
         var clientPath = ResolveClientExecutablePath();
         if (clientPath is null)
         {
-            error = "Aetheria.Client.exe introuvable. Compilez le Client (dotnet build Client/Aetheria.Client.csproj) avant de jouer.";
+            error = $"{ClientExecutableName} introuvable. Compilez le Client (dotnet build Client/Aetheria.Client.csproj) avant de jouer.";
             return false;
         }
 
@@ -40,8 +44,8 @@ public static class ClientLauncher
     {
         var launcherDirectory = AppContext.BaseDirectory;
 
-        // Version packagée : Client.exe à côté de Launcher.exe.
-        var sideBySide = Path.Combine(launcherDirectory, "Aetheria.Client.exe");
+        // Version packagée : Client à côté du Launcher.
+        var sideBySide = Path.Combine(launcherDirectory, ClientExecutableName);
         if (File.Exists(sideBySide))
         {
             return sideBySide;
@@ -50,7 +54,7 @@ public static class ClientLauncher
         // Développement : sortie de build du dépôt (voir Directory.Build.props — BaseOutputPath).
         // launcherDirectory = <repo>/build/bin/Aetheria.Launcher/Debug/net10.0/
         var devPath = Path.GetFullPath(Path.Combine(
-            launcherDirectory, "..", "..", "..", "Aetheria.Client", "Debug", "net10.0", "Aetheria.Client.exe"));
+            launcherDirectory, "..", "..", "..", "Aetheria.Client", "Debug", "net10.0", ClientExecutableName));
 
         return File.Exists(devPath) ? devPath : null;
     }

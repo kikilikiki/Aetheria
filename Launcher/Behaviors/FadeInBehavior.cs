@@ -1,50 +1,79 @@
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
+using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
+using Avalonia.Controls;
+using Avalonia.Media.Transformation;
+using Avalonia.Styling;
 
 namespace Aetheria.Launcher.Behaviors;
 
 /// <summary>
 /// Rejoue un fondu + léger glissement vers le haut à chaque passage en visible d'un élément — pas
-/// seulement au premier chargement de la fenêtre (l'événement Loaded ne se redéclenche pas quand
-/// Visibility repasse de Collapsed à Visible, un panneau superposé resterait donc figé/instantané
-/// sans ce comportement). Purement visuel : n'ajoute ni ne renomme aucun Binding/Command existant.
+/// seulement au premier affichage de la fenêtre (Avalonia n'a pas d'événement "Loaded" qui se
+/// redéclenche quand IsVisible repasse de false à true, un panneau superposé resterait donc figé/
+/// instantané sans ce comportement). Purement visuel : n'ajoute ni ne renomme aucun Binding/
+/// Command existant.
 /// </summary>
 public static class FadeInBehavior
 {
-    public static readonly DependencyProperty EnableProperty = DependencyProperty.RegisterAttached(
-        "Enable", typeof(bool), typeof(FadeInBehavior), new PropertyMetadata(false, OnEnableChanged));
+    public static readonly AttachedProperty<bool> EnableProperty =
+        AvaloniaProperty.RegisterAttached<Control, bool>("Enable", typeof(FadeInBehavior));
 
-    public static bool GetEnable(DependencyObject obj) => (bool)obj.GetValue(EnableProperty);
+    public static bool GetEnable(Control element) => element.GetValue(EnableProperty);
 
-    public static void SetEnable(DependencyObject obj, bool value) => obj.SetValue(EnableProperty, value);
+    public static void SetEnable(Control element, bool value) => element.SetValue(EnableProperty, value);
 
-    private static void OnEnableChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    static FadeInBehavior()
     {
-        if (d is not UIElement element || e.NewValue is not true)
-        {
-            return;
-        }
-
-        element.IsVisibleChanged += OnIsVisibleChanged;
+        EnableProperty.Changed.AddClassHandler<Control>(OnEnableChanged);
     }
 
-    private static void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private static void OnEnableChanged(Control element, AvaloniaPropertyChangedEventArgs e)
     {
-        if (sender is not UIElement element || e.NewValue is not true)
+        if (e.NewValue is not true)
         {
             return;
         }
 
-        var transform = new TranslateTransform(0, 16);
-        element.RenderTransform = transform;
-        element.Opacity = 0;
+        element.PropertyChanged += (sender, args) =>
+        {
+            if (sender is Control control && args.Property == Visual.IsVisibleProperty && args.NewValue is true)
+            {
+                _ = Animate(control);
+            }
+        };
+    }
 
-        var easing = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200)) { EasingFunction = easing };
-        var slide = new DoubleAnimation(16, 0, TimeSpan.FromMilliseconds(240)) { EasingFunction = easing };
+    private static Task Animate(Control element)
+    {
+        var animation = new Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(240),
+            Easing = new QuadraticEaseOut(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0d),
+                    Setters =
+                    {
+                        new Setter(Visual.OpacityProperty, 0d),
+                        new Setter(Visual.RenderTransformProperty, TransformOperations.Parse("translateY(16px)")),
+                    },
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1d),
+                    Setters =
+                    {
+                        new Setter(Visual.OpacityProperty, 1d),
+                        new Setter(Visual.RenderTransformProperty, TransformOperations.Parse("translateY(0px)")),
+                    },
+                },
+            },
+        };
 
-        element.BeginAnimation(UIElement.OpacityProperty, fade);
-        transform.BeginAnimation(TranslateTransform.YProperty, slide);
+        return animation.RunAsync(element);
     }
 }

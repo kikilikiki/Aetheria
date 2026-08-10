@@ -1,2 +1,5 @@
 #!/bin/sh
-exec /opt/aetheria/Aetheria.Client "$@"
+# Voir Sites/README.md — section "Paquet Linux" : lance le Launcher (compte, connexion, mise à
+# jour automatique), pas le Client directement — voir Aetheria.Client "$@" ci-dessous pour
+# contourner le Launcher (mode démo/jeton manuel, voir README-linux.txt).
+exec /opt/aetheria/Aetheria.Launcher "$@"
