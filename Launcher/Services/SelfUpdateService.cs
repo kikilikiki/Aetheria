@@ -157,8 +157,18 @@ public static class SelfUpdateService
             while ((Get-Process -Id {{currentProcessId}} -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
                 Start-Sleep -Milliseconds 250
             }
+            # Si le Launcher n'a pas quitte tout seul dans le delai (fenetre bloquee, arret lent,
+            # etc.), le tuer explicitement : sinon ses .exe/.dll restent verrouilles et robocopy
+            # (retry par defaut = 1 000 000 fois, 30s d'attente entre chaque) reste bloque
+            # indefiniment sur ces fichiers. L'utilisateur finit alors par fermer la fenetre a la
+            # main avant que la copie/relance n'ait eu lieu -> l'ancien .exe reste en place et
+            # redemande une mise a jour au prochain lancement (retour utilisateur - "un jour ca
+            # restart le launcher et on doit encore mettre a jour").
+            Stop-Process -Id {{currentProcessId}} -Force -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 500
-            robocopy "{{extractDir}}" "{{installDir}}" /MIR /NFL /NDL /NJH /NJS /NC /NS
+            # /R:5 /W:1 : borne les tentatives sur un fichier encore verrouille (ex. antivirus) a
+            # quelques secondes au lieu du comportement par defaut de robocopy (des heures).
+            robocopy "{{extractDir}}" "{{installDir}}" /MIR /NFL /NDL /NJH /NJS /NC /NS /R:5 /W:1
             Start-Process -FilePath "{{launcherExePath}}"
             Remove-Item -Recurse -Force "{{stagingRoot}}"
             """;
@@ -183,6 +193,11 @@ public static class SelfUpdateService
             while kill -0 {{currentProcessId}} 2>/dev/null && [ "$(date +%s)" -lt "$deadline" ]; do
                 sleep 0.25
             done
+            # Meme raisonnement que PrepareWindowsScript : si le processus traine encore apres le
+            # delai, le tuer plutot que de risquer un rm -rf/cp -a partiel sur des fichiers encore
+            # ouverts, ce qui laisserait l'ancienne version en place et redemanderait une mise a
+            # jour au prochain lancement.
+            kill -9 {{currentProcessId}} 2>/dev/null || true
             sleep 0.5
             rm -rf "{{installDir}}"/*
             cp -a "{{extractDir}}"/. "{{installDir}}"/
