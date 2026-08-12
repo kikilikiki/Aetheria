@@ -185,6 +185,16 @@ public sealed partial class MainViewModel : ObservableObject
         {
             new()
             {
+                Title = "Le Launcher arrive sur Linux",
+                ShortDescription = "Compte, connexion et mise à jour automatique désormais disponibles sur Linux (.deb/.tar.gz).",
+                FullContent = "Le Launcher (création de compte, connexion, mise à jour automatique) est désormais " +
+                    "disponible sur Linux en plus de Windows, et non plus seulement le Client seul en mode démo. " +
+                    "Il est distribué avec le Client dans les mêmes paquets .deb et .tar.gz : lancez simplement " +
+                    "\"aetheria\" pour démarrer le Launcher, qui lance ensuite le jeu à côté de lui.",
+                PublishedAtUtc = new DateTime(2026, 8, 12, 2, 30, 0, DateTimeKind.Utc),
+            },
+            new()
+            {
                 Title = "Grosse mise à jour : économie, guerres de royaumes et plus",
                 ShortDescription = "Gemmes, grades, boosts, guerre de royaumes en direct, starters, duel PvP en équipe et bien plus.",
                 FullContent = "Une vague de mises à jour vient d'arriver : une économie premium avec gemmes, grades " +
