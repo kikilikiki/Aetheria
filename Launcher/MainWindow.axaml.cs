@@ -5,7 +5,7 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Media.Transformation;
+using Avalonia.Media;
 using Avalonia.Styling;
 
 namespace Aetheria.Launcher;
@@ -59,7 +59,29 @@ public partial class MainWindow : Window
     {
         await Task.Delay(delayMs);
 
-        var animation = new Animation
+        // RenderTransform est de type ITransform côté propriété Avalonia : aucun animateur n'est
+        // enregistré pour ce type (même si TransformOperations.Parse produit une valeur valide en
+        // usage statique) — animer Visual.RenderTransformProperty directement lève
+        // "No animator registered for the property RenderTransform" (crash silencieux au
+        // démarrage, cette Task étant fire-and-forget, voir retour utilisateur - "erreur sur le
+        // launcher" après la 0.3.1). On anime donc un TranslateTransform dédié (X/Y, double,
+        // animés nativement) assigné au RenderTransform plutôt que la propriété elle-même.
+        var transform = new TranslateTransform();
+        target.RenderTransform = transform;
+
+        var opacityAnimation = new Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            Easing = new QuadraticEaseOut(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame { Cue = new Cue(0d), Setters = { new Setter(Visual.OpacityProperty, 0d) } },
+                new KeyFrame { Cue = new Cue(1d), Setters = { new Setter(Visual.OpacityProperty, 1d) } },
+            },
+        };
+
+        var translateAnimation = new Animation
         {
             Duration = TimeSpan.FromMilliseconds(durationMs),
             Easing = new QuadraticEaseOut(),
@@ -69,24 +91,16 @@ public partial class MainWindow : Window
                 new KeyFrame
                 {
                     Cue = new Cue(0d),
-                    Setters =
-                    {
-                        new Setter(Visual.OpacityProperty, 0d),
-                        new Setter(Visual.RenderTransformProperty, TransformOperations.Parse($"translate({fromX.ToString(System.Globalization.CultureInfo.InvariantCulture)}px,{fromY.ToString(System.Globalization.CultureInfo.InvariantCulture)}px)")),
-                    },
+                    Setters = { new Setter(TranslateTransform.XProperty, fromX), new Setter(TranslateTransform.YProperty, fromY) },
                 },
                 new KeyFrame
                 {
                     Cue = new Cue(1d),
-                    Setters =
-                    {
-                        new Setter(Visual.OpacityProperty, 1d),
-                        new Setter(Visual.RenderTransformProperty, TransformOperations.Parse("translate(0px,0px)")),
-                    },
+                    Setters = { new Setter(TranslateTransform.XProperty, 0d), new Setter(TranslateTransform.YProperty, 0d) },
                 },
             },
         };
 
-        await animation.RunAsync(target);
+        await Task.WhenAll(opacityAnimation.RunAsync(target), translateAnimation.RunAsync(transform));
     }
 }
