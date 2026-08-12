@@ -330,13 +330,25 @@
              plus bas) — équivalent Avalonia idiomatique du DataTrigger.EnterActions/ExitActions
              + BeginStoryboard/StopStoryboard nommé de la version WPF. -->
         <Style Selector="Ellipse.pulse">
+            <!-- RenderTransform est de type ITransform (interface) côté propriété Avalonia : pas
+                 d'animateur enregistré pour ce type, même si la valeur "scale(x)" se convertit
+                 correctement en usage statique (crash "No animator registered for the property
+                 RenderTransform" au démarrage sinon, voir retour utilisateur - "erreur sur le
+                 launcher" après la 0.3.1). Il faut fixer un ScaleTransform concret puis animer
+                 ses sous-propriétés ScaleX/ScaleY (double, animées nativement) via la syntaxe
+                 "(ScaleTransform.ScaleX)" - pattern documenté par Avalonia lui-même. -->
+            <Setter Property="RenderTransform">
+                <ScaleTransform />
+            </Setter>
             <Style.Animations>
                 <Animation Duration="0:0:0.9" IterationCount="Infinite" PlaybackDirection="Alternate">
                     <KeyFrame Cue="0%">
-                        <Setter Property="RenderTransform" Value="scale(1)" />
+                        <Setter Property="(ScaleTransform.ScaleX)" Value="1" />
+                        <Setter Property="(ScaleTransform.ScaleY)" Value="1" />
                     </KeyFrame>
                     <KeyFrame Cue="100%">
-                        <Setter Property="RenderTransform" Value="scale(1.5)" />
+                        <Setter Property="(ScaleTransform.ScaleX)" Value="1.5" />
+                        <Setter Property="(ScaleTransform.ScaleY)" Value="1.5" />
                     </KeyFrame>
                 </Animation>
             </Style.Animations>

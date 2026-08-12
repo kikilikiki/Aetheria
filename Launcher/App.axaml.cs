@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace Aetheria.Launcher;
 
@@ -38,6 +39,17 @@ public partial class App : Application
     {
         if (ex is null)
         {
+            return;
+        }
+
+        // TaskScheduler.UnobservedTaskException se déclenche sur le thread du finaliseur GC (pas
+        // le thread UI) : construire des contrôles Avalonia (Button/Window ci-dessous) depuis ce
+        // thread lève "Call from invalid thread" et fait planter le processus — cette fenêtre
+        // d'erreur censée être un filet de sécurité devenait elle-même la cause du crash. Il faut
+        // donc systématiquement rebasculer sur le thread UI avant de construire quoi que ce soit.
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => ShowFatalError(ex));
             return;
         }
 
