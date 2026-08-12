@@ -4,5 +4,12 @@
              RequestedThemeVariant="Dark">
   <Application.Styles>
     <FluentTheme />
+    <!-- FluentTheme seul ne stylise pas Avalonia.Controls.DataGrid (paquet NuGet séparé,
+         voir Aetheria.Launcher.csproj) : sans ce StyleInclude, les DataGrid (liste communauté du
+         panneau admin, signalements de joueurs) n'ont aucun template de ligne/colonne et
+         s'affichent vides même quand leurs données sont bien chargées - retour utilisateur,
+         "on a pas les user dans la liste de la communauté dans une page admin". Bug introduit
+         par le portage WPF -> Avalonia (H130). -->
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
   </Application.Styles>
 </Application>
