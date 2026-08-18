@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using Aetheria.Launcher.Models;
@@ -137,12 +138,48 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<NewsItem> AllNews { get; } = [];
 
+    /// <summary>
+    /// Nettoie l'adresse serveur tapée/persistée : le code construit toujours l'URL sous la
+    /// forme "http://{ServerHost}:{port}" (voir <see cref="GameInfo.DefaultAccountApiPort"/>) —
+    /// si l'utilisateur colle une adresse qui contient déjà un schéma ou un port (ex.
+    /// "192.168.1.12:7777", le port TCP du jeu plutôt que celui de l'API), l'URL obtenue a deux
+    /// ports et <see cref="Uri"/> lève "Invalid URI: Invalid port specified" dans le constructeur
+    /// de <see cref="Services.AccountApiClient"/> — non rattrapable puisqu'il s'exécute avant que
+    /// la fenêtre (et donc le filet de sécurité <c>App.ShowFatalError</c>) n'existe, ce qui
+    /// empêchait le Launcher de démarrer tant que le fichier settings.json n'était pas corrigé à
+    /// la main (voir retour utilisateur - "erreur au lancement du launcher" après avoir modifié
+    /// l'adresse du serveur dans les Paramètres).
+    /// </summary>
+    private static string NormalizeHost(string host)
+    {
+        host = host.Trim();
+
+        if (host.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            host = host["http://".Length..];
+        }
+        else if (host.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            host = host["https://".Length..];
+        }
+
+        host = host.TrimEnd('/');
+
+        var colonIndex = host.LastIndexOf(':');
+        if (colonIndex > 0 && host[(colonIndex + 1)..].Length > 0 && host[(colonIndex + 1)..].All(char.IsDigit))
+        {
+            host = host[..colonIndex];
+        }
+
+        return host;
+    }
+
     public MainViewModel()
     {
         var settings = GameSettings.Load();
         _keyboardLayoutPreference = settings.KeyboardLayout;
         _languagePreference = settings.Language;
-        _serverHost = settings.ServerHost;
+        _serverHost = NormalizeHost(settings.ServerHost);
         _accountApi = new AccountApiClient($"http://{_serverHost}:{GameInfo.DefaultAccountApiPort}");
 
         _ = CheckServerStatusAsync();
@@ -418,6 +455,16 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     partial void OnServerHostChanged(string value)
     {
+        var normalized = NormalizeHost(value);
+        if (normalized != value)
+        {
+            // Réécrit le champ avec la valeur nettoyée (voir NormalizeHost) : évite de repartir
+            // en boucle infinie (le setter généré ignore une valeur identique) tout en corrigeant
+            // ce que l'utilisateur voit à l'écran, pas seulement ce qui est utilisé/persisté.
+            ServerHost = normalized;
+            return;
+        }
+
         var settings = GameSettings.Load();
         settings.ServerHost = value;
         settings.Save();
