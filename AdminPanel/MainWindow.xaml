@@ -8,6 +8,10 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+        <local:AvatarUrlToBitmapConverter x:Key="AvatarBitmapConverter" />
+        <local:StringNotEmptyToVisibilityConverter x:Key="StringNotEmptyToVisibility" />
+        <local:UsernameToAvatarColorConverter x:Key="AvatarColorConverter" />
+        <local:UsernameToInitialConverter x:Key="AvatarInitialConverter" />
     </Window.Resources>
 
     <Grid Margin="16">
@@ -69,6 +73,25 @@
                 <DataGrid ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser}"
                           AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
                     <DataGrid.Columns>
+                        <!-- Voir Docs/Idees.md — vraie image de profil : pastille couleur+initiale en
+                             repli, remplacée par la vraie image dès qu'AvatarUrl est renseigné. -->
+                        <DataGridTemplateColumn Header="" Width="34">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Grid Width="24" Height="24">
+                                        <Ellipse Fill="{Binding Username, Converter={StaticResource AvatarColorConverter}}" />
+                                        <TextBlock Text="{Binding Username, Converter={StaticResource AvatarInitialConverter}}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   FontSize="11" FontWeight="Bold" Foreground="White" />
+                                        <Ellipse Visibility="{Binding AvatarUrl, Converter={StaticResource StringNotEmptyToVisibility}}">
+                                            <Ellipse.Fill>
+                                                <ImageBrush ImageSource="{Binding AvatarUrl, Converter={StaticResource AvatarBitmapConverter}}" Stretch="UniformToFill" />
+                                            </Ellipse.Fill>
+                                        </Ellipse>
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                         <DataGridTextColumn Header="Pseudo" Binding="{Binding Username}" Width="140" />
                         <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="180" />
                         <DataGridTextColumn Header="Personnages" Binding="{Binding CharacterCount}" Width="90" />

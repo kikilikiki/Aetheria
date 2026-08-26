@@ -18,6 +18,9 @@ public sealed class CharacterEntity
     public long Experience { get; set; }
     public long Gold { get; set; }
 
+    /// <summary>Voir Docs/Idees.md — "PvP sauvage" : réputation militaire, gagnée en combattant en zone à risque (voir WildPvpQueueService), détermine le grade militaire affiché (voir MilitaryRankCatalog). Ne baisse jamais (pas de perte sur défaite), comme BestRank pour les titres PvP.</summary>
+    public int MilitaryReputation { get; set; }
+
     // Apparence (voir GDD — création de personnage en jeu) : indices dans de petites palettes
     // fixes côté Client plutôt que des couleurs libres, pour rester cohérent avec le rendu par
     // quads colorés du moteur (pas de sprite/texture de personnage — voir Docs/README.md).

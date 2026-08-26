@@ -286,6 +286,15 @@ Task<List<RecipeSummary>>? questRecipeTask = null;
 // expliquent le jeu" et "une histoire avec des dialogues cohérents".
 QuestSummary? activeStoryQuest = null;
 
+// Voir Docs/Idees.md — "Embranchements/choix dans la chaîne de quêtes tutoriel" : les deux
+// options s'affichent comme deux lignes cliquables dans le panneau de quête existant (voir
+// DrawQuestPanel) quand activeStoryQuest.IsChoice est vrai.
+int? questChoiceOptionAId = null;
+string? questChoiceOptionAName = null;
+int? questChoiceOptionBId = null;
+string? questChoiceOptionBName = null;
+Task? questChoiceTask = null;
+
 /// <summary>Voir GDD/demande utilisateur — masquage explicite du panneau de quête par le joueur (touche Q), distinct de "rien à afficher" — voir <see cref="ToggleQuestPanel"/>.</summary>
 var isQuestPanelHidden = false;
 
@@ -452,6 +461,10 @@ List<MountKind> ownedMountKinds = [];
 Task<List<MountKind>>? islandEligibilityTask = null;
 string? islandVisitMessage = null;
 Task<string?>? islandVisitTask = null;
+MountKind? pendingIslandKind = null;
+
+/// <summary>Voir Docs/Idees.md — vraie géographie île volante/aquatique : royaume à retrouver au bâtiment "Retour" de l'île, <c>null</c> tant qu'on n'est pas sur une île.</summary>
+KingdomType? islandReturnKingdom = null;
 
 // Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour rentrer" : le
 // portail du royaume n'ouvrait auparavant TOUJOURS que le donjon dont le nom correspond au biome
@@ -772,6 +785,17 @@ var monsterDetailOpen = false;
 
 /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : voir MonsterProgressionService.MaxLevel côté serveur (150, dupliqué ici — champ de service, pas exposé au Client).</summary>
 const int MonsterMaxLevel = 150;
+
+// Voir Docs/Idees.md — Arbre de talents (touche Y depuis le détail d'une créature, voir
+// monsterDetailOpen). Un seul arbre partagé (voir TalentTreeCatalog), affiché en liste plutôt
+// qu'en graphe de nœuds (pas de canvas libre côté moteur maison, cohérent avec les autres
+// panneaux du Client).
+Guid? talentMonsterId = null;
+var talentCursor = 0;
+Task<MonsterTalentStatus?>? talentLoadTask = null;
+MonsterTalentStatus? talentStatus = null;
+Task<MonsterTalentStatus?>? talentUnlockTask = null;
+string? talentMessage = null;
 Task<MonsterInstanceData?>? monsterPrestigeTask = null;
 
 /// <summary>Voir GDD/demande utilisateur — "Encyclopédie complète" et "Collections" : parcourt <see cref="speciesById"/> (déjà chargé), "connue" si le personnage possède/a possédé au moins une créature de cette espèce (voir ownedMonsters — approximation "actuellement possédée", pas un historique permanent).</summary>
@@ -826,6 +850,19 @@ Task<ArenaQueueStatus?>? warPollTask = null;
 Task<CombatSessionState?>? warMatchStateTask = null;
 List<KingdomWarStanding> warStandings = [];
 Task<List<KingdomWarStanding>>? warStandingsTask = null;
+
+// Voir Docs/Idees.md — "PvP sauvage" : zones à risque + réputation militaire. Même mécanique de
+// file d'attente sondée que la Guerre de royaumes ci-dessus, mais accessible depuis le HUD (pas
+// une salle dédiée — la zone à risque, pas un bâtiment, est la condition d'accès, vérifiée
+// côté serveur via la position réelle du joueur). Voir PanelKind.WildPvp.
+var wildPvpReady = false;
+var wildPvpPollClock = 0f;
+string? wildPvpMessage = null;
+Task<(bool Success, string? Error)>? wildPvpQueueTask = null;
+Task<ArenaQueueStatus?>? wildPvpPollTask = null;
+Task<CombatSessionState?>? wildPvpMatchStateTask = null;
+MilitaryReputationStatus? wildPvpReputationStatus = null;
+Task<MilitaryReputationStatus?>? wildPvpReputationTask = null;
 
 // Voir GDD/demande utilisateur — "classement de team (le meilleur de la team ombre etc), visible
 // seulement si on est dans la même équipe" : royaume résolu côté serveur, jamais choisi par ce
@@ -1524,6 +1561,11 @@ host.Update += deltaTime =>
             case InteractionKind.Npc:
                 activeDialogueNpc = interaction.Npc;
                 dialogueLineIndex = 0;
+                break;
+            case InteractionKind.Building when interaction.Building!.Name == "Retour" && islandReturnKingdom is not null:
+                // Voir Docs/Idees.md — vraie géographie île volante/aquatique : seul bâtiment de
+                // l'île, ramène directement au royaume quitté (voir EnterIsland/LeaveIsland).
+                LeaveIsland();
                 break;
             case InteractionKind.Building when interaction.Building!.Name == "Téléporteur":
                 // Voir GDD/demande utilisateur — "un téléporteur pour se déplacer de ville en
@@ -2838,6 +2880,115 @@ void DrawProfessionsPanel(int w, int h)
     }
 
     DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Voir Docs/Idees.md — "Arbre de talents/compétences général" : ouvert depuis le détail d'une
+/// créature (touche Y, voir monsterDetailOpen). Un seul arbre partagé par toutes les créatures
+/// (voir TalentTreeCatalog), affiché en liste plutôt qu'en graphe de nœuds — pas de canvas libre
+/// côté moteur maison, cohérent avec les autres panneaux du Client.
+/// </summary>
+void UpdateTalentsPanel()
+{
+    if (talentLoadTask is { IsCompleted: true } loadTask)
+    {
+        talentStatus = loadTask.IsFaulted ? null : loadTask.Result;
+        talentCursor = Math.Clamp(talentCursor, 0, TalentTreeCatalog.Nodes.Count - 1);
+        talentLoadTask = null;
+    }
+
+    if (talentUnlockTask is { IsCompleted: true } unlockTask)
+    {
+        if (!unlockTask.IsFaulted && unlockTask.Result is { } updated)
+        {
+            talentStatus = updated;
+            talentMessage = null;
+        }
+        else
+        {
+            talentMessage = "Déblocage impossible (prérequis manquants ou pas assez de points).";
+        }
+
+        talentUnlockTask = null;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+        return;
+    }
+
+    if (talentLoadTask is not null || talentUnlockTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Down)) talentCursor = Math.Min(talentCursor + 1, TalentTreeCatalog.Nodes.Count - 1);
+    else if (keyboard.WasJustPressed(Key.Up)) talentCursor = Math.Max(talentCursor - 1, 0);
+    talentCursor = ApplyScrollWheel(talentCursor, TalentTreeCatalog.Nodes.Count);
+
+    if (keyboard.WasJustPressed(Key.Enter) && talentMonsterId is not null && options.SessionToken is not null && gameDataApi is not null)
+    {
+        talentMessage = null;
+        talentUnlockTask = gameDataApi.UnlockMonsterTalentAsync(options.SessionToken, talentMonsterId.Value, TalentTreeCatalog.Nodes[talentCursor].Key);
+    }
+}
+
+void DrawTalentsPanel(int w, int h)
+{
+    const float boxWidth = 560f;
+    const float boxHeight = 500f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.07f, 0.1f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.65f, 0.5f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "ARBRE DE TALENTS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.62f, 0.95f, 1f));
+
+    if (talentLoadTask is not null || talentStatus is null)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + 160f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        return;
+    }
+
+    DrawTextCentered(spriteBatch, whiteTexture, $"Points disponibles : {talentStatus.TalentPoints}",
+        new Vector2(w / 2f, topLeft.Y + 54f), 1.7f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+
+    var unlocked = talentStatus.UnlockedNodeKeys.ToHashSet();
+    var y = topLeft.Y + 82f;
+    for (var i = 0; i < TalentTreeCatalog.Nodes.Count; i++)
+    {
+        var node = TalentTreeCatalog.Nodes[i];
+        var isUnlocked = unlocked.Contains(node.Key);
+        var missingRequirements = node.Requires.Where(r => !unlocked.Contains(r)).ToList();
+        var isAvailable = !isUnlocked && missingRequirements.Count == 0 && talentStatus.TalentPoints > 0;
+        var selected = i == talentCursor;
+
+        var statusTag = isUnlocked ? "[DEBLOQUE]" : isAvailable ? "[DISPONIBLE]" : "[VERROUILLE]";
+        var color = isUnlocked ? new Vector4(0.5f, 0.9f, 0.55f, 1f)
+            : isAvailable ? new Vector4(0.9f, 0.8f, 0.4f, 1f)
+            : new Vector4(0.6f, 0.6f, 0.65f, 1f);
+        if (selected)
+        {
+            DrawPanel(new Vector2(topLeft.X + 12f, y - 4f), new Vector2(boxWidth - 24f, 40f), new Vector4(1f, 1f, 1f, 0.06f));
+        }
+
+        DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}{node.Name} {statusTag}", new Vector2(topLeft.X + 24f, y), 1.6f, selected ? Vector4.One : color);
+        y += 20f;
+        var requirementText = missingRequirements.Count > 0
+            ? $" (requiert : {string.Join(", ", missingRequirements.Select(r => TalentTreeCatalog.Find(r)?.Name ?? r))})"
+            : "";
+        DrawText(spriteBatch, whiteTexture, $"   {node.Description}{requirementText}", new Vector2(topLeft.X + 24f, y), 1.25f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+        y += 24f;
+    }
+
+    if (talentMessage is not null)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, talentMessage, new Vector2(w / 2f, topLeft.Y + boxHeight - 42f), 1.5f, new Vector4(0.9f, 0.5f, 0.45f, 1f));
+    }
+
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : parcourir - ENTREE : debloquer - ECHAP : FERMER",
+        new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.7f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 /// <summary>
@@ -4461,6 +4612,18 @@ void UpdateTeleportPanel()
     {
         islandVisitMessage = visitTask.IsFaulted ? "Deplacement impossible." : visitTask.Result;
         islandVisitTask = null;
+
+        // Voir Docs/Idees.md — vraie géographie : la condition d'accès (monture requise) reste
+        // vérifiée côté serveur (visitTask.Result non-null seulement si elle est remplie) ; une
+        // fois validée, bascule vers une vraie petite carte d'île plutôt que d'en rester au
+        // message de succès seul.
+        if (!visitTask.IsFaulted && visitTask.Result is not null && pendingIslandKind is { } kind)
+        {
+            EnterIsland(kind);
+            isTeleportPanelOpen = false;
+        }
+
+        pendingIslandKind = null;
         return;
     }
 
@@ -4491,6 +4654,7 @@ void UpdateTeleportPanel()
         else if (chosen.Island is { } island)
         {
             islandVisitMessage = null;
+            pendingIslandKind = island;
             islandVisitTask = gameDataApi!.VisitIslandAsync(options.SessionToken!, chosenCharacterId!.Value, island);
         }
     }
@@ -4916,6 +5080,156 @@ void DrawWarRoomPanel(int w, int h)
     }
 
     var footer = warReady ? "ECHAP : ANNULER" : "ENTREE : PRET - ECHAP : FERMER";
+    DrawTextCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Voir Docs/Idees.md — "PvP sauvage" : file d'attente (pas d'attaque directe/embuscade, pour
+/// éviter le grief sans système de consentement) déclenchée quand le joueur se trouve en zone à
+/// risque (voir <c>IsInWildPvpRiskZone</c> côté serveur) ; une victoire octroie un point de
+/// réputation militaire, affiché ici avec le grade correspondant.
+/// </summary>
+void UpdateWildPvpPanel(float deltaTime)
+{
+    if (wildPvpMatchStateTask is { IsCompleted: true } stateTask)
+    {
+        var state = stateTask.IsFaulted ? null : stateTask.Result;
+        wildPvpMatchStateTask = null;
+
+        if (state is not null)
+        {
+            ApplyCombatState(state);
+            combatSelectedAction = null;
+            combatMessage = null;
+            combatReturnScene = SceneMode.Outdoor;
+            wildPvpReady = false;
+            activePanel = PanelKind.None;
+            combatVictoryQuestFired = false;
+            sceneMode = SceneMode.Combat;
+        }
+        else
+        {
+            wildPvpMessage = "Impossible de récupérer le combat appairé.";
+        }
+
+        return;
+    }
+
+    if (wildPvpPollTask is { IsCompleted: true } pollTask)
+    {
+        var status = pollTask.IsFaulted ? null : pollTask.Result;
+        wildPvpPollTask = null;
+
+        if (status is { IsMatched: true, CombatId: { } combatId })
+        {
+            wildPvpMatchStateTask = combatApi!.GetStateAsync(combatId);
+        }
+
+        return;
+    }
+
+    if (wildPvpQueueTask is { IsCompleted: true } queueTask)
+    {
+        var result = queueTask.IsFaulted ? (Success: false, Error: (string?)"Connexion au serveur impossible.") : queueTask.Result;
+        wildPvpReady = result.Success;
+        wildPvpMessage = result.Success ? null : result.Error ?? "Impossible de rejoindre la file.";
+        wildPvpQueueTask = null;
+        return;
+    }
+
+    if (wildPvpReputationTask is { IsCompleted: true } reputationTask)
+    {
+        wildPvpReputationStatus = reputationTask.IsFaulted ? null : reputationTask.Result;
+        wildPvpReputationTask = null;
+        return;
+    }
+
+    if (wildPvpQueueTask is not null || wildPvpPollTask is not null || wildPvpMatchStateTask is not null)
+    {
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        if (wildPvpReady)
+        {
+            wildPvpReady = false;
+            wildPvpMessage = null;
+            _ = combatApi!.CancelWildPvpQueueAsync(chosenCharacterId!.Value);
+        }
+        else
+        {
+            activePanel = PanelKind.None;
+        }
+
+        return;
+    }
+
+    if (wildPvpReady)
+    {
+        wildPvpPollClock += deltaTime;
+        if (wildPvpPollClock >= 1.5f)
+        {
+            wildPvpPollClock = 0f;
+            wildPvpPollTask = combatApi!.GetWildPvpQueueStatusAsync(chosenCharacterId!.Value);
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Enter) && chosenCharacterId is not null && options.SessionToken is not null && combatApi is not null)
+    {
+        wildPvpMessage = null;
+        wildPvpPollClock = 0f;
+        wildPvpQueueTask = combatApi.QueueForWildPvpAsync(options.SessionToken, chosenCharacterId.Value);
+    }
+}
+
+void DrawWildPvpPanel(int w, int h)
+{
+    const float boxWidth = 480f;
+    const float boxHeight = 320f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.06f, 0.04f, 0.95f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.85f, 0.45f, 0.2f, 1f));
+
+    DrawTextCentered(spriteBatch, whiteTexture, "PVP SAUVAGE", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.95f, 0.65f, 0.45f, 1f));
+
+    if (wildPvpReady)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, "PRET", new Vector2(w / 2f, topLeft.Y + 90f), 2.4f, new Vector4(0.9f, 0.8f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "RECHERCHE D'UN ADVERSAIRE...", new Vector2(w / 2f, topLeft.Y + 124f), 1.9f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+    }
+    else
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, "Affrontez un joueur croisé en zone a risque.", new Vector2(w / 2f, topLeft.Y + 90f), 1.7f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "Une victoire rapporte un point de reputation militaire.", new Vector2(w / 2f, topLeft.Y + 114f), 1.5f, new Vector4(0.8f, 0.8f, 0.85f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, "Zone a risque : loin de la capitale (voir la carte).", new Vector2(w / 2f, topLeft.Y + 136f), 1.4f, new Vector4(0.75f, 0.7f, 0.65f, 1f));
+    }
+
+    if (wildPvpMessage is { Length: > 0 })
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, wildPvpMessage.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 160f), 1.6f, new Vector4(0.95f, 0.6f, 0.5f, 1f));
+    }
+
+    var y = topLeft.Y + 200f;
+    DrawTextCentered(spriteBatch, whiteTexture, "REPUTATION MILITAIRE", new Vector2(w / 2f, y), 1.8f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+    y += 30f;
+    if (wildPvpReputationTask is not null)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, y), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+    else if (wildPvpReputationStatus is { } reputation)
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, $"{reputation.Rank.ToUpperInvariant()} — {reputation.Reputation} pts", new Vector2(w / 2f, y), 1.8f, new Vector4(0.95f, 0.8f, 0.4f, 1f));
+    }
+    else
+    {
+        DrawTextCentered(spriteBatch, whiteTexture, "Indisponible.", new Vector2(w / 2f, y), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    }
+
+    var footer = wildPvpReady ? "ECHAP : ANNULER" : "ENTREE : PRET - ECHAP : FERMER";
     DrawTextCentered(spriteBatch, whiteTexture, footer, new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
@@ -5428,7 +5742,41 @@ void RebuildWorldMapForKingdom(KingdomType kingdom)
     lock (stateLock)
     {
         gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
+        serverConfirmedPosition = gridPosition;
     }
+
+    // Voir Docs/Idees.md — bug trouvé en implémentant la validation serveur de portée
+    // (PlayerSession.HandlePlayerMove) : cette fonction ne notifiait jusqu'ici jamais le serveur
+    // du saut de position (voyage entre royaumes/île), qui restait donc calé sur l'ancienne
+    // position — invisible tant que le serveur acceptait n'importe quel PlayerMove sans
+    // vérification, mais aurait fait rejeter le PREMIER déplacement suivant une fois la
+    // validation de portée ajoutée (ni adjacent à l'ancienne position, ni égal au point d'arrivée
+    // exact du Téléporteur pour une île). Accepté côté serveur via la même exception que le
+    // Téléporteur (CapitalSpawnPoint) puisque WorldMap.SpawnPosition est calculé avec la même
+    // formule — voir TownLayout.BuildingCells.
+    connection?.SendMove(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
+}
+
+/// <summary>Voir Docs/Idees.md — vraie géographie île volante/aquatique, voir bâtiment "Retour" (WorldMap constructeur MountKind) pour le trajet inverse.</summary>
+void EnterIsland(MountKind kind)
+{
+    islandReturnKingdom = currentKingdom;
+    worldMap = new WorldMap(size: 50, islandKind: kind);
+    lock (stateLock)
+    {
+        gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
+        serverConfirmedPosition = gridPosition;
+    }
+
+    connection?.SendMove(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
+}
+
+void LeaveIsland()
+{
+    var kingdom = islandReturnKingdom ?? currentKingdom;
+    islandReturnKingdom = null;
+    RebuildWorldMapForKingdom(kingdom);
+    _ = RefreshDungeonPositionAsync();
 }
 
 void ConnectAndEnterWorld(Guid characterId)
@@ -5649,12 +5997,57 @@ void RefreshStoryQuestPanel()
         // en plusieurs lignes distinctes plutôt qu'un seul \n interne (dont la hauteur ne serait
         // pas comptée par l'espacement ligne par ligne du panneau).
         questLines = [.. WrapTextToLines(quest.Description, 300f, 1.5f), "", "Q OU CLIC POUR MASQUER"];
+
+        // Voir Docs/Idees.md — "Embranchements/choix dans la chaîne de quêtes tutoriel" : deux
+        // options cliquables affichées à la place du rappel Q/masquer tant que le choix n'est pas fait.
+        if (quest.IsChoice)
+        {
+            questChoiceOptionAId = quest.ChoiceOptionAId;
+            questChoiceOptionAName = quest.ChoiceOptionAName;
+            questChoiceOptionBId = quest.ChoiceOptionBId;
+            questChoiceOptionBName = quest.ChoiceOptionBName;
+            questLines = [.. WrapTextToLines(quest.Description, 300f, 1.5f)];
+        }
+        else
+        {
+            questChoiceOptionAId = null;
+            questChoiceOptionBId = null;
+        }
     }
     else
     {
         questTitle = null;
         questLines = [];
+        questChoiceOptionAId = null;
+        questChoiceOptionBId = null;
     }
+}
+
+/// <summary>Voir Docs/Idees.md — embranchement de quête : envoie le choix du joueur puis rafraîchit le panneau.</summary>
+async Task ChooseQuestOptionAsync(int chosenQuestId)
+{
+    if (gameDataApi is null || chosenCharacterId is null || options.SessionToken is null || questChoiceTask is not null)
+    {
+        return;
+    }
+
+    async Task RunAsync()
+    {
+        try
+        {
+            await gameDataApi.ChooseQuestAsync(options.SessionToken, chosenCharacterId.Value, chosenQuestId);
+            await RefreshActiveQuestAsync();
+        }
+        catch (HttpRequestException)
+        {
+        }
+        finally
+        {
+            questChoiceTask = null;
+        }
+    }
+
+    questChoiceTask = RunAsync();
 }
 
 /// <summary>Découpe un texte en lignes qui tiennent dans <paramref name="maxWidth"/> (voir GDD/demande utilisateur — "le texte dépasse de l'UI"), mot par mot plutôt que caractère par caractère pour rester lisible.</summary>
@@ -6583,6 +6976,19 @@ void OpenPanel(PanelKind kind)
             professionRows = [];
             professionLoadTask = chosenCharacterId is null ? null : gameDataApi?.GetProfessionsAsync(chosenCharacterId.Value);
             break;
+        case PanelKind.Talents:
+            talentCursor = 0;
+            talentMessage = null;
+            talentLoadTask = talentMonsterId is null || options.SessionToken is null
+                ? null
+                : gameDataApi?.GetMonsterTalentsAsync(options.SessionToken, talentMonsterId.Value);
+            break;
+        case PanelKind.WildPvp:
+            wildPvpReady = false;
+            wildPvpMessage = null;
+            wildPvpReputationStatus = null;
+            wildPvpReputationTask = chosenCharacterId is null ? null : combatApi?.GetMilitaryReputationAsync(chosenCharacterId.Value);
+            break;
         case PanelKind.BattlePass:
             battlePassMessage = null;
             battlePassStatus = null;
@@ -7470,6 +7876,16 @@ void UpdateMonstersPanel()
             monsterMessage = null;
             monsterPrestigeTask = gameDataApi.PrestigeMonsterAsync(options.SessionToken!, chosenCharacterId.Value, monster.Id);
         }
+        else if (keyboard.WasJustPressed(Key.Y) && ownedMonsters.Count > 0)
+        {
+            // Voir Docs/Idees.md — Arbre de talents, ouvert depuis le détail d'une créature.
+            talentMonsterId = ownedMonsters[Math.Clamp(monsterCursor, 0, ownedMonsters.Count - 1)].Id;
+            talentCursor = 0;
+            talentStatus = null;
+            talentMessage = null;
+            monsterDetailOpen = false;
+            OpenPanel(PanelKind.Talents);
+        }
 
         return;
     }
@@ -7918,6 +8334,18 @@ void UpdatePanel(float deltaTime)
         return;
     }
 
+    if (activePanel == PanelKind.Talents)
+    {
+        UpdateTalentsPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.WildPvp)
+    {
+        UpdateWildPvpPanel(deltaTime);
+        return;
+    }
+
     if (activePanel == PanelKind.BattlePass)
     {
         UpdateBattlePassPanel();
@@ -8007,6 +8435,9 @@ void UpdatePanel(float deltaTime)
 
             // Voir GDD/demande utilisateur — quête 5 "Les rouages du commerce".
             _ = CompleteStoryQuestAsync("Les rouages du commerce");
+            // Voir Docs/Idees.md — embranchement "La voie du marchand" : ignoré par le serveur
+            // si ce n'est pas (ou plus) l'étape active, exactement comme les autres ancrages.
+            _ = CompleteStoryQuestAsync("La voie du marchand");
         }
 
         shopBuyTask = null;
@@ -8738,6 +9169,9 @@ void UpdateCombat(float deltaTime)
         {
             combatVictoryQuestFired = true;
             _ = CompleteStoryQuestAsync("Faire ses preuves");
+            // Voir Docs/Idees.md — embranchement "La voie du guerrier" : ignoré par le serveur
+            // si ce n'est pas (ou plus) l'étape active, exactement comme les autres ancrages.
+            _ = CompleteStoryQuestAsync("La voie du guerrier");
         }
 
         UpdateLoot(deltaTime);
@@ -9128,9 +9562,9 @@ bool DrawClickableRow(string text, Vector2 topLeft, float rowWidth, float pixelS
     return isHovered && mouse.WasButtonJustPressed(MouseButton.Left);
 }
 
-void DrawIsoDiamond(Vector2 gridPos, float scale, Vector4 color)
+void DrawIsoDiamond(Vector2 gridPos, float scale, Vector4 color, Vector2 screenOffset = default)
 {
-    var center = IsoMath.GridToIso(gridPos.X, gridPos.Y);
+    var center = screenOffset + IsoMath.GridToIso(gridPos.X, gridPos.Y);
     var halfWidth = IsoMath.TileWidth * scale / 2f;
     var halfHeight = IsoMath.TileHeight * scale / 2f;
 
@@ -9192,14 +9626,14 @@ void DrawPortal(Vector2 gridPos, float animClock)
     DrawIsoDiamond(gridPos, 0.46f, Vector4.Lerp(WorldMap.PortalMidColorBright, WorldMap.PortalCoreColor, pulse));
 }
 
-void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wallLeftColor, Vector4 wallRightColor, Vector4 headColor, float bobPixels, string? label = null, string? sublabel = null)
+void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wallLeftColor, Vector4 wallRightColor, Vector4 headColor, float bobPixels, string? label = null, string? sublabel = null, Vector2 screenOffset = default)
 {
     const float footprint = 0.40f;
 
-    var groundCenter = IsoMath.GridToIso(gridPos.X, gridPos.Y);
+    var groundCenter = screenOffset + IsoMath.GridToIso(gridPos.X, gridPos.Y);
 
     // Ombre au sol : toujours ancrée à la case (ignore le "bob") pour bien fixer le personnage au sol.
-    DrawIsoDiamond(gridPos, footprint * 0.85f, new Vector4(0f, 0f, 0f, 0.28f));
+    DrawIsoDiamond(gridPos, footprint * 0.85f, new Vector4(0f, 0f, 0f, 0.28f), screenOffset);
 
     var bobbedGroundCenter = groundCenter - new Vector2(0, bobPixels);
     var halfWidth = IsoMath.TileWidth * footprint / 2f;
@@ -9345,6 +9779,8 @@ void DrawOutdoorHud()
             case PanelKind.GemShop: DrawGemShopPanel(w, h); break;
             case PanelKind.Kingdom: DrawKingdomPanel(w, h); break;
             case PanelKind.Professions: DrawProfessionsPanel(w, h); break;
+            case PanelKind.Talents: DrawTalentsPanel(w, h); break;
+            case PanelKind.WildPvp: DrawWildPvpPanel(w, h); break;
             case PanelKind.BattlePass: DrawBattlePassPanel(w, h); break;
             case PanelKind.WorldBoss: DrawWorldBossPanel(w, h); break;
             case PanelKind.Fusion: DrawFusionPanel(w, h); break;
@@ -9414,6 +9850,9 @@ void DrawOutdoorHud()
         ("ENCYCLOPEDIE (C)", PanelKind.Encyclopedia),
         // Voir GDD/demande utilisateur — "Défis hebdomadaires" + défis mensuels, avec une UI dédiée.
         ("DEFIS (X)", PanelKind.Challenges),
+        // Voir Docs/Idees.md — "PvP sauvage" : zones à risque + réputation militaire, sans
+        // raccourci clavier dédié (lettres déjà toutes prises) — clic uniquement.
+        ("PVP SAUVAGE", PanelKind.WildPvp),
         // Voir GDD/demande utilisateur — "un bouton dans l'UI pour proposer un pvp, on doit écrire
         // son pseudo".
         ("DUEL (Y)", PanelKind.Duel),
@@ -10227,10 +10666,10 @@ void DrawMonsterDetailOverlay(int w, int h, MonsterInstanceData monster)
         DrawText(spriteBatch, whiteTexture, description, new Vector2(topLeft.X + 26f, y + 8f), 1.3f, new Vector4(0.65f, 0.85f, 0.95f, 1f));
     }
 
-    // Voir GDD/demande utilisateur — "Prestige après niveau maximum".
+    // Voir GDD/demande utilisateur — "Prestige après niveau maximum" + Docs/Idees.md — Arbre de talents.
     var footerHint = monster.Level >= MonsterMaxLevel
-        ? "P : PRESTIGE (reinitialise le niveau, +5% de stats permanent) - ECHAP : RETOUR"
-        : "ECHAP : RETOUR";
+        ? "P : PRESTIGE (reinitialise le niveau, +5% de stats permanent) - Y : TALENTS - ECHAP : RETOUR"
+        : "Y : TALENTS - ECHAP : RETOUR";
     var footerColor = monster.Level >= MonsterMaxLevel ? new Vector4(0.95f, 0.8f, 0.4f, 1f) : new Vector4(0.7f, 0.7f, 0.75f, 1f);
     DrawTextCentered(spriteBatch, whiteTexture, footerHint, new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, footerColor);
 }
@@ -10362,18 +10801,25 @@ void DrawQuestPanel(int w, int h)
         return;
     }
 
+    var isChoicePending = questChoiceOptionAId is not null && questChoiceOptionBId is not null;
     var displayLines = questMessage is not null ? [.. questLines, "", questMessage] : questLines;
     const float panelWidth = 340f;
     var lineHeight = TextRenderer.LineHeight(1.5f);
-    var panelHeight = 40f + displayLines.Count * (lineHeight + 4f) + 12f;
+    var extraChoiceRows = isChoicePending ? 2 : 0;
+    var panelHeight = 40f + (displayLines.Count + extraChoiceRows) * (lineHeight + 4f) + 12f;
     var topLeft = new Vector2(16f, h / 2f - panelHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(panelWidth, panelHeight), new Vector4(0.08f, 0.08f, 0.12f, 0.9f));
     DrawPanel(topLeft, new Vector2(panelWidth, 3f), new Vector4(0.9f, 0.8f, 0.4f, 1f));
 
     // Voir GDD/demande utilisateur — "fait en sorte que l'on puisse le faire aussi au clic" :
-    // cliquer le titre masque/réaffiche la quête, comme la touche Q.
-    if (DrawClickableRow(questTitle, topLeft + new Vector2(12f, 10f), panelWidth - 24f, 1.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f)))
+    // cliquer le titre masque/réaffiche la quête, comme la touche Q — sauf pendant un
+    // embranchement (voir Docs/Idees.md), où le titre n'est que l'invite du choix.
+    if (isChoicePending)
+    {
+        DrawText(spriteBatch, whiteTexture, questTitle, topLeft + new Vector2(12f, 10f), 1.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f));
+    }
+    else if (DrawClickableRow(questTitle, topLeft + new Vector2(12f, 10f), panelWidth - 24f, 1.6f, new Vector4(0.95f, 0.85f, 0.5f, 1f)))
     {
         ToggleQuestPanel();
     }
@@ -10383,6 +10829,21 @@ void DrawQuestPanel(int w, int h)
     {
         DrawText(spriteBatch, whiteTexture, line, topLeft + new Vector2(12f, y - topLeft.Y), 1.5f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
         y += lineHeight + 4f;
+    }
+
+    if (isChoicePending)
+    {
+        var busy = questChoiceTask is not null;
+        if (DrawClickableRow($"> {questChoiceOptionAName}", topLeft + new Vector2(12f, y - topLeft.Y), panelWidth - 24f, 1.5f, new Vector4(0.6f, 0.85f, 0.95f, 1f)) && !busy)
+        {
+            _ = ChooseQuestOptionAsync(questChoiceOptionAId!.Value);
+        }
+        y += lineHeight + 4f;
+
+        if (DrawClickableRow($"> {questChoiceOptionBName}", topLeft + new Vector2(12f, y - topLeft.Y), panelWidth - 24f, 1.5f, new Vector4(0.95f, 0.75f, 0.6f, 1f)) && !busy)
+        {
+            _ = ChooseQuestOptionAsync(questChoiceOptionBId!.Value);
+        }
     }
 }
 
@@ -11179,21 +11640,71 @@ void DrawInteriorScene()
         return;
     }
 
-    var lineY = h * 0.34f;
+    var lineY = h * 0.24f;
     foreach (var line in interiorBodyLines)
     {
-        DrawTextCentered(spriteBatch, whiteTexture, line, new Vector2(w / 2f, lineY), 2.6f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
-        lineY += TextRenderer.LineHeight(2.6f) + 6f;
+        DrawTextCentered(spriteBatch, whiteTexture, line, new Vector2(w / 2f, lineY), 2f, new Vector4(0.92f, 0.92f, 0.95f, 1f));
+        lineY += TextRenderer.LineHeight(2f) + 4f;
     }
 
-    // Meubles (voir GDD — intérieurs enrichis) : rectangles positionnés en repère écran relatif
-    // (voir BuildingInteriors), dessinés avant le PNJ pour rester visuellement "derrière" lui.
+    // Voir Docs/Idees.md — "vraie scène d'intérieur" : la pièce est projetée en isométrique
+    // (même projection/quads que le monde extérieur, voir IsoMath/DrawQuad dans DrawBuilding)
+    // au lieu d'un aplat de rectangles en coordonnées écran relatives.
+    const float roomCols = 5f;
+    const float roomRows = 4f;
+    var roomCenterScreen = new Vector2(w / 2f, h * 0.60f);
+    var roomOrigin = roomCenterScreen - IsoMath.GridToIso(roomCols / 2f, roomRows / 2f);
+
+    var floorBase = Vector4.Lerp(new Vector4(0.05f, 0.05f, 0.07f, 1f), interiorAccent, 0.5f);
+    var floorAlt = Vector4.Lerp(floorBase, Vector4.One, 0.06f);
+    for (var ry = 0; ry < roomRows; ry++)
+    {
+        for (var rx = 0; rx < roomCols; rx++)
+        {
+            var tileColor = (rx + ry) % 2 == 0 ? floorBase : floorAlt;
+            DrawIsoDiamond(new Vector2(rx, ry), 1f, tileColor, roomOrigin);
+        }
+    }
+
+    const float wallHeight = 90f;
+    var wallColorWest = Vector4.Lerp(interiorAccent, new Vector4(0f, 0f, 0f, 1f), 0.4f);
+    var wallColorNorth = Vector4.Lerp(interiorAccent, new Vector4(0f, 0f, 0f, 1f), 0.25f);
+
+    var cornerBottom = roomOrigin + IsoMath.GridToIso(0, 0);
+    var westBottom = roomOrigin + IsoMath.GridToIso(0, roomRows);
+    var northBottom = roomOrigin + IsoMath.GridToIso(roomCols, 0);
+    spriteBatch.DrawQuad(whiteTexture, cornerBottom - new Vector2(0, wallHeight), westBottom - new Vector2(0, wallHeight), westBottom, cornerBottom, wallColorWest);
+    spriteBatch.DrawQuad(whiteTexture, cornerBottom - new Vector2(0, wallHeight), northBottom - new Vector2(0, wallHeight), northBottom, cornerBottom, wallColorNorth);
+
+    // Meubles (voir GDD — intérieurs enrichis / BuildingInteriors) : les coordonnées relatives
+    // 0..1 déjà présentes sur InteriorFurniture sont réinterprétées comme une position dans la
+    // grille de la pièce plutôt que comme un rectangle écran, pour rester compatible avec les
+    // agencements déjà définis par bâtiment.
     foreach (var item in interiorFurniture)
     {
-        var topLeft = new Vector2(item.RelativeX * w, item.RelativeY * h);
-        var size = new Vector2(item.RelativeWidth * w, item.RelativeHeight * h);
-        DrawPanel(topLeft, size, item.Color);
-        DrawTextCentered(spriteBatch, whiteTexture, item.Label.ToUpperInvariant(), topLeft + new Vector2(size.X / 2f, -14f), 1.4f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        var furnitureGridPos = new Vector2(
+            Math.Clamp(item.RelativeX * roomCols, 0.5f, roomCols - 0.5f),
+            Math.Clamp(item.RelativeY * roomRows, 0.5f, roomRows - 0.5f));
+        var footprint = Math.Clamp(item.RelativeWidth * 3f, 0.55f, 1.6f);
+        var boxHeight = Math.Clamp(item.RelativeHeight * 2.2f, 0.35f, 1.1f);
+
+        var groundCenter = roomOrigin + IsoMath.GridToIso(furnitureGridPos.X, furnitureGridPos.Y);
+        var halfWidth = IsoMath.TileWidth * footprint / 2f;
+        var halfHeight = IsoMath.TileHeight * footprint / 2f;
+        var topCenter = groundCenter - new Vector2(0, boxHeight * IsoMath.TileHeight);
+
+        var boxTop = topCenter + new Vector2(0, -halfHeight);
+        var boxRight = topCenter + new Vector2(halfWidth, 0);
+        var boxBottom = topCenter + new Vector2(0, halfHeight);
+        var boxLeft = topCenter + new Vector2(-halfWidth, 0);
+        var groundLeft = groundCenter + new Vector2(-halfWidth, 0);
+        var groundBottom = groundCenter + new Vector2(0, halfHeight);
+        var groundRight = groundCenter + new Vector2(halfWidth, 0);
+
+        spriteBatch.DrawQuad(whiteTexture, boxLeft, boxBottom, groundBottom, groundLeft, item.Color * 0.7f);
+        spriteBatch.DrawQuad(whiteTexture, boxBottom, boxRight, groundRight, groundBottom, item.Color * 0.85f);
+        spriteBatch.DrawQuad(whiteTexture, boxTop, boxRight, boxBottom, boxLeft, item.Color);
+        DrawTextCentered(spriteBatch, whiteTexture, item.Label.ToUpperInvariant(), boxTop - new Vector2(0, 12f), 1.3f, new Vector4(0.8f, 0.8f, 0.85f, 0.9f));
     }
 
     if (activeDialogueNpc is not null)
@@ -11205,15 +11716,15 @@ void DrawInteriorScene()
         if (interiorNpcs.Count > 0)
         {
             var npc = interiorNpcs[interiorNpcCursor];
-            var npcCenter = new Vector2(w * 0.5f, h * 0.72f);
-            DrawStarterPortrait(npcCenter, 46f, npc.BodyColor);
-            DrawTextCentered(spriteBatch, whiteTexture, npc.Name.ToUpperInvariant(), npcCenter + new Vector2(0, 60f), 1.8f, Vector4.One);
+            var npcGridPos = new Vector2(roomCols / 2f, roomRows - 0.6f);
+            DrawFigure(npcGridPos, 0.55f, npc.BodyColor, npc.BodyColor * 0.65f, npc.BodyColor * 0.85f, npc.HeadColor, 0f, npc.Name, screenOffset: roomOrigin);
+            var npcLabelCenter = roomOrigin + IsoMath.GridToIso(npcGridPos.X, npcGridPos.Y);
             // Voir Docs/Idees.md — curseur de sélection PNJ : rappel des flèches seulement quand
             // plusieurs PNJ sont définis pour ce bâtiment (sinon inutile, un seul choix possible).
             var prompt = interiorNpcs.Count > 1
                 ? $"APPUYEZ SUR E POUR PARLER - FLECHES POUR CHANGER ({interiorNpcCursor + 1}/{interiorNpcs.Count})"
                 : "APPUYEZ SUR E POUR PARLER";
-            DrawTextCentered(spriteBatch, whiteTexture, prompt, npcCenter + new Vector2(0, 84f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            DrawTextCentered(spriteBatch, whiteTexture, prompt, npcLabelCenter + new Vector2(0, 74f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         }
 
         if (interiorIsDungeon)
@@ -12385,6 +12896,8 @@ enum PanelKind
     Party,
     Arena,
     Monsters,
+    Talents,
+    WildPvp,
     Chat,
     Auction,
     Craft,

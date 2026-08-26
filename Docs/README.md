@@ -921,18 +921,50 @@ de gameplay.
       guerre/saison, titre exclusif de fin de Passe de Niveau.
     - ✅ 4 nouvelles migrations EF Core (`AddTradeOfferRequestedMonster`, `AddChatMessages`,
       `AddUserAvatarUrl`, `AddCharacterHasSeenTutorial`).
-    - **Limites assumées, documentées honnêtement dans `Docs/Idees-Realisations.md`** : arbre de
-      talents, sprites/textures réels, scène d'intérieur isométrique, îles volantes/aquatiques,
-      embranchements de quêtes, réputation PvP sauvage, désinstallateur MSI — tous explicitement
-      hors scope (système neuf nécessitant sa propre conception, ou assets graphiques
-      indisponibles dans cet environnement). Image de profil : infrastructure serveur complète
-      (upload, stockage, `UserEntity.AvatarUrl`) mais **affichage réel côté Launcher/AdminPanel
-      pas fait** — reste une pastille générée pour l'instant. Persistance des PV de créature entre
-      combats : question tranchée avec l'utilisateur en cours de session (laissé tel quel).
+    - **Limites assumées à ce stade** (voir le point 32 ci-dessous : la plupart ont depuis été
+      reprises) : arbre de talents, scène d'intérieur isométrique, îles volantes/aquatiques,
+      embranchements de quêtes, réputation PvP sauvage, image de profil visible. Restent hors
+      scope après le point 32 : sprites/textures réels, désinstallateur MSI.
     - **Vérifié par compilation ciblée de chaque projet touché** (`dotnet build`, voir la note
       d'environnement dans `Docs/Idees-Realisations.md` pour la recette RID/`AllowMissingPrunePackageData`
       nécessaire dans cet environnement) — **pas de test de bout en bout avec un vrai
       serveur/client lancés**, hors de portée de cette session (headless, pas d'affichage).
+
+32. ✅ Reprise des idées de `Docs/Idees.md` précédemment marquées hors scope "trop grosses" (voir
+    `Docs/Idees-Realisations.md`, mise à jour du 2026-08-27, pour le détail complet) :
+    - ✅ **Arbre de talents/compétences** : arbre partagé à 9 nœuds (`TalentTreeCatalog`), +1
+      point par montée de niveau, bonus en % appliqués aux stats de combat avant le bonus plat de
+      l'équipement, panneau dédié (touche Y depuis la fiche créature).
+    - ✅ **PvP sauvage + réputation/grade militaire** : file d'attente déclenchée en zone à risque
+      (distance de Manhattan > 15 de la capitale, vérifiée sur la position serveur réelle du
+      joueur, pas une coordonnée client) — **délibérément pas une attaque directe/embuscade**,
+      pour éviter le grief sans système de consentement. Réputation militaire (+1 par victoire),
+      6 grades (`MilitaryRankCatalog`), nouveau bouton HUD "PVP SAUVAGE".
+    - ✅ **Géographie des îles** : une île est une `WorldMap` distincte sur la même grille 50x50
+      (pas de nouvelle notion d'élévation/eau dans le moteur), réutilise le mécanisme de
+      téléportation déjà en place entre royaumes. Bug trouvé et corrigé au passage :
+      `RebuildWorldMapForKingdom` ne notifiait jamais le serveur du déplacement, désynchronisant
+      silencieusement la position suivie après chaque téléportation de royaume.
+    - ✅ **Embranchements de quêtes** : `QuestEntity.ChoiceNextQuestId`, un embranchement ponctuel
+      (pas un arbre complet) après la quête tutoriel, avec du vrai contenu ajouté pour l'illustrer
+      ("La voie du guerrier" / "La voie du marchand"), choix affiché comme deux options cliquables
+      dans le panneau de quête.
+    - ✅ **Scène d'intérieur isométrique** : sol/murs/meubles/PNJ des bâtiments (hors donjon)
+      projetés avec les mêmes primitives isométriques que l'extérieur, au lieu d'un aplat de
+      rectangles en coordonnées écran relatives.
+    - ✅ **Image de profil** : affichage réel côté Launcher (upload + aperçu, remplace la pastille
+      générée quand une image est définie) et AdminPanel, en plus de l'infrastructure serveur déjà
+      en place.
+    - ✅ 3 nouvelles migrations EF Core (`AddMonsterTalents`, `AddCharacterMilitaryReputation`,
+      `AddQuestChoiceNextQuestId`).
+    - **Toujours hors scope, sans changement de raison** : sprites/textures réels dans le moteur
+      (aucun asset produit/acheté — à la place, `Docs/Image/` contient des maquettes PNG générées
+      par code pour montrer l'intention visuelle sans engager de vrais assets) ; désinstallateur
+      MSI (toolchain WiX v7 disponible mais verrouillée derrière un abonnement payant obligatoire,
+      jamais accepté) ; persistance des PV de créature entre combats (laissé tel quel, décision
+      utilisateur explicite).
+    - **Vérifié par compilation ciblée** de chaque projet touché, même recette que le point 31 —
+      pas de test de bout en bout avec un vrai serveur/client lancés.
 
 Dépendance graphique du moteur : **Silk.NET** (Windowing + OpenGL + Input + Maths), choisie
 pour ses bindings modernes activement maintenus par la communauté .NET et son bon écosystème

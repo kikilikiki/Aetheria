@@ -289,6 +289,25 @@ public sealed class GameDataApiClient : IDisposable
         await _http.PostAsJsonAsync($"/api/characters/{characterId}/mark-tutorial-seen", new MarkTutorialSeenRequest { SessionToken = sessionToken }, JsonOptions, ct);
     }
 
+    /// <summary>Voir Docs/Idees.md — Arbre de talents : état d'une créature (points disponibles, nœuds débloqués).</summary>
+    public async Task<MonsterTalentStatus?> GetMonsterTalentsAsync(string sessionToken, Guid monsterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/monsters/{monsterId}/talents?sessionToken={Uri.EscapeDataString(sessionToken)}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterTalentStatus>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Voir Docs/Idees.md — Arbre de talents : débloque un nœud (voir TalentTreeCatalog), <c>null</c> en cas d'échec (prérequis manquants, pas assez de points).</summary>
+    public async Task<MonsterTalentStatus?> UnlockMonsterTalentAsync(string sessionToken, Guid monsterId, string nodeKey, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/monsters/{monsterId}/talents/unlock", new UnlockTalentNodeRequest
+        {
+            SessionToken = sessionToken,
+            NodeKey = nodeKey,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MonsterTalentStatus>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir Docs/Idees.md — historique de tchat persisté : les 50 derniers messages du canal (Global/Guilde).</summary>
     public async Task<List<ChatHistoryMessage>> GetChatHistoryAsync(ChatChannel channel, Guid characterId, CancellationToken ct = default)
     {
@@ -566,6 +585,17 @@ public sealed class GameDataApiClient : IDisposable
             SessionToken = sessionToken,
             CharacterId = characterId,
             QuestName = questName,
+        }, JsonOptions, ct);
+    }
+
+    /// <summary>Voir Docs/Idees.md — "Embranchements/choix dans la chaîne de quêtes tutoriel".</summary>
+    public async Task ChooseQuestAsync(string sessionToken, Guid characterId, int chosenQuestId, CancellationToken ct = default)
+    {
+        await _http.PostAsJsonAsync("/api/quests/choose", new ChooseQuestRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ChosenQuestId = chosenQuestId,
         }, JsonOptions, ct);
     }
 

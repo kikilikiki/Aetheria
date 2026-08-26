@@ -28,6 +28,9 @@ public static class MonsterProgressionService
         {
             monster.Experience -= monster.Level * ExperiencePerLevel;
             monster.Level++;
+
+            // Voir Docs/Idees.md — Arbre de talents : +1 point par niveau gagné.
+            monster.TalentPoints++;
         }
 
         if (monster.Level >= MaxLevel)

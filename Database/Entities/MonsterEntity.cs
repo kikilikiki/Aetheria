@@ -50,6 +50,12 @@ public sealed class MonsterEntity
     /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum" : incrémenté par PrestigeService, remet Level/Experience à zéro contre un bonus de statistiques permanent (voir MonsterStatMath).</summary>
     public int PrestigeLevel { get; set; }
 
+    /// <summary>Voir Docs/Idees.md — Arbre de talents : +1 par niveau gagné (voir MonsterProgressionService.GrantExperience), dépensé via MonsterTalentService.</summary>
+    public int TalentPoints { get; set; }
+
+    /// <summary>Voir Docs/Idees.md — Arbre de talents : clés de nœuds débloqués (voir TalentTreeCatalog), séparées par des virgules — pas de table de jointure séparée pour un arbre aussi petit (~10 nœuds).</summary>
+    public string UnlockedTalentNodeKeys { get; set; } = string.Empty;
+
     // Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon" : tirées une seule fois à
     // la capture (voir CaptureService), 0-31, ne changent plus jamais ensuite (même après un
     // prestige — voir PrestigeService) sauf reroll explicite (voir MonsterCareService.RerollIvAsync).

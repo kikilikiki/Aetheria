@@ -18,4 +18,13 @@ public sealed class QuestEntity
     /// croissant) plutôt qu'un journal à embranchements — voir QuestService.GetActiveQuestAsync.
     /// </summary>
     public int SequenceOrder { get; set; }
+
+    /// <summary>
+    /// Voir Docs/Idees.md — "Embranchements/choix dans la chaîne de quêtes tutoriel" : un
+    /// embranchement ponctuel (pas un arbre de dialogue complet). Si renseigné, terminer cette
+    /// quête ouvre un choix entre la quête suivante par <see cref="SequenceOrder"/> (l'option par
+    /// défaut) et la quête ici référencée (l'option alternative) — voir
+    /// QuestService.GetActiveQuestAsync/ChooseNextQuestAsync.
+    /// </summary>
+    public int? ChoiceNextQuestId { get; set; }
 }

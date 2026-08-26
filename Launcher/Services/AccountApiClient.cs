@@ -86,6 +86,39 @@ public sealed class AccountApiClient : IDisposable
         }
     }
 
+    /// <summary>Voir Docs/Idees.md — vraie image de profil : upload multipart vers <c>POST /api/account/avatar</c>, retourne la nouvelle URL relative en cas de succès.</summary>
+    public async Task<ApiResult<string>> UploadAvatarAsync(string sessionToken, byte[] fileBytes, string fileName)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent
+            {
+                { new StringContent(sessionToken), "sessionToken" },
+            };
+            var fileContent = new ByteArrayContent(fileBytes);
+            content.Add(fileContent, "avatar", fileName);
+
+            var response = await _http.PostAsync("/api/account/avatar", content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
+                return ApiResult<string>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<AvatarUploadOkBody>(JsonOptions);
+            return ApiResult<string>.Success(body!.AvatarUrl);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ApiResult<string>.Failure($"Impossible de contacter le serveur : {ex.Message}");
+        }
+    }
+
+    private sealed class AvatarUploadOkBody
+    {
+        public string AvatarUrl { get; init; } = string.Empty;
+    }
+
     /// <summary>Revalide un jeton de session persisté (voir GDD/demande utilisateur — "rester connecté jusqu'à la déconnexion"), sans redemander les identifiants.</summary>
     public async Task<ApiResult<SessionInfoResponse>> ValidateSessionAsync(string sessionToken)
     {

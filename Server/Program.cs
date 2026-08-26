@@ -19,6 +19,7 @@ using Aetheria.Shared.Models.WorldBoss;
 using Aetheria.Shared.Models.GuildRaid;
 using Aetheria.Shared.Network;
 using Aetheria.Shared.Network.Packets;
+using Aetheria.Shared.World;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -83,6 +84,7 @@ builder.Services.AddSingleton<LootSessionStore>();
 builder.Services.AddSingleton<ArenaQueueService>();
 builder.Services.AddSingleton<KingdomWarQueueService>();
 builder.Services.AddSingleton<GuildWarQueueService>();
+builder.Services.AddSingleton<WildPvpQueueService>();
 builder.Services.AddSingleton<DiscordAnnouncer>();
 // Voir GDD/demande utilisateur — "système de link le compte discord avec le jeu... roles de
 // grade automatiquement" + "bot actif avec le serveur (prod et dev)" : DiscordRoleSyncService
@@ -224,7 +226,7 @@ app.MapGet("/api/account/session", async (string sessionToken) =>
         return Results.Json(new ApiError { Message = "Compte introuvable, supprimé ou banni." }, statusCode: StatusCodes.Status401Unauthorized);
     }
 
-    return Results.Ok(new SessionInfoResponse { UserId = userId, IsAdmin = user.IsAdmin, Rank = user.Rank });
+    return Results.Ok(new SessionInfoResponse { UserId = userId, IsAdmin = user.IsAdmin, Rank = user.Rank, AvatarUrl = user.AvatarUrl });
 });
 
 // Voir Docs/Idees.md — vraie image de profil : upload simple (multipart/form-data), stocké sur
@@ -503,6 +505,37 @@ app.MapPost("/api/monsters/{monsterId:guid}/give-item", async (Guid monsterId, G
     try
     {
         return Results.Ok(await careService.GiveItemAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir Docs/Idees.md — Arbre de talents (voir MonsterTalentService/TalentTreeCatalog).
+app.MapGet("/api/monsters/{monsterId:guid}/talents", async (Guid monsterId, string sessionToken) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var talentService = new MonsterTalentService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await talentService.GetStatusAsync(monsterId, sessionToken));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/monsters/{monsterId:guid}/talents/unlock", async (Guid monsterId, UnlockTalentNodeRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var talentService = new MonsterTalentService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await talentService.UnlockNodeAsync(monsterId, request));
     }
     catch (AccountOperationException ex)
     {
@@ -950,6 +983,15 @@ app.MapPost("/api/quests/complete", async (CompleteQuestRequest request) =>
     await using var db = await dbFactory.CreateDbContextAsync();
     var questService = new QuestService(db, app.Services.GetRequiredService<SessionTokenStore>());
     await questService.CompleteIfActiveAsync(request.SessionToken, request.CharacterId, request.QuestName);
+    return Results.Ok();
+});
+
+// Voir Docs/Idees.md — "Embranchements/choix dans la chaîne de quêtes tutoriel".
+app.MapPost("/api/quests/choose", async (ChooseQuestRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var questService = new QuestService(db, app.Services.GetRequiredService<SessionTokenStore>());
+    await questService.ChooseNextQuestAsync(request.SessionToken, request.CharacterId, request.ChosenQuestId);
     return Results.Ok();
 });
 
@@ -2195,6 +2237,85 @@ app.MapPost("/api/kingdoms/wars/resolve", async () =>
         "Guerre de royaumes résolue", message, []);
 
     return Results.Ok(new { message });
+});
+
+// Voir Docs/Idees.md — "PvP sauvage" : zones à risque hors des arènes instanciées (voir GDD —
+// "combat PvP direct autorisé sans passer par l'arène"). Une "zone à risque" est ici toute case
+// à plus de WildPvpZoneRadius cases de la capitale (même formule que la validation de portée des
+// déplacements, voir PlayerSession.CapitalSpawnPoint) — assez loin pour ne jamais recouvrir la
+// capitale elle-même. Basé sur la file d'attente plutôt qu'une attaque directe non consentie
+// (voir WildPvpQueueService pour le raisonnement).
+const int WildPvpZoneRadius = 15;
+var wildPvpCapital = TownLayout.BuildingCells(TownLayout.DefaultSize)[0];
+bool IsInWildPvpRiskZone(int x, int y) =>
+    Math.Abs(x - wildPvpCapital.X) + Math.Abs(y - wildPvpCapital.Y) > WildPvpZoneRadius;
+
+app.MapPost("/api/pvp/wild/queue", async (QueueForWarRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    // Voir Docs/Idees.md — la position réelle (pas celle envoyée par le client) fait foi : le
+    // personnage doit être connecté en jeu ET physiquement dans une zone à risque.
+    var session = app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterId(character.Id);
+    if (session is null || !IsInWildPvpRiskZone(session.PositionX, session.PositionY))
+    {
+        return Results.Conflict(new ApiError { Message = "Vous devez être en jeu, loin de la capitale, pour rejoindre le PvP sauvage." });
+    }
+
+    var wildQueue = app.Services.GetRequiredService<WildPvpQueueService>();
+    var ticket = new WildPvpQueueService.WildTicket(character.Id, userId);
+    var matched = wildQueue.EnqueueAndTryMatch(ticket);
+
+    if (matched is not null)
+    {
+        var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+        var state = await combatService.StartWildPvpDuelAsync(matched[0].CharacterId, matched[1].CharacterId);
+        wildQueue.RecordMatch(matched.Select(t => t.CharacterId), state.CombatId);
+    }
+
+    return Results.Ok(new { queued = true });
+});
+
+app.MapGet("/api/pvp/wild/queue/status", (Guid characterId) =>
+{
+    var wildQueue = app.Services.GetRequiredService<WildPvpQueueService>();
+    return wildQueue.TryConsumeMatch(characterId, out var combatId)
+        ? Results.Ok(new ArenaQueueStatus { IsMatched = true, CombatId = combatId })
+        : Results.Ok(new ArenaQueueStatus { IsMatched = false, CombatId = null });
+});
+
+app.MapPost("/api/pvp/wild/queue/cancel", (Guid characterId) =>
+{
+    app.Services.GetRequiredService<WildPvpQueueService>().Cancel(characterId);
+    return Results.Ok();
+});
+
+// Voir Docs/Idees.md — réputation/grade militaire, consultable indépendamment de la file.
+app.MapGet("/api/pvp/wild/reputation", async (Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId);
+    if (character is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    return Results.Ok(new MilitaryReputationStatus
+    {
+        Reputation = character.MilitaryReputation,
+        Rank = MilitaryRankCatalog.RankFor(character.MilitaryReputation),
+    });
 });
 
 // Voir GDD/demande utilisateur — "Guerres de guildes" : même mécanique que les guerres de
@@ -3666,7 +3787,8 @@ static MonsterInstanceData ToMonsterInstanceData(MonsterEntity entity, IReadOnly
     EquippedAccessoryName = entity.EquippedAccessoryItemId is { } accessoryId ? itemNames?.GetValueOrDefault(accessoryId) : null,
     CapturedAtUtc = entity.CapturedAtUtc,
     PrestigeLevel = entity.PrestigeLevel,
-    IvHealth = entity.IvHealth, IvAttack = entity.IvAttack, IvDefense = entity.IvDefense,
+    TalentPoints = entity.TalentPoints,
+    UnlockedTalentNodeKeys = Aetheria.Shared.Models.TalentTreeCatalog.ParseUnlocked(entity.UnlockedTalentNodeKeys).ToList(),    IvHealth = entity.IvHealth, IvAttack = entity.IvAttack, IvDefense = entity.IvDefense,
     IvSpeed = entity.IvSpeed, IvIntelligence = entity.IvIntelligence, IvResistance = entity.IvResistance,
     EvHealth = entity.EvHealth, EvAttack = entity.EvAttack, EvDefense = entity.EvDefense,
     EvSpeed = entity.EvSpeed, EvIntelligence = entity.EvIntelligence, EvResistance = entity.EvResistance,

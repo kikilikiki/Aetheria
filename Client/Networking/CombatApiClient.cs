@@ -204,6 +204,39 @@ public sealed class CombatApiClient : IDisposable
     public Task CancelWarQueueAsync(Guid characterId, CancellationToken ct = default) =>
         _http.PostAsync($"/api/kingdoms/wars/queue/cancel?characterId={characterId}", null, ct);
 
+    /// <summary>Voir Docs/Idees.md — "PvP sauvage" : rejoint la file (refusé côté serveur si le personnage n'est pas physiquement dans une zone à risque, voir Server/Program.cs IsInWildPvpRiskZone) — <c>Error</c> non-null si refusé.</summary>
+    public async Task<(bool Success, string? Error)> QueueForWildPvpAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/pvp/wild/queue", new QueueForWarRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return (true, null);
+        }
+
+        var error = await response.Content.ReadFromJsonAsync<ApiError>(cancellationToken: ct);
+        return (false, error?.Message ?? "Connexion au serveur impossible.");
+    }
+
+    public async Task<ArenaQueueStatus?> GetWildPvpQueueStatusAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/pvp/wild/queue/status?characterId={characterId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ArenaQueueStatus>(JsonOptions, ct) : null;
+    }
+
+    public Task CancelWildPvpQueueAsync(Guid characterId, CancellationToken ct = default) =>
+        _http.PostAsync($"/api/pvp/wild/queue/cancel?characterId={characterId}", null, ct);
+
+    public async Task<MilitaryReputationStatus?> GetMilitaryReputationAsync(Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.GetAsync($"/api/pvp/wild/reputation?characterId={characterId}", ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MilitaryReputationStatus>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "Guerres de guildes" : même mécanique que la guerre de royaumes, matchmaking entre deux guildes différentes.</summary>
     public async Task<bool> QueueForGuildWarAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
     {

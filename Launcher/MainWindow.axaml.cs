@@ -22,6 +22,9 @@ public partial class MainWindow : Window
         // Voir ClipboardService : le ViewModel n'a pas de référence à la vue (MVVM), la fenêtre
         // s'enregistre elle-même pour lui donner accès au presse-papiers Avalonia.
         ClipboardService.MainWindow = this;
+
+        // Voir Docs/Idees.md — vraie image de profil : même pattern pour le sélecteur de fichiers.
+        FilePickerService.MainWindow = this;
     }
 
     /// <summary>

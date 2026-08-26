@@ -20,12 +20,102 @@ public sealed class QuestService(AetheriaDbContext db, SessionTokenStore tokenSt
             .Select(p => p.QuestId)
             .ToListAsync(ct);
 
-        var quest = await db.Quests
+        // Catalogue de quelques quêtes seulement (voir QuestCatalogSeeder) — chargé en entier une
+        // fois, moins cher que plusieurs allers-retours pour résoudre un embranchement éventuel.
+        var allQuests = await db.Quests.ToListAsync(ct);
+
+        // Voir Docs/Idees.md — "Embranchements/choix dans la chaîne de quêtes tutoriel" : un
+        // embranchement est en attente si une quête complétée propose un choix
+        // (QuestEntity.ChoiceNextQuestId) et qu'aucune des deux options n'a encore été résolue.
+        var pendingChoiceSource = allQuests
+            .Where(q => completedQuestIds.Contains(q.Id) && q.ChoiceNextQuestId is not null)
+            .Select(q => new
+            {
+                Source = q,
+                OptionA = allQuests.FirstOrDefault(n => n.SequenceOrder == q.SequenceOrder + 1 && n.Id != q.ChoiceNextQuestId),
+                OptionB = allQuests.FirstOrDefault(n => n.Id == q.ChoiceNextQuestId),
+            })
+            .Where(x => x.OptionA is not null && x.OptionB is not null
+                && !completedQuestIds.Contains(x.OptionA.Id) && !completedQuestIds.Contains(x.OptionB.Id))
+            .OrderByDescending(x => x.Source.SequenceOrder)
+            .FirstOrDefault();
+
+        if (pendingChoiceSource is not null)
+        {
+            var optionA = pendingChoiceSource.OptionA!;
+            var optionB = pendingChoiceSource.OptionB!;
+            return new QuestSummary
+            {
+                Id = -1,
+                Name = "Un choix à faire",
+                Description = "Deux voies s'offrent à toi. Choisis celle que tu veux suivre.",
+                IsChoice = true,
+                ChoiceOptionAId = optionA.Id,
+                ChoiceOptionAName = optionA.Name,
+                ChoiceOptionBId = optionB.Id,
+                ChoiceOptionBName = optionB.Name,
+            };
+        }
+
+        var quest = allQuests
             .Where(q => !completedQuestIds.Contains(q.Id))
             .OrderBy(q => q.SequenceOrder)
-            .FirstOrDefaultAsync(ct);
+            .FirstOrDefault();
 
         return quest is null ? null : new QuestSummary { Id = quest.Id, Name = quest.Name, Description = quest.Description };
+    }
+
+    /// <summary>
+    /// Résout un embranchement en attente (voir <see cref="GetActiveQuestAsync"/>) : marque
+    /// l'option NON choisie comme complétée sans récompense (pour l'exclure définitivement de la
+    /// suite), ce qui laisse l'option choisie redevenir la quête active au prochain appel.
+    /// Ignore silencieusement si aucun embranchement n'est réellement en attente ou si
+    /// <paramref name="chosenQuestId"/> ne correspond à aucune des deux options — mêmes garanties
+    /// défensives que <see cref="CompleteIfActiveAsync"/>.
+    /// </summary>
+    public async Task ChooseNextQuestAsync(string sessionToken, Guid characterId, int chosenQuestId, CancellationToken ct = default)
+    {
+        if (!tokenStore.TryValidate(sessionToken, out var userId))
+        {
+            return;
+        }
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId && c.UserId == userId, ct);
+        if (character is null)
+        {
+            return;
+        }
+
+        var active = await GetActiveQuestAsync(characterId, ct);
+        if (active is not { IsChoice: true })
+        {
+            return;
+        }
+
+        int rejectedQuestId;
+        if (chosenQuestId == active.ChoiceOptionAId)
+        {
+            rejectedQuestId = active.ChoiceOptionBId!.Value;
+        }
+        else if (chosenQuestId == active.ChoiceOptionBId)
+        {
+            rejectedQuestId = active.ChoiceOptionAId!.Value;
+        }
+        else
+        {
+            return;
+        }
+
+        db.CharacterQuestProgress.Add(new CharacterQuestProgressEntity
+        {
+            Id = Guid.NewGuid(),
+            CharacterId = characterId,
+            QuestId = rejectedQuestId,
+            IsCompleted = true,
+            CompletedAtUtc = DateTime.UtcNow,
+        });
+
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>

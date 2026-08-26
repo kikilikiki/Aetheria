@@ -34,6 +34,9 @@ public sealed class CombatSession
     /// <summary>Vrai pour un combat contre le boss mondial (voir GDD/demande utilisateur — "fait que sa soit un vrai combat") : voir <c>CombatService.StartWorldBossEncounterAsync</c>/<c>ApplyWorldBossResultAsync</c>, dégâts appliqués au total de PV partagé même en cas de défaite/fuite.</summary>
     public bool IsWorldBossCombat { get; init; }
 
+    /// <summary>Voir Docs/Idees.md — "PvP sauvage" : duel formé via <c>WildPvpQueueService</c> entre deux joueurs physiquement dans une zone à risque (voir <c>CombatService.StartWildPvpDuelAsync</c>) — accorde de la réputation militaire au vainqueur en plus des récompenses PvP/Arène habituelles (voir <c>ApplyArenaResultAsync</c>).</summary>
+    public bool IsWildPvpCombat { get; init; }
+
     /// <summary><c>null</c> hors combat de boss mondial. Voir <see cref="IsWorldBossCombat"/>.</summary>
     public Guid? WorldBossId { get; init; }
 

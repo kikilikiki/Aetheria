@@ -39,6 +39,10 @@ public sealed class MonsterInstanceData
     /// <summary>Voir GDD/demande utilisateur — "Prestige après niveau maximum".</summary>
     public int PrestigeLevel { get; set; }
 
+    /// <summary>Voir Docs/Idees.md — Arbre de talents : points disponibles et nœuds déjà débloqués (voir TalentTreeCatalog).</summary>
+    public int TalentPoints { get; set; }
+    public IReadOnlyList<string> UnlockedTalentNodeKeys { get; set; } = [];
+
     /// <summary>Voir GDD/demande utilisateur — "ajoute des iv comme sur pokémon" et "fait en sorte que dans le detail du pokemon on puisse les voir" : tirées une seule fois à la capture, 0-31.</summary>
     public int IvHealth { get; set; }
     public int IvAttack { get; set; }

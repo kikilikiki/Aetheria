@@ -6,6 +6,13 @@ fichier source est reprise ci-dessous avec `[x]` (faite) ou `[ ]` (pas faite), s
 de ce qui a réellement été modifié/ajouté — fichiers, migrations, endpoints. L'ordre suit
 exactement celui de `Docs/Idees.md`.
 
+**Mise à jour du 2026-08-27** : reprise des idées précédemment marquées `[ ]` "hors scope"/"trop
+grosses" — arbre de talents, embranchements de quêtes, géographie des îles, PvP sauvage +
+réputation militaire, vraie scène d'intérieur, fin de l'image de profil. Voir le détail par idée
+ci-dessous ; les nouvelles sections sont marquées **(2026-08-27)**. Deux idées restent
+volontairement non faites (sprites/textures réels, désinstallateur MSI) — raisons inchangées,
+détaillées à leur entrée respective.
+
 > Vérification : chaque changement de code a été validé par une compilation ciblée du projet
 > concerné (`dotnet build`, RID `linux-x64` pour Server/Client/Shared/Database/Launcher, RID
 > `win-x64` + `EnableWindowsTargeting=true` pour MonsterEditor/MapEditor/AdminPanel/Installer —
@@ -15,8 +22,14 @@ exactement celui de `Docs/Idees.md`.
 
 ## Gameplay
 
-- [ ] **Arbre de talents/compétences général** — non fait, comme prévu (hors scope, système neuf
-  qui mérite sa propre session de conception).
+- [x] **Arbre de talents/compétences général (2026-08-27)** — arbre partagé (pas par espèce, un
+  seul arbre à 9 nœuds) : `Shared/Models/TalentTreeCatalog.cs`, `MonsterEntity.TalentPoints`/
+  `UnlockedTalentNodeKeys` (migration `AddMonsterTalents`), +1 point par montée de niveau,
+  `Server/World/MonsterTalentService.cs` (`GetStatusAsync`/`UnlockNodeAsync`, validation
+  possession/prérequis/points). Bonus appliqués en pourcentage sur les stats de combat
+  (`CombatService.BuildTeamCombatantsAsync`, avant le bonus plat de l'équipement). Côté client :
+  touche Y depuis la fiche créature ouvre `PanelKind.Talents` (liste des nœuds avec statut
+  DEBLOQUE/DISPONIBLE/VERROUILLE, `Client/Program.cs`).
 
 - [x] **Capacité spéciale dédiée pour Tank/Assassin/Support/Invocateur/Berserker** —
   `Server/World/Combat/CombatEngine.cs` (`ResolveSpecialAbility`/`ResolveUltimateAbility`) :
@@ -74,11 +87,29 @@ exactement celui de `Docs/Idees.md`.
   `BossMaterialByDungeonName` (Essences élémentaires déjà seedées) accordé en plus du butin
   aléatoire habituel sur une victoire en salle Boss/Boss légendaire.
 
-- [ ] **Embranchements/choix dans la chaîne de quêtes tutoriel** — non fait, comme prévu (le
-  mécanisme seul, sans nouveau contenu narratif à y brancher, n'aurait rien apporté de jouable).
+- [x] **Embranchements/choix dans la chaîne de quêtes tutoriel (2026-08-27)** —
+  `QuestEntity.ChoiceNextQuestId` (migration `AddQuestChoiceNextQuestId`, int? optionnel) : un
+  embranchement ponctuel après la quête tutoriel principale, pas un arbre complet, comme prévu
+  par la Proposition. Deux nouvelles quêtes ajoutées comme contenu réel du choix
+  (`QuestCatalogSeeder`) : "La voie du guerrier" (option par défaut, un nouveau combat) et
+  "La voie du marchand" (option alternative, une nouvelle transaction), toutes deux
+  `SequenceOrder = 7`. `QuestService.GetActiveQuestAsync` détecte l'embranchement en attente et
+  renvoie les deux options (`QuestSummary.IsChoice`) au lieu d'une quête active classique ; nouvel
+  endpoint `POST /api/quests/choose` (`ChooseNextQuestAsync`) marque l'option rejetée comme
+  complétée sans récompense. Câblé côté client comme deux lignes cliquables dans le panneau de
+  quête existant (`Client/Program.cs`, `DrawQuestPanel`) plutôt que dans la boîte de dialogue PNJ
+  proposée à l'origine — écart assumé : pas de PNJ existant naturellement rattaché à ce choix,
+  le panneau de quête est la surface la plus simple et cohérente pour l'exposer.
 
-- [ ] **Vraie géographie pour les îles volantes/aquatiques** — non fait, comme prévu (gros
-  chantier moteur, dépend des sprites réels).
+- [x] **Vraie géographie pour les îles volantes/aquatiques (2026-08-27)** — pas de nouvelle
+  notion d'élévation/eau traversable dans le moteur (toujours hors scope) : une île est une
+  `WorldMap` distincte sur la même grille 50x50 (`Client/World/WorldMap.cs`, nouveau constructeur
+  `WorldMap(int size, MountKind islandKind)`, palette ciel/océan dédiée), sans bâtiment sauf un
+  point "Retour" au point d'apparition partagé. `EnterIsland`/`LeaveIsland`
+  (`Client/Program.cs`) réutilisent exactement le mécanisme de téléportation déjà en place entre
+  royaumes. Bonus trouvé au passage : `RebuildWorldMapForKingdom` n'appelait jamais
+  `connection.SendMove(...)`, désynchronisant silencieusement la position suivie côté serveur
+  après chaque téléportation de royaume — corrigé.
 
 - [ ] **Persistance des PV des créatures entre deux combats** — non fait : question posée à
   l'utilisateur en cours de session, réponse = laisser tel quel (choix assumé, pas un oubli).
@@ -103,10 +134,24 @@ exactement celui de `Docs/Idees.md`.
   3 nouveaux endpoints (`trigger-trap`, `resolve-puzzle`, `trigger-event`), câblés côté client
   (`Client/Program.cs`, `UpdateDungeonCorridor`) et dans `GameDataApiClient`.
 
-- [ ] **Vraie scène d'intérieur** — non fait, comme prévu (dépend des sprites réels).
+- [x] **Vraie scène d'intérieur (2026-08-27)** — l'intérieur des bâtiments (hors donjon) est
+  maintenant projeté en isométrique avec les mêmes primitives que l'extérieur (`IsoMath`/
+  `DrawQuad`, voir `DrawBuilding`) plutôt qu'un aplat de rectangles en coordonnées écran
+  relatives : sol en losanges (`Client/Program.cs`, `DrawInteriorScene`), deux murs de fond en
+  "L", meubles réinterprétés comme des cases de la grille de la pièce et rendus en petits pavés
+  isométriques extrudés, PNJ rendu via `DrawFigure` (même silhouette que les PNJ extérieurs,
+  nouveau paramètre optionnel `screenOffset` ajouté à `DrawFigure`/`DrawIsoDiamond` pour
+  permettre ce recentrage écran, sans changer le rendu extérieur existant). L'intérieur des
+  donjons (`DrawDungeonCorridor`, salle rectangulaire avec portes) n'a volontairement pas été
+  touché : sa géométrie et son déplacement (`dungeonPlayerPos` 0..1) sont indépendants et une
+  conversion isométrique y aurait demandé de refaire le mouvement en salle, un risque de
+  régression déraisonnable pour un gain purement cosmétique.
 
-- [ ] **Sprites/textures réels** — non fait, comme prévu (aucun asset graphique disponible dans
-  cet environnement — pas un problème de code).
+- [ ] **Sprites/textures réels** — toujours pas fait dans le moteur (décision explicite : aucune
+  texture réelle câblée dans le rendu, pour ne pas s'engager sur des assets non produits/achetés).
+  À la place **(2026-08-27)**, `Docs/Image/` contient des maquettes PNG générées par code
+  (`generate_concepts.py`, Pillow, palettes de couleurs déjà utilisées en jeu) pour montrer à quoi
+  les sprites pourraient ressembler sans en faire de vrais assets de production.
 
 ## Technique
 
@@ -153,13 +198,17 @@ exactement celui de `Docs/Idees.md`.
 
 ## UI / UX
 
-- [ ] **Vraie image de profil** — partiellement fait, marqué non fait car la partie visible
-  utilisateur manque encore. Fait : `UserEntity.AvatarUrl` (migration `AddUserAvatarUrl`),
-  endpoint `POST /api/account/avatar` (upload multipart, 2 Mo max, PNG/JPEG, stocké sur disque
-  serveur sous `avatars/`, servi en statique via `app.UseStaticFiles`), `AvatarUrl` exposé dans
-  `LoginResponse`/`AdminUserSummary`. **Pas fait** : affichage réel de l'image côté
-  Launcher/AdminPanel (remplacement de la pastille générée par `AvatarConverters.cs`) et bouton
-  d'upload dans l'UI — l'infrastructure serveur est prête, l'écran qui l'utilise reste à faire.
+- [x] **Vraie image de profil (2026-08-27)** — partie serveur inchangée (`UserEntity.AvatarUrl`,
+  `POST /api/account/avatar`). Partie visible désormais faite : `Launcher/AvatarConverters.cs`
+  (`AvatarUrlToBitmapConverter`, téléchargement synchrone + cache mémoire par URL, utilisé comme
+  image réelle quand `AvatarUrl` est renseigné, la pastille/initiale générée reste le repli
+  sinon), `Launcher/Services/FilePickerService.cs` (sélection de fichier via le `StorageProvider`
+  Avalonia), `AccountApiClient.UploadAvatarAsync`, bouton "Changer d'avatar" dans le panneau
+  "Compte connecté" (`MainWindow.axaml`/`.xaml.cs`, `MainViewModel.cs`). Colonne avatar ajoutée à
+  la liste Communauté du Launcher et à l'AdminPanel (`AdminPanel/AvatarUrlToBitmapConverter.cs`,
+  version WPF `BitmapImage.UriSource`). Toujours hors scope, comme précisé dans la Proposition
+  d'origine : affichage d'image en jeu (le moteur de rendu maison n'a pas de pipeline de texture
+  câblé, voir "Sprites/textures réels" plus haut) — le tchat en jeu reste en texte/tag coloré.
 
 - [x] **Suivi "tutoriel déjà vu"** — `CharacterEntity.HasSeenTutorial` (migration
   `AddCharacterHasSeenTutorial`), endpoint `POST /api/characters/{id}/mark-tutorial-seen`, exposé
@@ -182,8 +231,19 @@ exactement celui de `Docs/Idees.md`.
   `DiscordAnnouncer.PostUpdateAsync` en plus du récapitulatif quotidien/de l'annonce admin
   manuelle déjà en place.
 
-- [ ] **Système de réputation/grade militaire + zones PvP sauvage** — non fait, comme prévu
-  (système de gameplay neuf entier, à cadrer avec l'utilisateur avant de coder).
+- [x] **Système de réputation/grade militaire + zones PvP sauvage (2026-08-27)** — conçu comme
+  une file d'attente (pas une attaque directe/embuscade) délibérément, pour éviter le grief sans
+  système de consentement/notification : `Server/World/Combat/WildPvpQueueService.cs` (même forme
+  que `KingdomWarQueueService`), `Server/Program.cs` (`/api/pvp/wild/queue`,
+  `/queue/status`, `/queue/cancel`, `/api/pvp/wild/reputation`), "zone à risque" = distance de
+  Manhattan > 15 depuis la capitale, vérifiée côté serveur sur la position réellement suivie du
+  joueur (`WorldSessionRegistry.FindByCharacterId`), pas une coordonnée envoyée par le client.
+  `CharacterEntity.MilitaryReputation` (migration `AddCharacterMilitaryReputation`), +1 par
+  victoire (`CombatService.ApplyArenaResultAsync`), grade calculé par
+  `Shared/Models/MilitaryRankCatalog.cs` (6 paliers). Côté client : `PanelKind.WildPvp` (nouveau
+  bouton HUD "PVP SAUVAGE"), file d'attente avec sondage périodique identique au panneau Guerre de
+  royaumes, affichage du grade/de la réputation (`Client/Program.cs`,
+  `UpdateWildPvpPanel`/`DrawWildPvpPanel`, `CombatApiClient`).
 
 - [x] **Récompenses cosmétiques exclusives au-delà de "Rare" dans le Passe de Niveau premium** —
   `Server/World/BattlePassService.cs` : nouveau titre exclusif "Élu du Passe" au palier maximum
@@ -197,6 +257,11 @@ Dans l'ordre, sous `Database/Migrations/` :
 2. `AddChatMessages` — nouvelle table `ChatMessages`.
 3. `AddUserAvatarUrl` — colonne `AvatarUrl` (string?) sur `Users`.
 4. `AddCharacterHasSeenTutorial` — colonne `HasSeenTutorial` (bool) sur `Characters`.
+5. `AddMonsterTalents` (2026-08-27) — colonnes `TalentPoints` (int) et
+   `UnlockedTalentNodeKeys` (string) sur `Monsters`.
+6. `AddCharacterMilitaryReputation` (2026-08-27) — colonne `MilitaryReputation` (int) sur
+   `Characters`.
+7. `AddQuestChoiceNextQuestId` (2026-08-27) — colonne `ChoiceNextQuestId` (int?) sur `Quests`.
 
 ## Note d'environnement (pour la suite)
 

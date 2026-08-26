@@ -13,4 +13,7 @@ public sealed class SessionInfoResponse
     public required Guid UserId { get; init; }
     public required bool IsAdmin { get; init; }
     public required UserRank Rank { get; init; }
+
+    /// <summary>Voir Docs/Idees.md — vraie image de profil, <c>null</c> tant qu'aucune image n'a été envoyée.</summary>
+    public string? AvatarUrl { get; init; }
 }

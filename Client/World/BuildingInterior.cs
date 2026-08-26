@@ -3,10 +3,10 @@ using System.Numerics;
 namespace Aetheria.Client.World;
 
 /// <summary>
-/// Meuble décoratif dans une scène d'intérieur (voir GDD — intérieurs enrichis). Un simple
-/// rectangle coloré positionné en coordonnées relatives (0..1 de la largeur/hauteur de l'écran),
-/// pas un vrai objet 3D/isométrique — cohérent avec le style écran-plat déjà utilisé par
-/// <c>DrawInteriorScene</c> (voir Docs/README.md pour cette limite assumée).
+/// Meuble décoratif dans une scène d'intérieur (voir GDD — intérieurs enrichis). Position
+/// donnée en coordonnées relatives (0..1), réinterprétées par <c>DrawInteriorScene</c> comme une
+/// case dans la grille isométrique de la pièce (voir Docs/Idees.md — "vraie scène d'intérieur")
+/// plutôt que comme un rectangle écran à plat.
 /// </summary>
 public sealed record InteriorFurniture(string Label, float RelativeX, float RelativeY, float RelativeWidth, float RelativeHeight, Vector4 Color);
 

@@ -101,6 +101,16 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAdminPanelOpen;
 
+    /// <summary>Voir Docs/Idees.md — vraie image de profil : identité du compte connecté, renseignée à la connexion/restauration de session (voir Login/TryRestoreSessionAsync), nécessaire pour POST /api/account/avatar.</summary>
+    [ObservableProperty]
+    private Guid? _currentUserId;
+
+    [ObservableProperty]
+    private string? _currentAvatarUrl;
+
+    [ObservableProperty]
+    private string? _avatarUploadError;
+
     /// <summary>Voir GDD/demande utilisateur — "les admin peut voir les report sur une page sur le launcher".</summary>
     [ObservableProperty]
     private bool _isReportsPanelOpen;
@@ -181,6 +191,7 @@ public sealed partial class MainViewModel : ObservableObject
         _languagePreference = settings.Language;
         _serverHost = NormalizeHost(settings.ServerHost);
         _accountApi = new AccountApiClient($"http://{_serverHost}:{GameInfo.DefaultAccountApiPort}");
+        AvatarUrlToBitmapConverter.ServerHost = _serverHost;
 
         _ = CheckServerStatusAsync();
         LoadNews();
@@ -212,6 +223,8 @@ public sealed partial class MainViewModel : ObservableObject
         IsAdminAccount = result.Value!.IsAdmin || result.Value.Rank == UserRank.Fondateur;
         IsStaffAccount = result.Value.IsAdmin || result.Value.Rank is UserRank.Moderateur or UserRank.Fondateur;
         IsFondateurAccount = result.Value.Rank == UserRank.Fondateur;
+        CurrentUserId = result.Value.UserId;
+        CurrentAvatarUrl = result.Value.AvatarUrl;
         _adminApi = new AdminApiClient($"http://{ServerHost}:{GameInfo.DefaultAccountApiPort}");
     }
 
@@ -471,6 +484,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         _accountApi.Dispose();
         _accountApi = new AccountApiClient($"http://{value}:{GameInfo.DefaultAccountApiPort}");
+        AvatarUrlToBitmapConverter.ServerHost = value;
 
         if (_adminApi is not null)
         {
@@ -588,6 +602,8 @@ public sealed partial class MainViewModel : ObservableObject
             SessionToken = result.Value!.SessionToken;
             IsLoggedIn = true;
             StatusMessage = null;
+            CurrentUserId = result.Value.UserId;
+            CurrentAvatarUrl = result.Value.AvatarUrl;
 
             // Voir retour utilisateur — "apres la connexion effacer le mot de passe" : plus besoin
             // de le garder en mémoire une fois la session ouverte (le SessionToken suffit pour
@@ -612,6 +628,40 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>Voir Docs/Idees.md — vraie image de profil : ouvre le sélecteur de fichiers (voir FilePickerService) puis envoie l'image choisie à POST /api/account/avatar.</summary>
+    [RelayCommand]
+    private async Task UploadAvatar()
+    {
+        if (SessionToken is null)
+        {
+            return;
+        }
+
+        AvatarUploadError = null;
+        var picked = await FilePickerService.PickImageAsync();
+        if (picked is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var result = await _accountApi.UploadAvatarAsync(SessionToken, picked.Value.Bytes, picked.Value.FileName);
+            if (!result.IsSuccess)
+            {
+                AvatarUploadError = result.Error;
+                return;
+            }
+
+            CurrentAvatarUrl = result.Value;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     [RelayCommand]
     private void Logout()
     {
@@ -623,6 +673,8 @@ public sealed partial class MainViewModel : ObservableObject
         IsAdminAccount = false;
         IsStaffAccount = false;
         IsFondateurAccount = false;
+        CurrentUserId = null;
+        CurrentAvatarUrl = null;
         IsAdminPanelOpen = false;
         AdminUsers.Clear();
         IsReportsPanelOpen = false;

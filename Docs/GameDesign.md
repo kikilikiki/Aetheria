@@ -282,3 +282,32 @@ conception ci-dessus :
   sessions actives (auparavant l'effet n'était visible qu'à la reconnexion).
 - **Outils internes** (MonsterEditor/MapEditor) : protégés par une authentification admin/
   fondateur, comme l'AdminPanel — jusqu'ici ouverts à quiconque pouvait atteindre le serveur.
+
+## Addendum (2026-08-27) — idées précédemment "trop grosses", maintenant implémentées
+
+Voir `Docs/Idees-Realisations.md` (mise à jour du 2026-08-27) pour le détail technique complet.
+
+- **Arbre de talents** : un seul arbre partagé de 9 nœuds (pas un arbre par espèce) — chaque
+  montée de niveau d'une créature octroie 1 point, dépensé pour débloquer des nœuds donnant des
+  bonus en pourcentage sur les stats de combat (PV/Attaque/Défense/Vitesse), appliqués avant le
+  bonus plat de l'équipement.
+- **PvP sauvage** : concrétisé comme une file d'attente déclenchée quand le joueur se trouve en
+  zone à risque (loin de la capitale), **pas une attaque directe ou une embuscade** — choix de
+  conception délibéré tant qu'aucun système de consentement/notification n'existe, pour ne pas
+  ouvrir de grief non consenti. Une victoire octroie un point de réputation militaire ; 6 grades
+  successifs, affichés dans le panneau dédié.
+- **Îles volantes/aquatiques** : accessibles comme avant via une monture adaptée, mais mènent
+  maintenant à une vraie carte dédiée (toujours sur la grille 50x50 existante, le moteur n'a
+  toujours pas de notion d'élévation/eau traversable) plutôt qu'à un simple succès caché.
+- **Quêtes tutoriel** : la chaîne reste courte et linéaire dans l'ensemble, mais se termine
+  désormais par un unique embranchement à deux choix ("voie du guerrier" orientée combat, "voie
+  du marchand" orientée commerce) — pas un arbre de dialogue complet, un embranchement ponctuel
+  comme prévu.
+- **Intérieurs de bâtiments** : rendus en isométrique (même style que l'extérieur) au lieu d'un
+  écran à plat — l'intérieur des donjons (salle rectangulaire avec portes) garde son style propre,
+  volontairement pas unifié pour éviter de retoucher son système de déplacement.
+- **Image de profil** : visible pour de vrai dans le Launcher et l'AdminPanel désormais, pas
+  seulement stockée côté serveur.
+- **Toujours pas de vrais sprites/textures** dans le moteur (aucun asset produit) : `Docs/Image/`
+  contient à la place des maquettes générées par code pour donner une direction visuelle sans
+  engager de vrais assets de production.

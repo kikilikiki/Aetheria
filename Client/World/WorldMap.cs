@@ -179,6 +179,72 @@ public sealed class WorldMap
         ];
     }
 
+    /// <summary>
+    /// Voir Docs/Idees.md — "vraie géographie pour les îles volantes/aquatiques" : au lieu d'un
+    /// simple succès caché (voir <c>ExplorationService</c>, toujours vérifié côté serveur avant
+    /// d'accepter la visite), une vraie petite carte explorable, réutilisant le même mécanisme que
+    /// le voyage entre royaumes (voir <see cref="RebuildWorldMapForKingdom"/> côté Client) plutôt
+    /// que d'ajouter une notion d'élévation/eau traversable au moteur. **Limite assumée** : réutilise
+    /// le même espace de coordonnées (0..<paramref name="size"/>) que les capitales — la validation
+    /// serveur de collision (<c>TownLayout.IsWalkable</c>) reste donc calée sur le plan de capitale
+    /// standard plutôt que sur la disposition (vide) de l'île, cohérent avec la simplification déjà
+    /// assumée ailleurs (un seul espace de coordonnées partagé entre les royaumes, voir
+    /// GDD — visibilité globale).
+    /// </summary>
+    public WorldMap(int size, MountKind islandKind)
+    {
+        Size = size;
+        TileColors = new Vector4[size, size];
+        _terrain = new TerrainType[size, size];
+        DungeonName = "";
+        _pathTiles = [];
+        _pond = (-100, -100); // hors carte : pas d'étang sur une île.
+
+        var isSky = islandKind == MountKind.Volant;
+        GrassLight = isSky ? new Vector4(0.85f, 0.90f, 0.98f, 1f) : new Vector4(0.86f, 0.78f, 0.55f, 1f);
+        GrassMid = isSky ? new Vector4(0.75f, 0.82f, 0.95f, 1f) : new Vector4(0.80f, 0.70f, 0.45f, 1f);
+        GrassDark = isSky ? new Vector4(0.65f, 0.74f, 0.92f, 1f) : new Vector4(0.72f, 0.60f, 0.36f, 1f);
+        DirtPath = isSky ? new Vector4(0.55f, 0.62f, 0.85f, 1f) : new Vector4(0.65f, 0.52f, 0.30f, 1f);
+        // Voir GDD/demande utilisateur — île aquatique : l'eau occupe tout l'espace en dehors du
+        // petit plateau central où le joueur peut se tenir (voir ComputeTerrain, rayon centré).
+        WaterBlue = new Vector4(0.20f, 0.35f, 0.60f, 1f);
+
+        // Voir Docs/Idees.md — le point d'arrivée reprend exactement la même formule que
+        // WorldMap.SpawnPosition pour une capitale (voir plus bas, capital.X/capital.Y + 2) :
+        // reste ainsi accepté par la même exception serveur (CapitalSpawnPoint, voir
+        // PlayerSession.HandlePlayerMove) sans changement côté serveur, cohérent avec le voyage
+        // entre royaumes qui réutilise déjà ce même point d'arrivée quel que soit le royaume.
+        var capital = TownLayout.BuildingCells(size)[0];
+        var center = (X: capital.X, Y: capital.Y + 2);
+        SpawnPosition = center;
+        DungeonEntrance = (-100, -100);
+
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                TerrainType terrain;
+                if (!isSky)
+                {
+                    // Île aquatique : plateau de sable/herbe au centre, océan tout autour.
+                    var distanceToCenter = MathF.Sqrt(MathF.Pow(x - center.X, 2) + MathF.Pow(y - center.Y, 2));
+                    terrain = distanceToCenter < 9f ? ComputeTerrain(x, y, [], (-100, -100)) : TerrainType.Water;
+                }
+                else
+                {
+                    terrain = ComputeTerrain(x, y, [], (-100, -100));
+                }
+
+                _terrain[x, y] = terrain;
+                TileColors[x, y] = ColorForTerrain(terrain);
+            }
+        }
+
+        Buildings = [new Building("Retour", center.X, center.Y - 3, 1.2f,
+            new Vector4(0.6f, 0.5f, 0.85f, 1f), new Vector4(0.35f, 0.28f, 0.55f, 1f), new Vector4(0.75f, 0.65f, 0.95f, 1f))];
+        Npcs = [];
+    }
+
     public bool IsWithinBounds(int x, int y) => x >= 0 && x < Size && y >= 0 && y < Size;
 
     /// <summary>

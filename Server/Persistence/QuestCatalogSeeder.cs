@@ -22,6 +22,35 @@ public static class QuestCatalogSeeder
             return;
         }
 
+        var quest6 = new QuestEntity
+        {
+            SequenceOrder = 6,
+            Name = "Les échos du donjon",
+            Description = "Des bruits inquiétants viennent du donjon voisin. Vas-y voir de plus près.",
+            RewardGold = 50,
+            RewardExperience = 40,
+        };
+
+        // Voir Docs/Idees.md — "Embranchements/choix dans la chaîne de quêtes tutoriel" : un
+        // embranchement ponctuel après la quête tutoriel principale (pas un arbre complet), entre
+        // une voie combat (option par défaut, SequenceOrder+1) et une voie commerce (option
+        // alternative, référencée par ChoiceNextQuestId une fois les deux insérées ci-dessous).
+        var questWarriorPath = new QuestEntity
+        {
+            SequenceOrder = 7,
+            Name = "La voie du guerrier",
+            Description = "Le combat t'a plu ? Remporte un nouveau combat pour prouver ta valeur.",
+            RewardGold = 30,
+            RewardExperience = 30,
+        };
+        var questMerchantPath = new QuestEntity
+        {
+            SequenceOrder = 7,
+            Name = "La voie du marchand",
+            Description = "Le commerce t'a plu ? Fais une nouvelle transaction avec la Marchande.",
+            RewardGold = 60,
+        };
+
         db.Quests.AddRange(
             new QuestEntity
             {
@@ -59,15 +88,13 @@ public static class QuestCatalogSeeder
                 Description = "La Marchande t'apprendra à acheter et vendre. Fais affaire avec elle une première fois.",
                 RewardGold = 20,
             },
-            new QuestEntity
-            {
-                SequenceOrder = 6,
-                Name = "Les échos du donjon",
-                Description = "Des bruits inquiétants viennent du donjon voisin. Vas-y voir de plus près.",
-                RewardGold = 50,
-                RewardExperience = 40,
-            });
+            quest6,
+            questWarriorPath,
+            questMerchantPath);
 
+        await db.SaveChangesAsync(ct);
+
+        quest6.ChoiceNextQuestId = questMerchantPath.Id;
         await db.SaveChangesAsync(ct);
     }
 }

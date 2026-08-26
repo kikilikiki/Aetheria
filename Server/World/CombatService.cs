@@ -395,6 +395,57 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     }
 
     /// <summary>
+    /// Voir Docs/Idees.md — "PvP sauvage" : duel 1v1 formé par <see cref="Combat.WildPvpQueueService"/>
+    /// entre deux joueurs déjà validés comme physiquement dans une zone à risque. Même
+    /// construction que <see cref="StartFriendlyTeamDuelAsync"/> (équipe active de chacun,
+    /// <c>IsArenaMatch = true</c> pour réutiliser le même calcul de récompenses par participant,
+    /// voir <see cref="ApplyArenaResultAsync"/>), avec <see cref="CombatSession.IsWildPvpCombat"/>
+    /// en plus pour déclencher le gain de réputation militaire du vainqueur.
+    /// </summary>
+    public async Task<CombatSessionState> StartWildPvpDuelAsync(Guid characterId1, Guid characterId2, CancellationToken ct = default)
+    {
+        if (GlobalEventService.AreCombatsDisabled)
+        {
+            throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
+        }
+
+        var combatants = new List<Combatant>();
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, IsWildPvpCombat = true, Combatants = combatants };
+
+        async Task AddTeamAsync(Guid characterId, int team)
+        {
+            var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct);
+            if (character is null)
+            {
+                return;
+            }
+
+            session.TeamOwnerUserId[team] = character.UserId;
+            session.TeamCharacterId[team] = character.Id;
+
+            var activeMonsterIds = await db.Monsters
+                .Where(m => m.OwnerCharacterId == characterId && m.EquippedSlot != null)
+                .Select(m => m.Id)
+                .ToListAsync(ct);
+
+            combatants.AddRange(await BuildTeamCombatantsAsync(character, activeMonsterIds, team, BuildTeamCellQueue(leftSide: team == 0), maxMonsters: 4, ct));
+        }
+
+        await AddTeamAsync(characterId1, team: 0);
+        await AddTeamAsync(characterId2, team: 1);
+
+        if (!combatants.Any(c => c.Team == 0) || !combatants.Any(c => c.Team == 1))
+        {
+            throw new AccountOperationException("Les deux joueurs doivent avoir au moins une créature active.");
+        }
+
+        CombatEngine.Initialize(session);
+        combatStore.Add(session);
+
+        return ToState(session);
+    }
+
+    /// <summary>
     /// Engage le combat contre le monstre d'une salle de donjon générée procéduralement
     /// (voir <c>DungeonFloorGenerator</c>). La rareté de la créature choisie dépend du type de
     /// rencontre (mini-boss/boss/boss légendaire = créatures plus rares), le tirage précis est
@@ -1022,16 +1073,20 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // et Resistance ne sont pas consommées par le moteur de combat (pas de champ Combatant
             // correspondant), donc leurs IV/EV/Prest ne sont pas exploités ici — juste visibles/
             // modifiables via le détail de la créature (voir MonsterInstanceData).
-            var maxHealth = ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant, monster.PrestigeLevel, monster.IvHealth, monster.EvHealth, monster.PrestHealth, monster.Nature, MonsterStatKind.Health) + equipBonus.Health;
+            // Voir Docs/Idees.md — Arbre de talents : bonus en pourcentage appliqué sur la
+            // statistique déjà mise à l'échelle (niveau/IV/EV/Prest/Nature), puis le bonus
+            // d'équipement s'ajoute par-dessus (flat), même ordre que documenté pour équipBonus.
+            var talentKeys = monster.UnlockedTalentNodeKeys;
+            var maxHealth = (int)Math.Round(ScaledStat(species?.BaseHealth ?? 20, level, monster.Variant, monster.PrestigeLevel, monster.IvHealth, monster.EvHealth, monster.PrestHealth, monster.Nature, MonsterStatKind.Health) * (1 + TalentTreeCatalog.TotalBonus(talentKeys, MonsterStatKind.Health))) + equipBonus.Health;
             var type = species?.Type ?? MonsterType.Guerrier;
 
             combatants.Add(new Combatant
             {
                 Id = monster.Id, Name = displayName, Team = team, X = mx, Y = my,
                 MaxHealth = maxHealth, CurrentHealth = maxHealth,
-                Attack = ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvAttack, monster.EvAttack, monster.PrestAttack, monster.Nature, MonsterStatKind.Attack) + equipBonus.Attack,
-                Defense = ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvDefense, monster.EvDefense, monster.PrestDefense, monster.Nature, MonsterStatKind.Defense) + equipBonus.Defense,
-                Speed = ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed, monster.Nature, MonsterStatKind.Speed) + equipBonus.Speed,
+                Attack = (int)Math.Round(ScaledStat(species?.BaseAttack ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvAttack, monster.EvAttack, monster.PrestAttack, monster.Nature, MonsterStatKind.Attack) * (1 + TalentTreeCatalog.TotalBonus(talentKeys, MonsterStatKind.Attack))) + equipBonus.Attack,
+                Defense = (int)Math.Round(ScaledStat(species?.BaseDefense ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvDefense, monster.EvDefense, monster.PrestDefense, monster.Nature, MonsterStatKind.Defense) * (1 + TalentTreeCatalog.TotalBonus(talentKeys, MonsterStatKind.Defense))) + equipBonus.Defense,
+                Speed = (int)Math.Round(ScaledStat(species?.BaseSpeed ?? 5, level, monster.Variant, monster.PrestigeLevel, monster.IvSpeed, monster.EvSpeed, monster.PrestSpeed, monster.Nature, MonsterStatKind.Speed) * (1 + TalentTreeCatalog.TotalBonus(talentKeys, MonsterStatKind.Speed))) + equipBonus.Speed,
                 MovementRange = 3, AttackRange = BaseAttackRange(type), IsPlayerControlled = true,
                 OwnerUserId = character.UserId, OwnerCharacterId = character.Id,
                 Type = type, Element = species?.Element ?? Element.Neutre, SpeciesId = species?.Id,
@@ -1187,16 +1242,30 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         await db.SaveChangesAsync(ct);
 
+        var wildPvpReputationGranted = false;
         foreach (var (_, characterId) in participants.Where(p => p.Team == winningTeam))
         {
             var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct);
             if (character is not null)
             {
                 await new KingdomWarService(db).AwardWarPointsAsync(character.Kingdom, 10, ct);
+
+                // Voir Docs/Idees.md — "PvP sauvage" : réputation militaire au vainqueur d'un duel
+                // formé en zone à risque (voir WildPvpQueueService), ne baisse jamais.
+                if (session.IsWildPvpCombat)
+                {
+                    character.MilitaryReputation++;
+                    wildPvpReputationGranted = true;
+                }
             }
 
             // Voir GDD/demande utilisateur — "Guerres de guildes".
             await new GuildService(db, tokenStore).AwardWarPointsAsync(characterId, 10, ct);
+        }
+
+        if (wildPvpReputationGranted)
+        {
+            await db.SaveChangesAsync(ct);
         }
     }
 
