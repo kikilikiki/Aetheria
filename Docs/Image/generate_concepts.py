@@ -16,7 +16,7 @@ rôles de monstre (auparavant seul Tank avait un exemple) + davantage de PNJ/bâ
 présents dans le monde, pour servir de base complète à un·e artiste.
 """
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import os
 
 OUT_DIR = os.path.abspath("/home/killian/Documents/aetheria/Docs/Image")
@@ -61,6 +61,36 @@ def render_grid(grid, palette, scale=20, outline=None):
 
 def save(grid, palette, name, scale=20, outline=(20, 20, 25, 200)):
     render_grid(grid, palette, scale=scale, outline=outline).save(os.path.join(OUT_DIR, name))
+
+
+def add_roof_text(img, text, row_index, scale, fill, stroke):
+    """
+    Voir retour utilisateur — "remplace l'enclume etc par une écriture sur le toit, ça sera
+    mieux" : plutôt qu'un accessoire au sol devant l'entrée, le nom du bâtiment est écrit
+    directement sur la bande plate du toit (juste sous la pointe, la seule zone assez horizontale
+    pour du texte lisible — voir `row_index`, la rangée "gouttière" des grilles ci-dessous).
+    Taille de police réduite automatiquement si le nom est trop long pour tenir dans l'image.
+    """
+    draw = ImageDraw.Draw(img)
+    max_width = img.width - scale
+    size = round(scale * 0.85)
+    font = ImageFont.load_default(size=size)
+    bbox = draw.textbbox((0, 0), text, font=font, stroke_width=1)
+    while bbox[2] - bbox[0] > max_width and size > 6:
+        size -= 1
+        font = ImageFont.load_default(size=size)
+        bbox = draw.textbbox((0, 0), text, font=font, stroke_width=1)
+
+    band_top = row_index * scale
+    x = (img.width - (bbox[2] - bbox[0])) / 2 - bbox[0]
+    y = band_top + (scale - (bbox[3] - bbox[1])) / 2 - bbox[1]
+    draw.text((x, y), text, font=font, fill=fill, stroke_width=1, stroke_fill=stroke)
+
+
+def save_building(grid, palette, name, roof_text, text_fill=(255, 250, 235, 255), text_stroke=(35, 25, 10, 230), scale=20):
+    img = render_grid(grid, palette, scale=scale, outline=(25, 20, 15, 200))
+    add_roof_text(img, roof_text, row_index=4, scale=scale, fill=text_fill, stroke=text_stroke)
+    img.save(os.path.join(OUT_DIR, name))
 
 
 def v4_to_rgb(r, g, b):
@@ -137,18 +167,12 @@ save(grid, palette, "personnage-joueur-c.png")
 # ===========================================================================
 # Bâtiments (voir Client/World/BuildingInterior.cs pour les noms/rôles) — redo de la Capitale +
 # 4 nouveaux (Forge, Auberge, Hôtel des ventes, Guilde), même style toit-losange que l'existant.
+# Voir retour utilisateur — "remplace l'enclume etc par une écriture sur le toit, ça sera mieux" :
+# les 5 bâtiments se différenciaient d'abord par un accessoire au sol (enclume/tonneau/...),
+# remplacé par le nom du bâtiment écrit sur la bande du toit (voir `add_roof_text` ci-dessus).
 # ===========================================================================
-def building_grid(roof, roof_shadow, wall, wall_shadow, window, door, prop_rows=None, prop_palette=None):
-    """
-    Voir retour utilisateur — "ajoute pour les bâtiments un truc qui les différencie comme une
-    enclume à l'entrée pour la forge" : les 5 bâtiments partageaient jusqu'ici la même silhouette
-    toit-losange + porte, seule la couleur changeait. `prop_rows` ajoute 2 lignes sous la porte
-    avec un petit accessoire propre à chaque bâtiment (voir chaque appel ci-dessous), sur les
-    mêmes colonnes que la porte (6-8 sur une rangée de 17) pour rester centré dessus.
-    """
+def building_grid(roof, roof_shadow, wall, wall_shadow, window, door):
     palette = {"g": roof, "G": roof_shadow, "w": wall, "W": wall_shadow, "f": window, "d": door}
-    if prop_palette:
-        palette.update(prop_palette)
     grid = [
         "      gggg      ",
         "     gggggg     ",
@@ -164,80 +188,42 @@ def building_grid(roof, roof_shadow, wall, wall_shadow, window, door, prop_rows=
         " WwwwwdddwwwwWw ",
         " WWWWWdddWWWWWW ",
     ]
-    if prop_rows:
-        grid += prop_rows
     return grid, palette
 
 
-# Capitale : deux bannières royales dressées de part et d'autre de l'entrée (hampe + étoffe qui
-# retombe), en couleur or pour rester lisible sur n'importe quelle teinte de mur.
-banner = (217, 178, 63, 255)
 grid, palette = building_grid(
     roof=(217, 178, 63, 255), roof_shadow=(140, 112, 35, 255),
     wall=(200, 170, 130, 255), wall_shadow=(150, 120, 85, 255),
-    window=(235, 210, 120, 255), door=(90, 60, 35, 255),
-    prop_rows=[
-        "  bb        bb  ",
-        "  bB        Bb  ",
-    ],
-    prop_palette={"b": banner, "B": shade(banner, 0.7)})
-save(grid, palette, "batiment-capitale.png", outline=(30, 22, 10, 200))
+    window=(235, 210, 120, 255), door=(90, 60, 35, 255))
+save_building(grid, palette, "batiment-capitale.png", "CAPITALE", text_fill=(60, 42, 10, 255), text_stroke=(255, 235, 180, 230))
 
-# Forge (voir "Apprenti forgeron") : enclume posée devant l'entrée (base large qui se resserre,
-# reflet clair sur la table de frappe).
-anvil = (75, 75, 85, 255)
+# Forge (voir "Apprenti forgeron" — toit sombre, fenêtres orange braise).
 grid, palette = building_grid(
     roof=(90, 90, 95, 255), roof_shadow=(55, 55, 60, 255),
     wall=(150, 120, 100, 255), wall_shadow=(110, 85, 70, 255),
-    window=(235, 130, 60, 255), door=(60, 45, 35, 255),
-    prop_rows=[
-        "     nNNNNn     ",
-        "       NN       ",
-    ],
-    prop_palette={"n": shade(anvil, 1.3), "N": anvil})
-save(grid, palette, "batiment-forge.png", outline=(20, 15, 12, 200))
+    window=(235, 130, 60, 255), door=(60, 45, 35, 255))
+save_building(grid, palette, "batiment-forge.png", "FORGE")
 
-# Auberge (voir "Aubergiste") : tonneau posé à côté de l'entrée (couvercle clair, cerclages plus
-# sombres pour lire "tonneau" plutôt qu'un simple carré).
-barrel = (140, 95, 48, 255)
+# Auberge (voir "Aubergiste" — toit rouge/brun chaleureux).
 grid, palette = building_grid(
     roof=(160, 70, 45, 255), roof_shadow=(105, 42, 26, 255),
     wall=(210, 180, 140, 255), wall_shadow=(160, 130, 95, 255),
-    window=(250, 220, 140, 255), door=(90, 60, 35, 255),
-    prop_rows=[
-        "  tTt           ",
-        "  TtT           ",
-    ],
-    prop_palette={"t": shade(barrel, 1.2), "T": shade(barrel, 0.75)})
-save(grid, palette, "batiment-auberge.png", outline=(35, 18, 10, 200))
+    window=(250, 220, 140, 255), door=(90, 60, 35, 255))
+save_building(grid, palette, "batiment-auberge.png", "AUBERGE")
 
-# Hôtel des ventes (voir "Commis") : pile de pièces d'or à côté de l'entrée (silhouette
-# triangulaire pour bien lire "pile", pas un bloc plein).
-coin = (230, 195, 70, 255)
+# Hôtel des ventes (voir "Commis" — toit bleu-vert commerçant, nom abrégé pour tenir sur le toit).
 grid, palette = building_grid(
     roof=(60, 130, 120, 255), roof_shadow=(35, 90, 82, 255),
     wall=(215, 210, 190, 255), wall_shadow=(165, 160, 140, 255),
-    window=(255, 235, 160, 255), door=(70, 55, 40, 255),
-    prop_rows=[
-        "             k  ",
-        "            kKk ",
-    ],
-    prop_palette={"k": coin, "K": shade(coin, 0.75)})
-save(grid, palette, "batiment-hotel-des-ventes.png", outline=(15, 25, 22, 200))
+    window=(255, 235, 160, 255), door=(70, 55, 40, 255))
+save_building(grid, palette, "batiment-hotel-des-ventes.png", "HOTEL DES VENTES")
 
-# Guilde (voir "Archiviste") : emblème en pennant suspendu au-dessus de l'entrée (pointe vers le
-# bas), forme distincte de l'enclume/tonneau/pile ci-dessus.
-emblem = (225, 195, 235, 255)
+# Guilde (voir "Archiviste" — toit violet).
 grid, palette = building_grid(
     roof=(120, 70, 140, 255), roof_shadow=(80, 45, 95, 255),
     wall=(190, 175, 195, 255), wall_shadow=(140, 125, 145, 255),
-    window=(230, 200, 240, 255), door=(60, 40, 65, 255),
-    prop_rows=[
-        "      mmm       ",
-        "       M        ",
-    ],
-    prop_palette={"m": emblem, "M": shade(emblem, 0.75)})
-save(grid, palette, "batiment-guilde.png", outline=(25, 15, 28, 200))
+    window=(230, 200, 240, 255), door=(60, 40, 65, 255))
+save_building(grid, palette, "batiment-guilde.png", "GUILDE")
 
 # ===========================================================================
 # Monstres — starter Braisillon (redo) + un exemple par rôle de combat (10 rôles, voir

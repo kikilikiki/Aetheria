@@ -54,14 +54,16 @@ bestiaire par royaume/élément).
 ### Bâtiments visitables (voir `BuildingInterior.cs` pour les intérieurs correspondants)
 
 Jusqu'ici les 5 bâtiments ne se différenciaient que par la couleur (même silhouette toit-losange
-+ porte) — chacun a maintenant un petit accessoire propre à son rôle devant/au-dessus de
-l'entrée, pour rester reconnaissable même en noir et blanc :
++ porte). Un premier essai a ajouté un accessoire au sol par bâtiment (enclume/tonneau/...),
+remplacé sur retour utilisateur par le nom du bâtiment écrit directement sur la bande du toit
+(voir `add_roof_text` dans le script — taille de police réduite automatiquement si le nom est
+trop long, voir `batiment-hotel-des-ventes.png`) :
 
-- `batiment-capitale.png` — deux bannières royales dressées de part et d'autre de l'entrée.
-- `batiment-forge.png` — enclume posée devant la porte.
-- `batiment-auberge.png` — tonneau à côté de l'entrée.
-- `batiment-hotel-des-ventes.png` — pile de pièces d'or à côté de l'entrée.
-- `batiment-guilde.png` — emblème en pennant suspendu au-dessus de la porte.
+- `batiment-capitale.png` — "CAPITALE".
+- `batiment-forge.png` — "FORGE".
+- `batiment-auberge.png` — "AUBERGE".
+- `batiment-hotel-des-ventes.png` — "HOTEL DES VENTES".
+- `batiment-guilde.png` — "GUILDE".
 
 ## Régénérer
 
