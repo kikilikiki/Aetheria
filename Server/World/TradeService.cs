@@ -10,11 +10,9 @@ namespace Aetheria.Server.World;
 /// <summary>
 /// Voir GDD/demande utilisateur — "Système d'échange (trade) entre joueurs". Contrairement à
 /// l'Hôtel des ventes (voir AuctionService, marché anonyme avec enchères), une offre d'échange
-/// cible un joueur précis : une créature (optionnelle) plus de l'or contre de l'or demandé.
-/// **Simplification assumée** : la contrepartie du joueur ciblé est toujours en or plutôt qu'une
-/// de ses propres créatures — évite d'avoir à lui faire parcourir l'équipe de l'initiateur pour
-/// composer l'offre, tout en couvrant l'essentiel du besoin (revente/don ciblé entre deux joueurs
-/// précis, sans passer par le marché public).
+/// cible un joueur précis : une créature (optionnelle) plus de l'or, contre de l'or et/ou une
+/// créature précise du joueur ciblé (voir Docs/Idees.md — <c>RequestedMonsterId</c>, jusqu'ici la
+/// contrepartie ne pouvait être qu'en or).
 /// </summary>
 public sealed class TradeService(AetheriaDbContext db, SessionTokenStore tokenStore)
 {
@@ -46,6 +44,17 @@ public sealed class TradeService(AetheriaDbContext db, SessionTokenStore tokenSt
                 ?? throw new AccountOperationException("Cette créature ne vous appartient pas.");
         }
 
+        // Voir Docs/Idees.md — la créature demandée doit appartenir à la CIBLE (pas à
+        // l'initiateur, contrairement à OfferedMonsterId ci-dessus), vérifié dès la proposition
+        // pour ne pas laisser l'initiateur demander n'importe quel identifiant au hasard — revalidé
+        // à l'acceptation (voir RespondAsync) au cas où elle aurait changé de mains entre-temps.
+        MonsterEntity? requestedMonster = null;
+        if (request.RequestedMonsterId is { } requestedMonsterId)
+        {
+            requestedMonster = await db.Monsters.FirstOrDefaultAsync(m => m.Id == requestedMonsterId && m.OwnerCharacterId == target.Id, ct)
+                ?? throw new AccountOperationException($"{target.Name} ne possède pas cette créature.");
+        }
+
         db.TradeOffers.Add(new TradeOfferEntity
         {
             Id = Guid.NewGuid(),
@@ -54,6 +63,7 @@ public sealed class TradeService(AetheriaDbContext db, SessionTokenStore tokenSt
             OfferedMonsterId = offeredMonster?.Id,
             OfferedGold = request.OfferedGold,
             RequestedGold = request.RequestedGold,
+            RequestedMonsterId = requestedMonster?.Id,
         });
         await db.SaveChangesAsync(ct);
 
@@ -108,12 +118,28 @@ public sealed class TradeService(AetheriaDbContext db, SessionTokenStore tokenSt
                 ?? throw new AccountOperationException("L'initiateur ne possède plus cette créature.");
         }
 
+        // Voir Docs/Idees.md — revalidation à l'acceptation, même principe que offeredMonster
+        // ci-dessus : la créature demandée doit toujours appartenir au destinataire (CETTE
+        // méthode s'exécute avec character == destinataire, voir le contrôle plus haut).
+        MonsterEntity? requestedMonster = null;
+        if (offer.RequestedMonsterId is { } requestedMonsterId)
+        {
+            requestedMonster = await db.Monsters.FirstOrDefaultAsync(m => m.Id == requestedMonsterId && m.OwnerCharacterId == character.Id, ct)
+                ?? throw new AccountOperationException("Vous ne possédez plus la créature demandée.");
+        }
+
         initiator.Gold = initiator.Gold - offer.OfferedGold + offer.RequestedGold;
         character.Gold = character.Gold - offer.RequestedGold + offer.OfferedGold;
         if (offeredMonster is not null)
         {
             offeredMonster.OwnerCharacterId = character.Id;
             offeredMonster.EquippedSlot = null;
+        }
+
+        if (requestedMonster is not null)
+        {
+            requestedMonster.OwnerCharacterId = initiator.Id;
+            requestedMonster.EquippedSlot = null;
         }
 
         offer.Status = TradeOfferStatus.Accepted;
@@ -152,7 +178,9 @@ public sealed class TradeService(AetheriaDbContext db, SessionTokenStore tokenSt
         var characterIds = offers.Select(o => o.InitiatorCharacterId).Concat(offers.Select(o => o.TargetCharacterId)).Distinct().ToList();
         var names = await db.Characters.Where(c => characterIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
 
-        var monsterIds = offers.Where(o => o.OfferedMonsterId is not null).Select(o => o.OfferedMonsterId!.Value).ToList();
+        var monsterIds = offers.Where(o => o.OfferedMonsterId is not null).Select(o => o.OfferedMonsterId!.Value)
+            .Concat(offers.Where(o => o.RequestedMonsterId is not null).Select(o => o.RequestedMonsterId!.Value))
+            .Distinct().ToList();
         var monsterNames = await db.Monsters.Where(m => monsterIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.Nickname, ct);
 
         return offers.Select(o => new TradeOfferSummary
@@ -163,6 +191,7 @@ public sealed class TradeService(AetheriaDbContext db, SessionTokenStore tokenSt
             OfferedMonsterName = o.OfferedMonsterId is { } id ? monsterNames.GetValueOrDefault(id, "?") : null,
             OfferedGold = o.OfferedGold,
             RequestedGold = o.RequestedGold,
+            RequestedMonsterName = o.RequestedMonsterId is { } requestedId ? monsterNames.GetValueOrDefault(requestedId, "?") : null,
             Status = o.Status,
             CreatedAtUtc = o.CreatedAtUtc,
         }).ToList();

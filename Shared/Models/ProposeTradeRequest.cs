@@ -9,4 +9,7 @@ public sealed class ProposeTradeRequest
     public Guid? OfferedMonsterId { get; init; }
     public long OfferedGold { get; init; }
     public long RequestedGold { get; init; }
+
+    /// <summary>Voir Docs/Idees.md — créature du joueur CIBLÉ demandée en contrepartie, au lieu/en plus de <see cref="RequestedGold"/>.</summary>
+    public Guid? RequestedMonsterId { get; init; }
 }

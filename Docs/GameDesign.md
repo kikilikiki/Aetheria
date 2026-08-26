@@ -257,3 +257,28 @@ divergence, cet addendum fait foi sur les sections précédentes.
   créatures exclusives, taxes HDV locales).
 - **PvP sauvage** : zones à risque hors des arènes instanciées, ressources/monstres rares,
   système de réputation/grade militaire pour les joueurs qui y combattent pour leur royaume.
+
+## Addendum (2026-08-26) — précisions issues de l'implémentation de `Docs/Idees.md`
+
+Voir `Docs/Idees-Realisations.md` pour le détail technique complet. Points qui affinent la
+conception ci-dessus :
+
+- **Rôles de combat (types de monstres)** : chacun des 9 rôles (Guerrier, Archer, Soigneur, Tank,
+  Mage, Assassin, Support, Invocateur, Berserker) a désormais une capacité spéciale/ultime propre
+  (voir section Les Combats) — plus de "coup puissant" générique par défaut. Tank encaisse et se
+  soigne d'une partie des dégâts infligés, Assassin exécute plus fort une cible affaiblie,
+  Berserker frappe plus fort à mesure que ses PV baissent, Support renforce la prochaine attaque
+  d'un allié, Invocateur frappe en petite zone.
+- **Échange entre joueurs** : la contrepartie demandée au joueur ciblé peut désormais être une de
+  ses propres créatures (en plus/à la place d'or), pas seulement de l'or comme prévu initialement.
+- **Arènes classées** : un groupe entier peut désormais rejoindre la file comme un seul bloc
+  d'équipe (garantit de rester ensemble), et deux personnages du même compte ne peuvent plus se
+  retrouver appairés l'un contre l'autre.
+- **Donjons** : les salles Piège/Énigme/Événement/Salle secrète ont un effet mécanique réel
+  (perte/gain d'or selon le cas, bonus XP), pas seulement du texte d'ambiance — seuls
+  Marchand/Autel restent narratifs pour l'instant. Un matériau de boss thématique est désormais
+  garanti à la victoire d'une salle Boss/Boss légendaire, en plus du butin aléatoire.
+- **Modération** : un bannissement de compte déconnecte désormais immédiatement toutes ses
+  sessions actives (auparavant l'effet n'était visible qu'à la reconnexion).
+- **Outils internes** (MonsterEditor/MapEditor) : protégés par une authentification admin/
+  fondateur, comme l'AdminPanel — jusqu'ici ouverts à quiconque pouvait atteindre le serveur.

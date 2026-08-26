@@ -33,6 +33,20 @@ public sealed class PlayerSession(
     private readonly object _writeLock = new();
     private NetworkStream? _stream;
 
+    /// <summary>
+    /// Voir Docs/Idees.md — validation de portée de <see cref="HandlePlayerMove"/> : point
+    /// d'arrivée du bâtiment Téléporteur (voir <c>Client/World/WorldMap.SpawnPosition</c>,
+    /// même formule) — toujours la même case relative, quel que soit le royaume de destination,
+    /// puisque <see cref="TownLayout.BuildingCells"/> ne dépend pas du royaume.
+    /// </summary>
+    private static readonly (int X, int Y) CapitalSpawnPoint = ComputeCapitalSpawnPoint();
+
+    private static (int X, int Y) ComputeCapitalSpawnPoint()
+    {
+        var capital = TownLayout.BuildingCells(TownLayout.DefaultSize)[0];
+        return (capital.X, capital.Y + 2);
+    }
+
     public Guid CharacterId { get; private set; }
     public string CharacterName { get; private set; } = string.Empty;
     public Guid UserId { get; private set; }
@@ -244,14 +258,32 @@ public sealed class PlayerSession(
         }
 
         // Voir GDD/demande utilisateur — "en combat on peut encore traverser les mur" : validation
-        // d'emprise au sol des bâtiments (voir TownLayout, partagé avec le Client) — la seule
-        // collision qui existait nulle part jusqu'ici. Portée de déplacement encore non vérifiée
-        // (voir GDD — Phase G pour un monde partagé complet) : un mouvement hors bâtiment/hors
-        // carte est simplement ignoré (la position précédente reste affichée), pas de packet de
-        // rejet dédié.
+        // d'emprise au sol des bâtiments (voir TownLayout, partagé avec le Client).
         if (!TownLayout.IsWalkable(move.TargetX, move.TargetY, TownLayout.DefaultSize))
         {
             return;
+        }
+
+        // Voir Docs/Idees.md — validation de portée : le Client envoie un SendMove par case
+        // franchie pour un déplacement normal (voir Docs/README.md), donc la case ciblée doit
+        // normalement être adjacente (8 directions, y compris diagonales) à la dernière position
+        // connue de CETTE session. Deux sauts légitimes empruntent malgré tout ce même packet
+        // (voir Client/Program.cs, TeleportTo et le bâtiment Téléporteur) : voyager vers une
+        // capitale (toujours le même point d'arrivée relatif, quel que soit le royaume — voir
+        // CapitalSpawnPoint) et le téléport modérateur "localiser un joueur signalé" (toujours
+        // vers la position RÉELLE diffusée d'un autre joueur connecté, jamais une coordonnée
+        // arbitraire) — ces deux cas restent acceptés, tout le reste (téléportation/triche côté
+        // client) est ignoré, ce qui ne l'était pas du tout jusqu'ici.
+        var isAdjacentStep = Math.Abs(move.TargetX - PositionX) <= 1 && Math.Abs(move.TargetY - PositionY) <= 1
+            && (move.TargetX != PositionX || move.TargetY != PositionY);
+        if (!isAdjacentStep)
+        {
+            var isCapitalSpawn = move.TargetX == CapitalSpawnPoint.X && move.TargetY == CapitalSpawnPoint.Y;
+            var isKnownPlayerPosition = registry.AllExcept(CharacterId).Any(s => s.PositionX == move.TargetX && s.PositionY == move.TargetY);
+            if (!isCapitalSpawn && !isKnownPlayerPosition)
+            {
+                return;
+            }
         }
 
         PositionX = move.TargetX;
@@ -356,6 +388,41 @@ public sealed class PlayerSession(
             TargetCharacterName = chat.TargetCharacterName,
             SenderGradeTier = self.Rank == UserRank.Fondateur ? PremiumService.MaxTier : self.PremiumGradeTier,
         };
+
+        // Voir Docs/Idees.md — historique de tchat persisté : uniquement Global/Guilde (les deux
+        // onglets réels du panneau Tchat), pas les messages privés. Insertion synchrone (pas
+        // async) : cette méthode tourne sur le thread bloquant dédié à CETTE connexion (voir
+        // doc de classe), cohérent avec le reste du fichier.
+        if (chat.Channel is ChatChannel.Global or ChatChannel.Guild)
+        {
+            Guid? guildIdForHistory = null;
+            if (chat.Channel == ChatChannel.Guild)
+            {
+                guildIdForHistory = db.GuildMembers.Where(m => m.CharacterId == CharacterId).Select(m => (Guid?)m.GuildId).FirstOrDefault();
+            }
+
+            db.ChatMessages.Add(new ChatMessageEntity
+            {
+                Id = Guid.NewGuid(),
+                Channel = chat.Channel,
+                GuildId = guildIdForHistory,
+                SenderCharacterId = CharacterId,
+                SenderName = CharacterName,
+                SenderRank = self.Rank,
+                Message = trimmed,
+            });
+
+            // Purge opportuniste (voir CombatSessionStore.PruneFinished, même esprit) : pas de
+            // tâche d'arrière-plan dédiée pour un volume aussi faible, un tirage à faible
+            // probabilité à chaque message suffit à borner la table dans le temps.
+            if (Random.Shared.Next(100) == 0)
+            {
+                var cutoff = DateTime.UtcNow.AddDays(-7);
+                db.ChatMessages.RemoveRange(db.ChatMessages.Where(m => m.CreatedAtUtc < cutoff));
+            }
+
+            db.SaveChanges();
+        }
 
         if (chat.Channel == ChatChannel.Prive)
         {

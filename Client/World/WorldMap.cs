@@ -10,10 +10,21 @@ namespace Aetheria.Client.World;
 /// pour la palette/les noms propres à chaque royaume (voir GDD — "plusieurs villes distinctes
 /// par royaume/biome"). Calculé une seule fois au chargement, pas à chaque frame.
 /// </summary>
+/// <summary>Voir Docs/Idees.md — rencontre sauvage pondérée par terrain : les 3 variantes d'herbe (jusqu'ici purement cosmétiques, voir <see cref="WorldMap.ComputeTileColor"/>) ont désormais un sens de gameplay via <see cref="WorldMap.GetTerrain"/>.</summary>
+public enum TerrainType
+{
+    Path,
+    Water,
+    GrassLight,
+    GrassMid,
+    GrassDark,
+}
+
 public sealed class WorldMap
 {
     public int Size { get; }
     public Vector4[,] TileColors { get; }
+    private readonly TerrainType[,] _terrain;
     public IReadOnlyList<Building> Buildings { get; }
     public IReadOnlyList<Npc> Npcs { get; }
     public (int X, int Y) SpawnPosition { get; }
@@ -66,6 +77,7 @@ public sealed class WorldMap
 
         Size = size;
         TileColors = new Vector4[size, size];
+        _terrain = new TerrainType[size, size];
 
         // Voir GDD/demande utilisateur — "en combat on peut encore traverser les mur" : cette
         // arithmétique de placement est désormais partagée avec le serveur (voir
@@ -104,7 +116,9 @@ public sealed class WorldMap
         {
             for (var x = 0; x < size; x++)
             {
-                TileColors[x, y] = ComputeTileColor(x, y, pathTiles, pond);
+                var terrain = ComputeTerrain(x, y, pathTiles, pond);
+                _terrain[x, y] = terrain;
+                TileColors[x, y] = ColorForTerrain(terrain);
             }
         }
 
@@ -214,26 +228,39 @@ public sealed class WorldMap
         pathTiles.Add((to.X, to.Y));
     }
 
-    private Vector4 ComputeTileColor(int x, int y, HashSet<(int X, int Y)> pathTiles, (int X, int Y) pond)
+    private static TerrainType ComputeTerrain(int x, int y, HashSet<(int X, int Y)> pathTiles, (int X, int Y) pond)
     {
         if (pathTiles.Contains((x, y)))
         {
-            return DirtPath;
+            return TerrainType.Path;
         }
 
         var distanceToPond = MathF.Sqrt(MathF.Pow(x - pond.X, 2) + MathF.Pow(y - pond.Y, 2));
         if (distanceToPond < 4.5f)
         {
-            return WaterBlue;
+            return TerrainType.Water;
         }
 
         return Hash(x, y) switch
         {
-            < 0.33f => GrassLight,
-            < 0.66f => GrassMid,
-            _ => GrassDark,
+            < 0.33f => TerrainType.GrassLight,
+            < 0.66f => TerrainType.GrassMid,
+            _ => TerrainType.GrassDark,
         };
     }
+
+    private Vector4 ColorForTerrain(TerrainType terrain) => terrain switch
+    {
+        TerrainType.Path => DirtPath,
+        TerrainType.Water => WaterBlue,
+        TerrainType.GrassLight => GrassLight,
+        TerrainType.GrassMid => GrassMid,
+        TerrainType.GrassDark => GrassDark,
+        _ => GrassMid,
+    };
+
+    /// <summary>Voir Docs/Idees.md — rencontre sauvage pondérée par terrain : <see cref="TerrainType.Path"/> hors limites par défaut (poids nul côté appelant, cohérent avec <see cref="IsWildEncounterZone"/>).</summary>
+    public TerrainType GetTerrain(int x, int y) => IsWithinBounds(x, y) ? _terrain[x, y] : TerrainType.Path;
 
     /// <summary>Hash déterministe [0,1) par case, pour une variation de terrain reproductible sans dépendance externe.</summary>
     private static float Hash(int x, int y)

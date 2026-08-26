@@ -71,5 +71,8 @@ public sealed class UserEntity
     /// <summary>Expiration du code ci-dessus (courte durée de vie, code à usage unique).</summary>
     public DateTime? PendingDiscordLinkCodeExpiresUtc { get; set; }
 
+    /// <summary>Voir Docs/Idees.md — vraie image de profil : URL relative servie en statique par le serveur (voir <c>/api/account/avatar</c>), <c>null</c> tant qu'aucune image n'a été envoyée (fallback pastille/initiale côté Launcher).</summary>
+    public string? AvatarUrl { get; set; }
+
     public List<CharacterEntity> Characters { get; set; } = new();
 }

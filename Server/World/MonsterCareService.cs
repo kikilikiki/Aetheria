@@ -8,13 +8,29 @@ namespace Aetheria.Server.World;
 
 /// <summary>
 /// Donner un objet à une créature (voir GDD — UI de gestion des montres : "monter de niveau,
-/// objet à donner"). **Simplification assumée** : tout objet donné consomme 1 exemplaire de
-/// l'inventaire et octroie un montant fixe d'XP à la créature, quel que soit le type d'objet —
-/// pas encore d'effets différenciés par objet (statistiques, évolution, ...).
+/// objet à donner"). Voir Docs/Idees.md — quelques objets nommés (voir
+/// <see cref="GiveItemEffectByName"/>) ont désormais un effet propre (bonus d'EV permanent)
+/// plutôt que l'XP fixe accordée par défaut à tout le reste — même principe de reconnaissance
+/// par <c>Item.Name</c> que <see cref="RerollPassiveTalentAsync"/>/<see cref="RerollIvAsync"/>
+/// ci-dessous, pas une seconde table d'effets à maintenir séparément du catalogue d'objets.
 /// </summary>
 public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore tokenStore)
 {
     private const int GiveItemExperience = 20;
+    private const int MaxEv = 252;
+
+    /// <summary>
+    /// Voir Docs/Idees.md — "un objet type Fruit de force applique un bonus de stat permanent" :
+    /// réutilise "Élixir de force" (voir <c>ProfessionCatalogSeeder</c>, déjà craftable par
+    /// l'Alchimiste mais jusqu'ici sans aucun effet mécanique une fois obtenu) plutôt que
+    /// d'inventer un nouvel objet — cohérent avec son nom/sa description ("décuple ... la force
+    /// musculaire"). Bonus d'EV permanent sur l'Attaque, plafonné comme le gain d'EV de combat
+    /// (voir <c>CombatService.MaxEv</c>).
+    /// </summary>
+    private static readonly Dictionary<string, int> GiveItemEvAttackBonusByName = new()
+    {
+        ["Élixir de force"] = 10,
+    };
 
     public async Task<MonsterInstanceData> GiveItemAsync(GiveItemToMonsterRequest request, CancellationToken ct = default)
     {
@@ -32,13 +48,24 @@ public sealed class MonsterCareService(AetheriaDbContext db, SessionTokenStore t
         var inventoryItem = await db.InventoryItems.FirstOrDefaultAsync(i => i.CharacterId == character.Id && i.ItemId == request.ItemId, ct)
             ?? throw new AccountOperationException("Vous ne possédez pas cet objet.");
 
+        var item = await db.Items.FirstOrDefaultAsync(i => i.Id == request.ItemId, ct)
+            ?? throw new AccountOperationException("Objet introuvable.");
+
         inventoryItem.Quantity--;
         if (inventoryItem.Quantity <= 0)
         {
             db.InventoryItems.Remove(inventoryItem);
         }
 
-        MonsterProgressionService.GrantExperience(monster, GiveItemExperience);
+        if (GiveItemEvAttackBonusByName.TryGetValue(item.Name, out var evBonus))
+        {
+            monster.EvAttack = Math.Min(MaxEv, monster.EvAttack + evBonus);
+        }
+        else
+        {
+            MonsterProgressionService.GrantExperience(monster, GiveItemExperience);
+        }
+
         await MonsterEvolutionService.CheckAndApplyAsync(db, monster, ct);
         await db.SaveChangesAsync(ct);
 

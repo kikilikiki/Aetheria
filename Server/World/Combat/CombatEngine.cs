@@ -5,9 +5,9 @@ namespace Aetheria.Server.World.Combat;
 
 /// <summary>
 /// Résolution pure du combat tactique sur grille (voir <c>Docs/GameDesign.md</c> — section
-/// Combats) : ordre de jeu par vitesse, déplacement borné, dégâts Attaque-Défense, IA simple
-/// pour le camp adverse. Pas encore de terrain/obstacles/zones d'effet/combos — une grille
-/// vide 7x7 pour cette première version (voir limites documentées dans <c>Docs/README.md</c>).
+/// Combats) : ordre de jeu par vitesse, déplacement borné, dégâts Attaque-Défense, terrain
+/// (lave/glace/pièges/obstacles destructibles, voir <see cref="ScatterTileEffects"/>), combos
+/// d'équipe, affinités élémentaires, et IA pour le camp adverse.
 /// </summary>
 internal static class CombatEngine
 {
@@ -183,14 +183,29 @@ internal static class CombatEngine
         // suite à un retour utilisateur ("les monstres ont beaucoup trop de vie").
         var multiplier = ElementalMultiplier(actor.Element, target.Element);
         var damage = Math.Max(2, (int)((actor.Attack - target.Defense / 2) * multiplier));
+
+        // Voir Docs/Idees.md — capacité Support : bonus posé par un allié sur sa PROCHAINE
+        // attaque de base, consommé ici quel que soit l'attaquant qui en bénéficie.
+        string supportSuffix;
+        if (actor.NextAttackBonusAmount > 0)
+        {
+            damage += actor.NextAttackBonusAmount;
+            supportSuffix = " (renforcé)";
+            actor.NextAttackBonusAmount = 0;
+        }
+        else
+        {
+            supportSuffix = "";
+        }
+
         damage = ApplyAffinityBonus(session, actor, damage);
         damage = ApplyComboBonus(session, actor, target, damage, out var comboSuffix);
         damage = ApplyPassiveDamageModifiers(actor, target, damage);
         target.CurrentHealth = Math.Max(0, target.CurrentHealth - damage);
         var suffix = ElementalSuffix(multiplier);
         session.LastMessage = target.IsAlive
-            ? $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix}.{comboSuffix}"
-            : $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix} et le met K.O. !{comboSuffix}";
+            ? $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix}{supportSuffix}.{comboSuffix}"
+            : $"{actor.Name} inflige {damage} dégâts à {target.Name}{suffix}{supportSuffix} et le met K.O. !{comboSuffix}";
         ApplyPostDamagePassives(session, actor, target, damage);
 
         CheckEndCondition(session);
@@ -292,16 +307,22 @@ internal static class CombatEngine
         }
     }
 
+    /// <summary>Voir Docs/Idees.md — bonus posé par la capacité Support (<see cref="MonsterType.Support"/>) : la moitié de son Attaque, sur l'allié vivant sans bonus déjà en attente le plus proche d'agir (le premier trouvé dans l'ordre de vitesse déjà utilisé pour <see cref="CombatSession.Combatants"/>).</summary>
+    private static Combatant? FindSupportBuffTarget(CombatSession session, Combatant actor) =>
+        session.Combatants.FirstOrDefault(c => c.IsAlive && c.Team == actor.Team && c != actor && c.NextAttackBonusAmount == 0);
+
     /// <summary>
     /// Capacité spéciale selon le type du combattant (voir GDD/demande utilisateur — "ajoute des
     /// capacités spéciales" et "il doit y avoir l'attaque spéciale (poser des bloques, soigner un
     /// allié, une grosse attaque etc) en plus de l'attaque ultime") : Soigneur soigne l'allié le
-    /// plus affaibli (aucune cible à viser), Contrôleur pose un bloc sur une case vide (voir
-    /// <see cref="ResolveBlockPlacement"/>), Archer transperce en ignorant la défense (portée +1),
-    /// Guerrier (et tout autre type) déclenche un coup puissant à dégâts majorés. Toujours
-    /// utilisable quel que soit le niveau — voir <see cref="ResolveUltimateAbility"/> pour
-    /// l'attaque ultime, une action SÉPARÉE (cooldown propre) débloquée au niveau max, en plus de
-    /// celle-ci et non à sa place.
+    /// plus affaibli, Contrôleur pose un bloc sur une case vide (voir
+    /// <see cref="ResolveBlockPlacement"/>), Support renforce la prochaine attaque d'un allié
+    /// (aucune cible ennemie à viser pour ces trois-là), Archer transperce en ignorant la défense
+    /// (portée +1), Tank/Assassin/Berserker/Invocateur ont chacun leur propre variante de coup
+    /// puissant (voir Docs/Idees.md), Guerrier (et tout autre type non listé) déclenche un coup
+    /// puissant générique à dégâts majorés. Toujours utilisable quel que soit le niveau — voir
+    /// <see cref="ResolveUltimateAbility"/> pour l'attaque ultime, une action SÉPARÉE (cooldown
+    /// propre) débloquée au niveau max, en plus de celle-ci et non à sa place.
     /// </summary>
     public static void ResolveSpecialAbility(CombatSession session, Combatant actor, int targetX, int targetY)
     {
@@ -335,6 +356,22 @@ internal static class CombatEngine
         if (actor.Type == MonsterType.Controleur)
         {
             ResolveBlockPlacement(session, actor, targetX, targetY);
+            return;
+        }
+
+        if (actor.Type == MonsterType.Support)
+        {
+            actor.SpecialAbilityCooldownRemaining = SpecialAbilityCooldownTurns;
+            var ally = FindSupportBuffTarget(session, actor);
+            if (ally is null)
+            {
+                session.LastMessage = $"{actor.Name} ne trouve personne à soutenir.";
+                return;
+            }
+
+            var bonusAmount = Math.Max(2, actor.Attack / 2);
+            ally.NextAttackBonusAmount = bonusAmount;
+            session.LastMessage = $"{actor.Name} renforce la prochaine attaque de {ally.Name} (+{bonusAmount} dégâts).";
             return;
         }
 
@@ -372,6 +409,37 @@ internal static class CombatEngine
             damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
             verb = "frappe d'un sort élémentaire";
         }
+        else if (actor.Type == MonsterType.Tank)
+        {
+            // Voir Docs/Idees.md — "Coup de bouclier" : même formule que le coup puissant
+            // générique, complétée après coup par un auto-soin (voir plus bas).
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
+            verb = "assène un coup de bouclier à";
+        }
+        else if (actor.Type == MonsterType.Assassin)
+        {
+            // Voir Docs/Idees.md — dégâts d'exécution renforcés sous 50% PV cible, sinon coup
+            // puissant générique.
+            var isExecute = target.CurrentHealth <= target.MaxHealth / 2;
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * (isExecute ? 2.5 : 1.8) * multiplier));
+            verb = isExecute ? "frappe un point vital de" : "frappe (coup puissant)";
+        }
+        else if (actor.Type == MonsterType.Berserker)
+        {
+            // Voir Docs/Idees.md — multiplicateur de rage croissant selon les PV manquants de
+            // l'attaquant lui-même, lu au moment du cast (pas de minuterie/état supplémentaire).
+            var missingHealthShare = actor.MaxHealth == 0 ? 0.0 : 1.0 - (double)actor.CurrentHealth / actor.MaxHealth;
+            var rageMultiplier = 1.8 + missingHealthShare;
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * rageMultiplier * multiplier));
+            verb = "frappe avec rage";
+        }
+        else if (actor.Type == MonsterType.Invocateur)
+        {
+            // Voir Docs/Idees.md — dégâts génériques sur la cible principale, complétés après
+            // coup par une onde de choc sur les ennemis adjacents (voir plus bas).
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
+            verb = "frappe d'une invocation";
+        }
         else
         {
             damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier));
@@ -388,9 +456,58 @@ internal static class CombatEngine
             : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !{comboSuffix}";
         ApplyPostDamagePassives(session, actor, target, damage);
 
+        if (actor.Type == MonsterType.Tank)
+        {
+            ApplyTankSelfHeal(session, actor, damage);
+        }
+
+        if (actor.Type == MonsterType.Invocateur)
+        {
+            ApplyInvocateurSplashDamage(session, actor, target, damage);
+        }
+
         if (actor.Type == MonsterType.Mage)
         {
             TryPlaceElementalTileUnderTarget(session, actor, target);
+        }
+
+        CheckEndCondition(session);
+    }
+
+    /// <summary>Voir Docs/Idees.md — capacité Tank : auto-soin d'un quart des dégâts infligés (plafonné au max), pour un rôle de sustain en première ligne plutôt qu'un simple bourrin.</summary>
+    private static void ApplyTankSelfHeal(CombatSession session, Combatant actor, int damageDealt)
+    {
+        var selfHeal = Math.Max(1, damageDealt / 4);
+        var actualHeal = Math.Min(selfHeal, actor.MaxHealth - actor.CurrentHealth);
+        if (actualHeal <= 0)
+        {
+            return;
+        }
+
+        actor.CurrentHealth += actualHeal;
+        session.LastMessage += $" {actor.Name} récupère {actualHeal} PV.";
+    }
+
+    /// <summary>
+    /// Voir Docs/Idees.md — capacité Invocateur : frappe instantanée en petite zone (moitié des
+    /// dégâts de la cible principale sur les ennemis orthogonalement adjacents) plutôt qu'un
+    /// obstacle persistant qui aurait dû participer à l'ordre de jeu (hors scope de cette passe).
+    /// </summary>
+    private static void ApplyInvocateurSplashDamage(CombatSession session, Combatant actor, Combatant primaryTarget, int primaryDamage)
+    {
+        var splashDamage = Math.Max(1, primaryDamage / 2);
+        (int Dx, int Dy)[] offsets = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        foreach (var (dx, dy) in offsets)
+        {
+            var splashTarget = session.Combatants.FirstOrDefault(c =>
+                c.IsAlive && c.Team != actor.Team && c != primaryTarget && c.X == primaryTarget.X + dx && c.Y == primaryTarget.Y + dy);
+            if (splashTarget is null)
+            {
+                continue;
+            }
+
+            splashTarget.CurrentHealth = Math.Max(0, splashTarget.CurrentHealth - splashDamage);
+            session.LastMessage += $" L'onde de choc inflige {splashDamage} dégâts à {splashTarget.Name}.";
         }
 
         CheckEndCondition(session);
@@ -532,6 +649,24 @@ internal static class CombatEngine
             return;
         }
 
+        if (actor.Type == MonsterType.Support)
+        {
+            actor.UltimateAbilityCooldownRemaining = UltimateAbilityCooldownTurns;
+            var ally = FindSupportBuffTarget(session, actor);
+            if (ally is null)
+            {
+                session.LastMessage = $"{actor.Name} ne trouve personne à soutenir (ultime).";
+                return;
+            }
+
+            // Voir Docs/Idees.md — variante ultime du buff Support : bonus égal à l'Attaque
+            // entière plutôt que sa moitié (voir ResolveSpecialAbility).
+            var bonusAmount = Math.Max(2, actor.Attack);
+            ally.NextAttackBonusAmount = bonusAmount;
+            session.LastMessage = $"{actor.Name} renforce puissamment la prochaine attaque de {ally.Name} (+{bonusAmount} dégâts, ultime).";
+            return;
+        }
+
         var target = session.Combatants.FirstOrDefault(c => c.IsAlive && c.X == targetX && c.Y == targetY)
             ?? throw new InvalidOperationException("Aucune cible sur cette case.");
 
@@ -562,6 +697,29 @@ internal static class CombatEngine
             damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
             verb = "frappe d'un sort élémentaire (ultime)";
         }
+        else if (actor.Type == MonsterType.Tank)
+        {
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
+            verb = "assène un coup de bouclier dévastateur à";
+        }
+        else if (actor.Type == MonsterType.Assassin)
+        {
+            var isExecute = target.CurrentHealth <= target.MaxHealth / 2;
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * (isExecute ? 2.5 : 1.8) * multiplier * ultimateMultiplier));
+            verb = isExecute ? "frappe un point vital de" : "frappe (ultime)";
+        }
+        else if (actor.Type == MonsterType.Berserker)
+        {
+            var missingHealthShare = actor.MaxHealth == 0 ? 0.0 : 1.0 - (double)actor.CurrentHealth / actor.MaxHealth;
+            var rageMultiplier = 1.8 + missingHealthShare;
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * rageMultiplier * multiplier * ultimateMultiplier));
+            verb = "frappe avec une rage dévastatrice";
+        }
+        else if (actor.Type == MonsterType.Invocateur)
+        {
+            damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
+            verb = "frappe d'une invocation majeure";
+        }
         else
         {
             damage = Math.Max(3, (int)((actor.Attack - target.Defense / 2) * 1.8 * multiplier * ultimateMultiplier));
@@ -577,6 +735,16 @@ internal static class CombatEngine
             ? $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix}.{comboSuffix}"
             : $"{actor.Name} {verb} {target.Name} pour {damage} dégâts{suffix} et le met K.O. !{comboSuffix}";
         ApplyPostDamagePassives(session, actor, target, damage);
+
+        if (actor.Type == MonsterType.Tank)
+        {
+            ApplyTankSelfHeal(session, actor, damage);
+        }
+
+        if (actor.Type == MonsterType.Invocateur)
+        {
+            ApplyInvocateurSplashDamage(session, actor, target, damage);
+        }
 
         if (actor.Type == MonsterType.Mage)
         {
@@ -731,6 +899,14 @@ internal static class CombatEngine
             return;
         }
 
+        // IA Support (voir Docs/Idees.md) : renforce un allié sans bonus déjà en attente plutôt
+        // que d'attaquer, même principe de priorité que le Soigneur ci-dessus.
+        if (actor.Type == MonsterType.Support && canUseSpecial && FindSupportBuffTarget(session, actor) is not null)
+        {
+            ResolveSpecialAbility(session, actor, actor.X, actor.Y);
+            return;
+        }
+
         var target = session.Combatants.Where(c => c.IsAlive && c.Team != actor.Team)
             .OrderBy(c => Distance(actor.X, actor.Y, c.X, c.Y))
             .FirstOrDefault();
@@ -750,9 +926,10 @@ internal static class CombatEngine
             // distance). Sinon, l'IA l'utilise aussi environ un tour sur trois pour ne pas rendre
             // l'attaque de base totalement obsolète. Dans les deux cas, seulement si disponible.
             var mustUseSpecial = distance > actor.AttackRange;
-            // Contrôleur exclu ici aussi (voir plus haut) : sa capacité spéciale cible une case
-            // vide, pas l'ennemi — l'appeler avec target.X/target.Y planterait (case occupée).
-            var wantsSpecial = actor.Type is not (MonsterType.Soigneur or MonsterType.Controleur) && Random.Shared.NextDouble() < 0.35;
+            // Contrôleur/Support exclus ici aussi (voir plus haut) : leur capacité spéciale ne
+            // cible jamais l'ennemi — l'appeler avec target.X/target.Y planterait (Contrôleur :
+            // case occupée : Support : "cible" alliée introuvable puisque target est ennemi).
+            var wantsSpecial = actor.Type is not (MonsterType.Soigneur or MonsterType.Controleur or MonsterType.Support) && Random.Shared.NextDouble() < 0.35;
 
             if (canUseSpecial && (mustUseSpecial || wantsSpecial))
             {
@@ -768,7 +945,18 @@ internal static class CombatEngine
             return;
         }
 
-        // Pas de pathfinding : un pas naïf vers la cible, en évitant les cases occupées.
+        // Voir Docs/Idees.md — pathfinding BFS (voir FindStepTowardTarget) : contourne les
+        // obstacles/combattants au lieu de rester bloqué contre eux. Repli sur l'ancien "pas
+        // naïf" (clampé, en évitant les cases occupées) si l'attaquant est entièrement encerclé
+        // et qu'aucun chemin n'existe — garde un comportement défini dans ce cas limite.
+        if (FindStepTowardTarget(session, actor, target) is { } step)
+        {
+            actor.X = step.X;
+            actor.Y = step.Y;
+            session.LastMessage = $"{actor.Name} se rapproche.";
+            return;
+        }
+
         var stepX = Math.Sign(target.X - actor.X);
         var stepY = Math.Sign(target.Y - actor.Y);
         var newX = Math.Clamp(actor.X + stepX, 0, CombatSession.GridWidth - 1);
@@ -780,6 +968,75 @@ internal static class CombatEngine
             actor.Y = newY;
             session.LastMessage = $"{actor.Name} se rapproche.";
         }
+    }
+
+    /// <summary>
+    /// Voir Docs/Idees.md — pathfinding BFS pour l'IA de combat : inondation multi-source depuis
+    /// les cases adjacentes à la cible (la case de la cible elle-même est occupée, donc jamais
+    /// une destination valide) sur la grille 7x7, en excluant les cases occupées par un
+    /// combattant vivant et les obstacles <see cref="TileEffect.Destructible"/>, puis choix,
+    /// parmi les 4 cases voisines de l'attaquant, de celle qui minimise la distance restante
+    /// jusqu'à la cible. Remplace l'ancien "pas naïf" qui restait bloqué contre un obstacle sans
+    /// jamais le contourner. Retourne <c>null</c> si l'attaquant est entièrement encerclé (aucune
+    /// case voisine libre) ou si aucun chemin n'existe.
+    /// </summary>
+    private static (int X, int Y)? FindStepTowardTarget(CombatSession session, Combatant actor, Combatant target)
+    {
+        (int Dx, int Dy)[] offsets = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
+        bool IsBlocked(int x, int y) =>
+            !IsWithinGrid(x, y)
+            || (x == target.X && y == target.Y)
+            || session.Combatants.Any(c => c.IsAlive && c != actor && c.X == x && c.Y == y)
+            || session.TileEffects.GetValueOrDefault((x, y)) == TileEffect.Destructible;
+
+        var distanceToTarget = new Dictionary<(int X, int Y), int>();
+        var queue = new Queue<(int X, int Y)>();
+
+        foreach (var (dx, dy) in offsets)
+        {
+            var seed = (X: target.X + dx, Y: target.Y + dy);
+            if (!IsBlocked(seed.X, seed.Y) && distanceToTarget.TryAdd(seed, 0))
+            {
+                queue.Enqueue(seed);
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var currentDistance = distanceToTarget[current];
+            foreach (var (dx, dy) in offsets)
+            {
+                var next = (X: current.X + dx, Y: current.Y + dy);
+                if (IsBlocked(next.X, next.Y) || distanceToTarget.ContainsKey(next))
+                {
+                    continue;
+                }
+
+                distanceToTarget[next] = currentDistance + 1;
+                queue.Enqueue(next);
+            }
+        }
+
+        (int X, int Y)? best = null;
+        var bestDistance = int.MaxValue;
+        foreach (var (dx, dy) in offsets)
+        {
+            var candidate = (X: actor.X + dx, Y: actor.Y + dy);
+            if (IsBlocked(candidate.X, candidate.Y) || !distanceToTarget.TryGetValue(candidate, out var candidateDistance))
+            {
+                continue;
+            }
+
+            if (candidateDistance < bestDistance)
+            {
+                bestDistance = candidateDistance;
+                best = candidate;
+            }
+        }
+
+        return best;
     }
 
     private static void CheckEndCondition(CombatSession session)

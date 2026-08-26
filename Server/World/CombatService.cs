@@ -12,9 +12,10 @@ namespace Aetheria.Server.World;
 
 /// <summary>
 /// Combat tactique sur grille (voir <c>Docs/GameDesign.md</c> — section Combats) : mode PvE
-/// (joueur + jusqu'à 4 créatures contre un monstre sauvage, IA simple) et mode PvP (deux
-/// joueurs, défi direct). Le mode Coopération (4 joueurs contre un monstre) et les
-/// compétences/sorts (au-delà de l'attaque de base) restent à faire.
+/// (joueur + jusqu'à 4 créatures contre un ou plusieurs monstres sauvages, IA avec pathfinding)
+/// et mode PvP (arènes classées 1v1-4v4, duels directs). Combat de groupe partagé (plusieurs
+/// joueurs humains dans la même session PvE) et capacités spéciales/ultimes par rôle de monstre
+/// déjà en place (voir <c>Combat/CombatEngine.cs</c>).
 /// </summary>
 public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenStore, CombatSessionStore combatStore, LootSessionStore lootStore)
 {
@@ -45,26 +46,47 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         // Rejoint un combat de groupe déjà en cours plutôt que d'en démarrer un second isolé
         // (voir GDD/demande utilisateur — "en groupe, les 2 sont bien dans un combat mais 2
-        // combats différents au lieu de se voir"). Simplification assumée : pas de verrou contre
-        // une double création si deux membres engagent exactement au même instant (fenêtre de
-        // course très étroite, acceptable à cette échelle — voir Docs/README.md).
-        if (party is not null && combatStore.TryGetActiveByPartyId(party.Id, out var existingSession))
+        // combats différents au lieu de se voir"). Voir Docs/Idees.md — verrou par groupe
+        // (CombatSessionStore.GetPartyCreationLock, singleton) autour de tout le bloc
+        // vérification+création pour fermer la fenêtre de course où deux membres engageraient
+        // exactement au même instant, chacun ne voyant encore aucun combat existant.
+        if (party is not null)
         {
-            var occupiedCells = existingSession.Combatants.Where(c => c.Team == 0).Select(c => (c.X, c.Y)).ToHashSet();
-            var joinQueue = new Queue<(int X, int Y)>(BuildTeamCellQueue(leftSide: true).Where(cell => !occupiedCells.Contains(cell)));
-
-            var joiningCombatants = await BuildTeamCombatantsAsync(character, request.MonsterIds, team: 0, joinQueue, maxMonsters: 4, ct);
-            if (joiningCombatants.Count == 0)
+            var partyLock = combatStore.GetPartyCreationLock(party.Id);
+            await partyLock.WaitAsync(ct);
+            try
             {
-                throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
-            }
+                if (combatStore.TryGetActiveByPartyId(party.Id, out var existingSession))
+                {
+                    var occupiedCells = existingSession.Combatants.Where(c => c.Team == 0).Select(c => (c.X, c.Y)).ToHashSet();
+                    var joinQueue = new Queue<(int X, int Y)>(BuildTeamCellQueue(leftSide: true).Where(cell => !occupiedCells.Contains(cell)));
 
-            existingSession.Combatants.AddRange(joiningCombatants);
-            existingSession.TeamOwnerUserId.TryAdd(0, userId);
-            existingSession.TeamCharacterId.TryAdd(0, character.Id);
-            return ToState(existingSession);
+                    var joiningCombatants = await BuildTeamCombatantsAsync(character, request.MonsterIds, team: 0, joinQueue, maxMonsters: 4, ct);
+                    if (joiningCombatants.Count == 0)
+                    {
+                        throw new AccountOperationException("Vous devez emmener au moins une créature au combat.");
+                    }
+
+                    existingSession.Combatants.AddRange(joiningCombatants);
+                    existingSession.TeamOwnerUserId.TryAdd(0, userId);
+                    existingSession.TeamCharacterId.TryAdd(0, character.Id);
+                    return ToState(existingSession);
+                }
+
+                return await CreateWildCombatSessionAsync(request, character, userId, party, isDungeonCombat, isHardcore, isMythic, wildLevel, dungeonId, ct);
+            }
+            finally
+            {
+                partyLock.Release();
+            }
         }
 
+        return await CreateWildCombatSessionAsync(request, character, userId, party, isDungeonCombat, isHardcore, isMythic, wildLevel, dungeonId, ct);
+    }
+
+    /// <summary>Construit et enregistre une nouvelle session PvE (extrait de <see cref="StartAsync"/> pour être appelable sous le verrou par groupe — voir Docs/Idees.md).</summary>
+    private async Task<CombatSessionState> CreateWildCombatSessionAsync(StartCombatRequest request, CharacterEntity character, Guid userId, PartySummary? party, bool isDungeonCombat, bool isHardcore, bool isMythic, int wildLevel, int? dungeonId, CancellationToken ct)
+    {
         var wildSpecies = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == request.WildSpeciesId, ct)
             ?? throw new AccountOperationException("Espèce de créature inconnue.");
 
@@ -431,7 +453,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
         }
 
-        var species = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
+        var (species, encounterType) = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
 
         // Voir GDD/demande utilisateur — "ajoute un leaderboard pour la personne qui est arrivée
         // le plus haut [en donjon]" : mis à jour ici (pas au simple chargement de l'étage, qui
@@ -446,13 +468,24 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         var wildLevel = DungeonMonsterLevel.ForFloor(dungeon, floorNumber);
 
-        return await StartAsync(new StartCombatRequest
+        var state = await StartAsync(new StartCombatRequest
         {
             SessionToken = request.SessionToken,
             CharacterId = request.CharacterId,
             MonsterIds = request.MonsterIds,
             WildSpeciesId = species.Id,
         }, ct, isDungeonCombat: true, isHardcore: effectiveHardcore, isMythic: dungeon.IsMythic, wildLevel: wildLevel, dungeonId: dungeonId);
+
+        // Voir Docs/Idees.md — table de butin dédiée aux matériaux de boss : type de salle
+        // conservé sur la session pour être lu à la résolution de la victoire (voir
+        // ApplyPveVictoryRewardsAsync). Idempotent si un combat de groupe déjà en cours est
+        // rejoint (même salle, même valeur réécrite).
+        if (combatStore.TryGet(state.CombatId, out var startedSession))
+        {
+            startedSession.RoomEncounterType = encounterType;
+        }
+
+        return state;
     }
 
     /// <summary>Voir GDD/demande utilisateur — "fait en sorte que les dongon normal on est 3 vie" : réinitialisation paresseuse une fois par jour UTC, vérifiée à chaque lecture plutôt que via un job planifié.</summary>
@@ -484,7 +517,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// </summary>
     public async Task<MonsterSpeciesData> GetDungeonEncounterPreviewAsync(int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
     {
-        var species = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
+        var (species, _) = await ResolveDungeonEncounterSpeciesAsync(dungeonId, floorNumber, roomIndex, ct);
         return new MonsterSpeciesData
         {
             Id = species.Id, Name = species.Name, Element = species.Element, Type = species.Type,
@@ -493,7 +526,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         };
     }
 
-    private async Task<MonsterSpeciesEntity> ResolveDungeonEncounterSpeciesAsync(int dungeonId, int floorNumber, int roomIndex, CancellationToken ct)
+    private async Task<(MonsterSpeciesEntity Species, DungeonEncounterType EncounterType)> ResolveDungeonEncounterSpeciesAsync(int dungeonId, int floorNumber, int roomIndex, CancellationToken ct)
     {
         var dungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == dungeonId, ct)
             ?? throw new AccountOperationException("Donjon introuvable.");
@@ -520,7 +553,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         }
 
         var random = new Random(DungeonFloorGenerator.StableSeed(dungeon.Seed, floorNumber, roomIndex));
-        return candidates[random.Next(candidates.Count)];
+        return (candidates[random.Next(candidates.Count)], room.EncounterType);
     }
 
     public async Task<CombatSessionState> SubmitActionAsync(Guid combatId, CombatActionRequest request, CancellationToken ct = default)
@@ -783,10 +816,43 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
         }
 
+        // Voir Docs/Idees.md — table de butin dédiée aux matériaux de boss : matériau garanti sur
+        // une victoire en salle Boss/Boss légendaire, EN PLUS (pas à la place) du butin aléatoire
+        // habituel ci-dessous — jusqu'ici un matériau de boss n'était qu'un simple objet
+        // "Ressource" générique parmi d'autres (voir EquipmentCatalogSeeder), sans lien mécanique
+        // avec le fait d'avoir vaincu un boss précis.
+        if (session.IsDungeonCombat && session.RoomEncounterType is DungeonEncounterType.Boss or DungeonEncounterType.BossLegendaire
+            && session.DungeonId is { } bossDungeonId)
+        {
+            var bossDungeon = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == bossDungeonId, ct);
+            var materialName = bossDungeon is not null ? BossMaterialByDungeonName.GetValueOrDefault(bossDungeon.Name, DefaultBossMaterialName) : DefaultBossMaterialName;
+            var materialItem = await db.Items.FirstOrDefaultAsync(i => i.Name == materialName, ct);
+            if (materialItem is not null)
+            {
+                await InventoryStackingService.AddQuantityAsync(db, winnerCharacterId, materialItem.Id, 1, materialItem.MaxStackSize <= 0 ? 99 : materialItem.MaxStackSize, ct);
+                session.LastMessage = $"{session.LastMessage} Matériau de boss obtenu : {materialItem.Name} !".Trim();
+            }
+        }
+
         var lootService = new LootService(db, lootStore, partyService);
         var loot = await lootService.CreateFromVictoryAsync(winnerCharacterId, ct);
         return loot?.LootId;
     }
+
+    /// <summary>Voir Docs/Idees.md — mapping donjon → matériau de boss thématique, réutilisant les "Essences" élémentaires déjà seedées (voir EquipmentCatalogSeeder) plutôt que d'inventer un nouveau catalogue d'objets par boss.</summary>
+    private static readonly Dictionary<string, string> BossMaterialByDungeonName = new()
+    {
+        ["Donjon des Araignées"] = "Essence de Terre",
+        ["Donjon des Glaces"] = "Essence d'Eau",
+        ["Donjon du Dragon"] = "Écaille de dragon",
+        ["Donjon des Ruines"] = "Essence des Ténèbres",
+        ["Donjon Sans Fin"] = "Essence de Vent",
+        ["Volcan Rugissant"] = "Essence de Feu",
+        ["Crypte du Néant"] = "Essence des Ténèbres",
+    };
+
+    /// <summary>Voir Docs/Idees.md — matériau de repli pour un donjon absent de <see cref="BossMaterialByDungeonName"/> (nouveau donjon ajouté sans mise à jour de la table).</summary>
+    private const string DefaultBossMaterialName = "Essence Spirituelle";
 
     /// <summary>
     /// Voir GDD/demande utilisateur — "plus on fait de degat plus on a de point" : les dégâts
@@ -1152,7 +1218,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         CombatSession.GridWidth,
         CombatSession.GridHeight,
         session.Combatants
-            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining, c.Variant, c.PassiveTalent, c.Level, c.UltimateAbilityCooldownRemaining))
+            .Select(c => new CombatantState(c.Id, c.Name, c.Team, c.X, c.Y, c.CurrentHealth, c.MaxHealth, c.IsAlive, c.MovementRange, c.AttackRange, c.Type, c.Element, c.SpecialAbilityCooldownRemaining, c.Variant, c.PassiveTalent, c.Level, c.UltimateAbilityCooldownRemaining, c.NextAttackBonusAmount))
             .ToList(),
         session.IsFinished ? null : session.CurrentCombatant?.Id,
         session.IsFinished,

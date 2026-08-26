@@ -34,6 +34,15 @@ public static class BattlePassService
     private const int PremiumTitleLevel = 10;
     private const string PremiumTitleKey = "Premier arrivé premier servi";
 
+    /// <summary>
+    /// Voir Docs/Idees.md — récompense cosmétique exclusive de fin de piste premium (titre
+    /// uniquement, aucun objet de puissance) plutôt que de monter la rareté des objets distribués
+    /// au-delà de Rare — évite le pay-to-win tout en donnant une vraie exclusivité au dernier
+    /// palier premium.
+    /// </summary>
+    private const int PremiumExclusiveTitleLevel = MaxRewardLevel;
+    private const string PremiumExclusiveTitleKey = "Élu du Passe";
+
     /// <summary>Récompense objet gratuite tous les 5 paliers (Commun/PeuCommun — voir Docs/Items.md).</summary>
     private static readonly string[] FreeMilestoneItems =
     [
@@ -159,6 +168,11 @@ public static class BattlePassService
         if (level == PremiumTitleLevel)
         {
             await GrantTitleAsync(db, character, PremiumTitleKey, ct);
+        }
+
+        if (level == PremiumExclusiveTitleLevel)
+        {
+            await GrantTitleAsync(db, character, PremiumExclusiveTitleKey, ct);
         }
     }
 

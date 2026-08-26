@@ -71,4 +71,11 @@ public sealed class Combatant
     /// simple remplacement de la capacité spéciale normale au niveau max.
     /// </summary>
     public int UltimateAbilityCooldownRemaining { get; set; }
+
+    /// <summary>
+    /// Voir Docs/Idees.md — capacité spéciale du Support : bonus de dégâts en attente, consommé
+    /// (remis à 0) par la prochaine <see cref="CombatEngine.ResolveAttack"/> de ce combattant,
+    /// quel qu'en soit l'auteur du buff. 0 = aucun bonus actif.
+    /// </summary>
+    public int NextAttackBonusAmount { get; set; }
 }

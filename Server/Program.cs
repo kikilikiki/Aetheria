@@ -25,6 +25,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -143,6 +144,16 @@ await using (var db = await dbFactory.CreateDbContextAsync())
 // ses propres erreurs, jamais d'exception non gérée ici.
 _ = GitChangelogAnnouncer.LogNewCommitsAsync(app.Logger);
 
+// Voir Docs/Idees.md — vraie image de profil : fichiers servis en statique depuis un dossier
+// dédié sur disque (pas de S3/CDN à cette échelle), séparé du reste du dépôt.
+var avatarsDirectory = Path.Combine(AppContext.BaseDirectory, "avatars");
+Directory.CreateDirectory(avatarsDirectory);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(avatarsDirectory),
+    RequestPath = "/avatars",
+});
+
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", version = GameInfo.Version }));
 
 // Voir GDD/demande utilisateur — "mise à jour obligatoire du Launcher" : sert le Payload
@@ -216,6 +227,61 @@ app.MapGet("/api/account/session", async (string sessionToken) =>
     return Results.Ok(new SessionInfoResponse { UserId = userId, IsAdmin = user.IsAdmin, Rank = user.Rank });
 });
 
+// Voir Docs/Idees.md — vraie image de profil : upload simple (multipart/form-data), stocké sur
+// disque (voir avatarsDirectory ci-dessus), taille/format limités. Remplace la pastille
+// couleur+initiale générée côté Launcher (voir AvatarConverters.cs) une fois AvatarUrl renseigné.
+app.MapPost("/api/account/avatar", async (HttpContext httpContext) =>
+{
+    if (!httpContext.Request.HasFormContentType)
+    {
+        return Results.BadRequest(new ApiError { Message = "Requête multipart/form-data attendue." });
+    }
+
+    var form = await httpContext.Request.ReadFormAsync();
+    var sessionToken = form["sessionToken"].ToString();
+    if (!app.Services.GetRequiredService<SessionTokenStore>().TryValidate(sessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var file = form.Files["avatar"];
+    if (file is null || file.Length == 0)
+    {
+        return Results.BadRequest(new ApiError { Message = "Aucune image reçue." });
+    }
+
+    const long maxSizeBytes = 2 * 1024 * 1024;
+    if (file.Length > maxSizeBytes)
+    {
+        return Results.BadRequest(new ApiError { Message = "Image trop volumineuse (2 Mo maximum)." });
+    }
+
+    var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (extension is not (".png" or ".jpg" or ".jpeg"))
+    {
+        return Results.BadRequest(new ApiError { Message = "Format non supporté (PNG/JPEG uniquement)." });
+    }
+
+    var fileName = $"{userId}{extension}";
+    var filePath = Path.Combine(avatarsDirectory, fileName);
+    await using (var stream = File.Create(filePath))
+    {
+        await file.CopyToAsync(stream);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Compte introuvable." });
+    }
+
+    user.AvatarUrl = $"/avatars/{fileName}";
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { avatarUrl = user.AvatarUrl });
+});
+
 // Liste des personnages du compte authentifié — utilisé par le Client pour l'écran de
 // sélection/création en jeu (voir GDD : la création ne se fait plus dans le Launcher).
 app.MapGet("/api/characters/mine", async (string sessionToken) =>
@@ -250,6 +316,27 @@ app.MapPost("/api/characters", async (CreateCharacterRequest request) =>
     }
 });
 
+// Voir Docs/Idees.md — suivi "tutoriel déjà vu" : appelé à la fermeture du tutoriel (F1) côté
+// Client, pour ne plus jamais déclencher son ouverture automatique après la première fois.
+app.MapPost("/api/characters/{characterId:guid}/mark-tutorial-seen", async (Guid characterId, MarkTutorialSeenRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    if (!app.Services.GetRequiredService<SessionTokenStore>().TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    character.HasSeenTutorial = true;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
 app.MapGet("/api/monsters/species", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
@@ -262,9 +349,21 @@ app.MapGet("/api/monsters/species", async () =>
 // pour le graphe de dépendances. Pas d'authentification admin dédiée pour cette première
 // version (outil interne supposé lancé contre un serveur de confiance) — à sécuriser avant
 // tout déploiement réel.
-app.MapPost("/api/monsters/species", async (MonsterSpeciesData species) =>
+// Voir Docs/Idees.md — authentification admin pour MonsterEditor : jusqu'ici ces trois endpoints
+// de mutation n'exigeaient absolument aucune authentification (outil interne supposé lancé
+// contre un serveur de confiance) — réutilise AdminAuthService, déjà écrit pour l'AdminPanel.
+app.MapPost("/api/monsters/species", async (string sessionToken, MonsterSpeciesData species) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     var entity = new MonsterSpeciesEntity
     {
         Name = species.Name,
@@ -284,9 +383,18 @@ app.MapPost("/api/monsters/species", async (MonsterSpeciesData species) =>
     return Results.Ok(ToSpeciesData(entity));
 });
 
-app.MapPut("/api/monsters/species/{id:int}", async (int id, MonsterSpeciesData updated) =>
+app.MapPut("/api/monsters/species/{id:int}", async (int id, string sessionToken, MonsterSpeciesData updated) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     var existing = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == id);
     if (existing is null)
     {
@@ -308,9 +416,18 @@ app.MapPut("/api/monsters/species/{id:int}", async (int id, MonsterSpeciesData u
     return Results.Ok(ToSpeciesData(existing));
 });
 
-app.MapDelete("/api/monsters/species/{id:int}", async (int id) =>
+app.MapDelete("/api/monsters/species/{id:int}", async (int id, string sessionToken) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     var existing = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == id);
     if (existing is null)
     {
@@ -664,11 +781,20 @@ app.MapGet("/api/dungeons", async () =>
     return Results.Ok(dungeons.Select(ToDungeonData));
 });
 
-// CRUD destiné au MapEditor. Mêmes limites que le CRUD d'espèces : pas d'authentification
-// admin dédiée pour cette première version (voir Docs/README.md).
-app.MapPost("/api/dungeons", async (DungeonData dungeon) =>
+// CRUD destiné au MapEditor. Voir Docs/Idees.md — authentification admin dédiée (même
+// AdminAuthService que MonsterEditor ci-dessus), jusqu'ici absente sur ces trois endpoints.
+app.MapPost("/api/dungeons", async (string sessionToken, DungeonData dungeon) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     var entity = new DungeonEntity
     {
         Name = dungeon.Name,
@@ -685,9 +811,18 @@ app.MapPost("/api/dungeons", async (DungeonData dungeon) =>
     return Results.Ok(ToDungeonData(entity));
 });
 
-app.MapPut("/api/dungeons/{id:int}", async (int id, DungeonData updated) =>
+app.MapPut("/api/dungeons/{id:int}", async (int id, string sessionToken, DungeonData updated) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     var existing = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == id);
     if (existing is null)
     {
@@ -706,9 +841,18 @@ app.MapPut("/api/dungeons/{id:int}", async (int id, DungeonData updated) =>
     return Results.Ok(ToDungeonData(existing));
 });
 
-app.MapDelete("/api/dungeons/{id:int}", async (int id) =>
+app.MapDelete("/api/dungeons/{id:int}", async (int id, string sessionToken) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), sessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     var existing = await db.Dungeons.FirstOrDefaultAsync(d => d.Id == id);
     if (existing is null)
     {
@@ -845,6 +989,35 @@ app.MapGet("/api/guilds/mine", async (Guid characterId) =>
     var guildService = new GuildService(db, app.Services.GetRequiredService<SessionTokenStore>());
     var guild = await guildService.GetForCharacterAsync(characterId);
     return guild is null ? Results.NoContent() : Results.Ok(guild);
+});
+
+// Voir Docs/Idees.md — historique de tchat persisté : les 50 derniers messages du canal, chargés
+// à l'ouverture du panneau Tchat (voir PlayerSession.HandleChatMessage pour l'écriture). Global
+// ne dépend pas de characterId (ignoré) ; Guilde résout la guilde du personnage appelant.
+app.MapGet("/api/chat/history", async (ChatChannel channel, Guid characterId) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+
+    IQueryable<ChatMessageEntity> query = db.ChatMessages.Where(m => m.Channel == channel);
+    if (channel == ChatChannel.Guild)
+    {
+        var guildId = await db.GuildMembers.Where(m => m.CharacterId == characterId).Select(m => (Guid?)m.GuildId).FirstOrDefaultAsync();
+        if (guildId is null)
+        {
+            return Results.Ok(Array.Empty<ChatHistoryMessage>());
+        }
+
+        query = query.Where(m => m.GuildId == guildId);
+    }
+
+    var history = await query
+        .OrderByDescending(m => m.CreatedAtUtc)
+        .Take(50)
+        .OrderBy(m => m.CreatedAtUtc)
+        .Select(m => new ChatHistoryMessage { SenderName = m.SenderName, SenderRank = m.SenderRank, Message = m.Message, CreatedAtUtc = m.CreatedAtUtc })
+        .ToListAsync();
+
+    return Results.Ok(history);
 });
 
 // Recherche de guildes (voir GDD — panneau Guilde : rejoindre/rechercher/créer).
@@ -1606,7 +1779,7 @@ app.MapGet("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIn
     }
 });
 
-// Salle Coffre (voir GDD — exploration en couloir linéaire, "loot au fil du chemin").
+// Salle Coffre/Salle secrète (voir GDD — exploration en couloir linéaire, "loot au fil du chemin").
 app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/loot-chest",
     async (int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request) =>
 {
@@ -1616,6 +1789,56 @@ app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomI
     try
     {
         return Results.Ok(await roomService.OpenChestAsync(dungeonId, floorNumber, roomIndex, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+// Voir Docs/Idees.md — récompense mécanique pour les salles Piège/Énigme/Événement (jusqu'ici de
+// simples textes d'ambiance côté Client, comme la Salle secrète ci-dessus).
+app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/trigger-trap",
+    async (int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var roomService = new DungeonRoomService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await roomService.TriggerTrapAsync(dungeonId, floorNumber, roomIndex, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/resolve-puzzle",
+    async (int dungeonId, int floorNumber, int roomIndex, ResolvePuzzleRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var roomService = new DungeonRoomService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await roomService.ResolvePuzzleAsync(dungeonId, floorNumber, roomIndex, request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/dungeons/{dungeonId:int}/floors/{floorNumber:int}/rooms/{roomIndex:int}/trigger-event",
+    async (int dungeonId, int floorNumber, int roomIndex, OpenChestRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var roomService = new DungeonRoomService(db, app.Services.GetRequiredService<SessionTokenStore>());
+
+    try
+    {
+        return Results.Ok(await roomService.TriggerEventAsync(dungeonId, floorNumber, roomIndex, request));
     }
     catch (AccountOperationException ex)
     {
@@ -1788,6 +2011,64 @@ app.MapPost("/api/pvp/arena/cancel", (Guid characterId) =>
     return Results.Ok();
 });
 
+// Voir Docs/Idees.md — "vrai lobby d'arène" : le groupe entier du personnage appelant rejoint la
+// file comme un seul bloc d'équipe (ArenaQueueService.EnqueueGroupAndTryMatch) au lieu d'entrer
+// membre par membre dans /api/pvp/arena/queue, où le groupe pourrait être scindé entre les deux
+// équipes. Chaque membre engage son équipe active (EquippedSlot), même principe que
+// StartFriendlyTeamDuelAsync — voir QueueGroupForArenaRequest.
+app.MapPost("/api/pvp/arena/queue-party", async (QueueGroupForArenaRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId);
+    if (character is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Personnage introuvable pour ce compte." });
+    }
+
+    var partyService = new PartyService(db, tokenStore);
+    var party = await partyService.GetForCharacterAsync(character.Id);
+    if (party is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Vous devez être en groupe pour rejoindre la file d'arène en groupe." });
+    }
+
+    var arenaQueue = app.Services.GetRequiredService<ArenaQueueService>();
+    try
+    {
+        var groupTickets = new List<ArenaTicket>();
+        foreach (var member in party.Members)
+        {
+            var memberCharacter = await db.Characters.FirstAsync(c => c.Id == member.CharacterId);
+            var activeMonsterIds = await db.Monsters
+                .Where(m => m.OwnerCharacterId == member.CharacterId && m.EquippedSlot != null)
+                .Select(m => m.Id)
+                .ToListAsync();
+            groupTickets.Add(new ArenaTicket { UserId = memberCharacter.UserId, CharacterId = memberCharacter.Id, MonsterIds = activeMonsterIds });
+        }
+
+        var matched = arenaQueue.EnqueueGroupAndTryMatch(request.Format, groupTickets);
+        if (matched is not null)
+        {
+            var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+            var combatId = await combatService.StartArenaMatchAsync(request.Format, matched);
+            arenaQueue.RecordMatch(matched.Select(t => t.CharacterId), combatId);
+        }
+
+        return Results.Ok(new { queued = true });
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
+});
+
 app.MapGet("/api/kingdoms", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
@@ -1906,6 +2187,13 @@ app.MapPost("/api/kingdoms/wars/resolve", async () =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
     var message = await new KingdomWarService(db).ResolveWeeklyWarAsync();
+
+    // Voir Docs/Idees.md — hook Discord guerre de royaumes : DiscordAnnouncer n'était jusqu'ici
+    // appelé que par le récapitulatif quotidien et l'endpoint admin manuel, jamais depuis la
+    // résolution hebdomadaire elle-même.
+    await app.Services.GetRequiredService<DiscordAnnouncer>().PostUpdateAsync(
+        "Guerre de royaumes résolue", message, []);
+
     return Results.Ok(new { message });
 });
 
@@ -2164,7 +2452,13 @@ app.MapPost("/api/seasons/next", async (AdminSessionRequest request) =>
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    return Results.Ok(await new SeasonService(db).StartNextSeasonAsync());
+    var season = await new SeasonService(db).StartNextSeasonAsync();
+
+    // Voir Docs/Idees.md — hook Discord changement de saison.
+    await app.Services.GetRequiredService<DiscordAnnouncer>().PostUpdateAsync(
+        $"Saison {season.Number} lancée !", "Une nouvelle saison commence — classements PvP réinitialisés, récompenses de la saison précédente distribuées.", []);
+
+    return Results.Ok(season);
 });
 
 // Endpoints AdminPanel. Pas d'authentification admin dédiée pour cette première version
@@ -2201,6 +2495,7 @@ app.MapGet("/api/admin/users", async (string? search) =>
         // correspond a si la personne est en ligne ou pas" : en ligne si AU MOINS un de ses
         // personnages a une session de jeu active (voir WorldSessionRegistry.IsOnline).
         IsOnline = u.Characters.Any(c => registry.IsOnline(c.Id)),
+        AvatarUrl = u.AvatarUrl,
     }));
 });
 
@@ -2575,6 +2870,15 @@ app.MapPost("/api/admin/users/{userId:guid}/ban", async (Guid userId, BanUserReq
     user.IsBanned = true;
     user.BanReason = request.Reason;
     await db.SaveChangesAsync();
+
+    // Voir Docs/Idees.md — déconnexion forcée immédiate : cet endpoint ne fermait jusqu'ici
+    // aucune session déjà connectée (l'effet ne s'appliquait qu'au message suivant ou à la
+    // prochaine connexion) — même correctif déjà appliqué à /api/admin/game/ban, aligné ici.
+    foreach (var session in app.Services.GetRequiredService<WorldSessionRegistry>().All().Where(s => s.UserId == userId))
+    {
+        session.Kick();
+    }
+
     return Results.Ok();
 });
 

@@ -25,6 +25,9 @@ public sealed class CombatSession
     /// <summary>Donjon d'origine (voir GDD/demande utilisateur — "les dongon normal on est 3 vie") : <c>null</c> hors combat de donjon.</summary>
     public int? DungeonId { get; init; }
 
+    /// <summary>Voir Docs/Idees.md — table de butin dédiée aux matériaux de boss : type de salle affrontée (Monstre/MiniBoss/Boss/BossLegendaire), <c>null</c> hors combat de donjon. Renseigné par <c>CombatService.StartFromDungeonAsync</c>.</summary>
+    public DungeonEncounterType? RoomEncounterType { get; set; }
+
     /// <summary>Vrai si le mode hardcore a été choisi pour ce combat de donjon (voir <c>StartDungeonCombatRequest.HardcoreRequested</c>) — le hardcore/mythique ne consomme pas de vie (voir <c>ApplyPveVictoryRewardsAsync</c>).</summary>
     public bool IsHardcoreCombat { get; init; }
 

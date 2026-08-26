@@ -100,6 +100,7 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
             UserId = user.Id,
             IsAdmin = user.IsAdmin,
             Rank = user.Rank,
+            AvatarUrl = user.AvatarUrl,
             Characters = user.Characters
                 .Select(c => new CharacterSummary
                 {
@@ -112,6 +113,7 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
                     HairColorIndex = c.HairColorIndex,
                     ClothesColorIndex = c.ClothesColorIndex,
                     AccessoryIndex = c.AccessoryIndex,
+                    HasSeenTutorial = c.HasSeenTutorial,
                 })
                 .ToList(),
         };

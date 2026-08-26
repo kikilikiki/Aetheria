@@ -100,5 +100,6 @@ public sealed class CharacterService(AetheriaDbContext db, SessionTokenStore tok
         HairColorIndex = character.HairColorIndex,
         ClothesColorIndex = character.ClothesColorIndex,
         AccessoryIndex = character.AccessoryIndex,
+        HasSeenTutorial = character.HasSeenTutorial,
     };
 }

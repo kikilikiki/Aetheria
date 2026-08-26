@@ -283,6 +283,56 @@ public sealed class GameDataApiClient : IDisposable
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ChestLootResult>(JsonOptions, ct) : null;
     }
 
+    /// <summary>Voir Docs/Idees.md — suivi "tutoriel déjà vu" : appelé une seule fois à sa première fermeture.</summary>
+    public async Task MarkTutorialSeenAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        await _http.PostAsJsonAsync($"/api/characters/{characterId}/mark-tutorial-seen", new MarkTutorialSeenRequest { SessionToken = sessionToken }, JsonOptions, ct);
+    }
+
+    /// <summary>Voir Docs/Idees.md — historique de tchat persisté : les 50 derniers messages du canal (Global/Guilde).</summary>
+    public async Task<List<ChatHistoryMessage>> GetChatHistoryAsync(ChatChannel channel, Guid characterId, CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<List<ChatHistoryMessage>>($"/api/chat/history?channel={channel}&characterId={characterId}", JsonOptions, ct);
+        return result ?? [];
+    }
+
+    /// <summary>Voir Docs/Idees.md — déclenche une salle Piège (perte d'or).</summary>
+    public async Task<TrapResult?> TriggerTrapAsync(string sessionToken, Guid characterId, int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}/rooms/{roomIndex}/trigger-trap", new OpenChestRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<TrapResult>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Voir Docs/Idees.md — résout une salle Énigme (choix binaire, 0 ou 1).</summary>
+    public async Task<PuzzleResult?> ResolvePuzzleAsync(string sessionToken, Guid characterId, int dungeonId, int floorNumber, int roomIndex, int choiceIndex, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}/rooms/{roomIndex}/resolve-puzzle", new ResolvePuzzleRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            ChoiceIndex = choiceIndex,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<PuzzleResult>(JsonOptions, ct) : null;
+    }
+
+    /// <summary>Voir Docs/Idees.md — déclenche une salle Événement (bonus or/XP instantané).</summary>
+    public async Task<EventRoomResult?> TriggerEventAsync(string sessionToken, Guid characterId, int dungeonId, int floorNumber, int roomIndex, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}/rooms/{roomIndex}/trigger-event", new OpenChestRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+        }, JsonOptions, ct);
+
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<EventRoomResult>(JsonOptions, ct) : null;
+    }
+
     /// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller".</summary>
     public async Task<DungeonEntryStatus?> GetDungeonEntryStatusAsync(string sessionToken, Guid characterId, int dungeonId, CancellationToken ct = default)
     {

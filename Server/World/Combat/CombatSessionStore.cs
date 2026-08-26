@@ -17,6 +17,10 @@ public sealed class CombatSessionStore
     private static readonly TimeSpan FinishedRetention = TimeSpan.FromMinutes(3);
 
     private readonly ConcurrentDictionary<Guid, CombatSession> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _partyCreationLocks = new();
+
+    /// <summary>Voir Docs/Idees.md — verrou anti-double-création de combat de groupe : un seul <see cref="SemaphoreSlim"/> par groupe, créé paresseusement, jamais retiré (volume trop faible pour justifier un nettoyage).</summary>
+    public SemaphoreSlim GetPartyCreationLock(Guid partyId) => _partyCreationLocks.GetOrAdd(partyId, _ => new SemaphoreSlim(1, 1));
 
     public void Add(CombatSession session)
     {

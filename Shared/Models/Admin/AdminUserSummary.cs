@@ -24,4 +24,7 @@ public sealed class AdminUserSummary
 
     /// <summary>Voir GDD/demande utilisateur — "la couleur a gauche du pseudo [dans le Launcher] correspond a si la personne est en ligne ou pas" : vrai si AU MOINS un personnage de ce compte a une session active (voir Server.Networking.WorldSessionRegistry.IsOnline), pas une notion de compte connecté à la Boutique/API séparément.</summary>
     public required bool IsOnline { get; init; }
+
+    /// <summary>Voir Docs/Idees.md — vraie image de profil, <c>null</c> tant qu'aucune image n'a été envoyée (fallback pastille/initiale).</summary>
+    public string? AvatarUrl { get; init; }
 }

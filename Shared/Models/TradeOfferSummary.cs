@@ -11,6 +11,9 @@ public sealed class TradeOfferSummary
     public string? OfferedMonsterName { get; init; }
     public long OfferedGold { get; init; }
     public long RequestedGold { get; init; }
+
+    /// <summary>Voir Docs/Idees.md — nom de la créature du joueur CIBLÉ demandée en contrepartie, <c>null</c> si l'offre ne demande que de l'or.</summary>
+    public string? RequestedMonsterName { get; init; }
     public TradeOfferStatus Status { get; init; }
     public DateTime CreatedAtUtc { get; init; }
 }

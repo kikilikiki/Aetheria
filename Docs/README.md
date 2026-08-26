@@ -897,6 +897,43 @@ de gameplay.
 > fenêtre native et vérifier visuellement le résultat pixel par pixel — à valider par un humain
 > en lançant `Aetheria.Client.exe`.
 
+31. ✅ Implémentation de `Docs/Idees.md` (voir `Docs/Idees-Realisations.md` pour le détail complet,
+    idée par idée avec `[x]`/`[ ]`) — liste établie lors d'une passe d'audit précédente du code
+    réel (pas seulement ce README, en net retard sur le projet à ce moment-là). Points marquants :
+    - ✅ **5 capacités de combat manquantes** (Tank/Assassin/Support/Invocateur/Berserker, voir
+      `CombatEngine.ResolveSpecialAbility`/`ResolveUltimateAbility`) — ces rôles n'avaient qu'un
+      "coup puissant" générique jusqu'ici. Nouveau champ `Combatant.NextAttackBonusAmount` pour
+      le buff du Support.
+    - ✅ **Faille de sécurité corrigée** : les 6 endpoints CRUD de `MonsterEditor`/`MapEditor`
+      (`/api/monsters/species`, `/api/dungeons`) n'exigeaient jusqu'ici **aucune authentification
+      du tout** — gatés par `AdminAuthService` (déjà écrit pour l'AdminPanel), avec un écran de
+      connexion ajouté aux deux outils.
+    - ✅ **Validation serveur de portée sur les déplacements** (`PlayerSession.HandlePlayerMove`) :
+      un `PlayerMove` doit désormais être adjacent à la dernière position connue, sauf pour les
+      deux sauts légitimes qui empruntent le même packet (Téléporteur, téléport modérateur).
+    - ✅ Pathfinding BFS (IA de combat ET déplacement extérieur au clic), remplace les anciens
+      algorithmes naïfs qui restaient bloqués contre un obstacle/bâtiment.
+    - ✅ Historique de tchat persisté (`ChatMessageEntity`), rendu visuel de grille dans le
+      MapEditor (`DungeonRoom.GridX`/`GridY` étaient déjà calculés côté serveur mais jetés), suivi
+      "tutoriel déjà vu", contrepartie en créature dans l'Échange, table de butin de boss, salles
+      Piège/Énigme/Événement/Secrète désormais mécaniques (au lieu de texte d'ambiance), file
+      d'arène en groupe, garde-fou anti-auto-appairage, déconnexion forcée sur ban, hooks Discord
+      guerre/saison, titre exclusif de fin de Passe de Niveau.
+    - ✅ 4 nouvelles migrations EF Core (`AddTradeOfferRequestedMonster`, `AddChatMessages`,
+      `AddUserAvatarUrl`, `AddCharacterHasSeenTutorial`).
+    - **Limites assumées, documentées honnêtement dans `Docs/Idees-Realisations.md`** : arbre de
+      talents, sprites/textures réels, scène d'intérieur isométrique, îles volantes/aquatiques,
+      embranchements de quêtes, réputation PvP sauvage, désinstallateur MSI — tous explicitement
+      hors scope (système neuf nécessitant sa propre conception, ou assets graphiques
+      indisponibles dans cet environnement). Image de profil : infrastructure serveur complète
+      (upload, stockage, `UserEntity.AvatarUrl`) mais **affichage réel côté Launcher/AdminPanel
+      pas fait** — reste une pastille générée pour l'instant. Persistance des PV de créature entre
+      combats : question tranchée avec l'utilisateur en cours de session (laissé tel quel).
+    - **Vérifié par compilation ciblée de chaque projet touché** (`dotnet build`, voir la note
+      d'environnement dans `Docs/Idees-Realisations.md` pour la recette RID/`AllowMissingPrunePackageData`
+      nécessaire dans cet environnement) — **pas de test de bout en bout avec un vrai
+      serveur/client lancés**, hors de portée de cette session (headless, pas d'affichage).
+
 Dépendance graphique du moteur : **Silk.NET** (Windowing + OpenGL + Input + Maths), choisie
 pour ses bindings modernes activement maintenus par la communauté .NET et son bon écosystème
 de documentation en C#. Voir `Engine/Aetheria.Engine.csproj` pour les versions exactes.

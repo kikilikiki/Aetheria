@@ -65,8 +65,21 @@ const int StarterColumns = 5;
 /// <summary>Doit rester cohérent avec <c>Server/World/PartyService.MaxMembers</c>.</summary>
 const int PartyMaxMembers = 4;
 
-/// <summary>Probabilité de rencontre sauvage par case franchie en zone sauvage (voir GDD, StartWildEncounterOutdoorAsync). Simplification assumée : constante plutôt que dépendante du biome/terrain.</summary>
-const double WildEncounterChance = 0.11;
+/// <summary>
+/// Voir Docs/Idees.md — probabilité de rencontre sauvage par case franchie en zone sauvage
+/// (voir GDD, StartWildEncounterOutdoorAsync), désormais pondérée par la variante d'herbe
+/// traversée (voir <see cref="Aetheria.Client.World.WorldMap.GetTerrain"/>) plutôt qu'une
+/// constante unique — l'herbe la plus dense (GrassDark) est la plus propice aux rencontres.
+/// Chemin/étang restent à 0 (déjà exclus en amont par <c>IsWildEncounterZone</c>).
+/// </summary>
+var WildEncounterChanceByTerrain = new Dictionary<Aetheria.Client.World.TerrainType, double>
+{
+    [Aetheria.Client.World.TerrainType.GrassLight] = 0.08,
+    [Aetheria.Client.World.TerrainType.GrassMid] = 0.11,
+    [Aetheria.Client.World.TerrainType.GrassDark] = 0.16,
+    [Aetheria.Client.World.TerrainType.Path] = 0.0,
+    [Aetheria.Client.World.TerrainType.Water] = 0.0,
+};
 
 var stateLock = new object();
 var gridPosition = new Vector2(worldMap.SpawnPosition.X, worldMap.SpawnPosition.Y);
@@ -98,6 +111,9 @@ NearbyInteraction? nearbyInteraction = null;
 var showTutorial = false;
 var tutorialPage = 0;
 
+/// <summary>Voir Docs/Idees.md — suivi "tutoriel déjà vu" : reflète CharacterSummary.HasSeenTutorial du personnage choisi, mis à jour côté serveur (voir MarkTutorialSeenAsync) dès la première fermeture.</summary>
+var hasSeenTutorialServerFlag = true;
+
 // Intérieur (bâtiment ou donjon) affiché quand sceneMode == Interior — pas de vraie scène 3D/2D
 // détaillée, un fond stylisé + un texte, voir DrawInteriorScene.
 var interiorTitle = string.Empty;
@@ -109,6 +125,9 @@ var interiorIsDungeon = false;
 // Vide pour l'intérieur du donjon.
 List<InteriorFurniture> interiorFurniture = [];
 List<InteriorNpc> interiorNpcs = [];
+
+/// <summary>Voir Docs/Idees.md — curseur de sélection quand plusieurs PNJ sont définis pour un même bâtiment (jusqu'ici seul l'index 0 était jamais utilisé). Remis à 0 à chaque entrée dans un bâtiment.</summary>
+var interiorNpcCursor = 0;
 
 // Exploration du donjon façon Binding of Isaac (voir GDD/demande utilisateur — "des salles
 // aléatoires avec coffre/monstre etc mais où on se déplace nous-même de salle en salle") : les
@@ -125,6 +144,11 @@ var dungeonRoomIndex = 0;
 Task<DungeonFloor?>? dungeonFloorTask = null;
 Task<ChestLootResult?>? dungeonChestTask = null;
 string? dungeonRoomMessage = null;
+
+/// <summary>Voir Docs/Idees.md — récompense mécanique pour les salles Piège/Énigme/Événement (jusqu'ici de simples textes d'ambiance, comme le coffre ci-dessus).</summary>
+Task<TrapResult?>? dungeonTrapTask = null;
+Task<EventRoomResult?>? dungeonEventTask = null;
+Task<PuzzleResult?>? dungeonPuzzleTask = null;
 
 /// <summary>Voir GDD/demande utilisateur — "a la fin des 10 etage termine le dongon et affiche un message fait le quitter le dongon donne lui des recompense et ajoute un cooldown de 1h".</summary>
 Task<DungeonCompletionResult?>? dungeonCompletionTask = null;
@@ -206,6 +230,10 @@ const float CombatPollIntervalSeconds = 0.35f;
 // à jour, même après un gain d'or/XP survenu ailleurs (combat, quête, vente...).
 var hudPollClock = 0f;
 const float HudPollIntervalSeconds = 8f;
+
+/// <summary>Voir Docs/Idees.md — rafraîchissement en session de la position du donjon (jusqu'ici seulement rafraîchie à des triggers ponctuels, voir RefreshDungeonPositionAsync) : la position tourne par heure UTC côté serveur (voir DungeonWorldService.PositionHourBucket), donc un sondage toutes les 2 minutes suffit largement à ne jamais rater un changement d'heure survenu en cours de session.</summary>
+var dungeonPositionPollClock = 0f;
+const float DungeonPositionPollIntervalSeconds = 120f;
 
 // Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" :
 // rafraîchi au même rythme que le HUD or/niveau ci-dessus (voir hudPollClock), endpoint public
@@ -367,6 +395,11 @@ var chatChannel = ChatChannel.Global;
 var chatTextInput = string.Empty;
 var chatMessages = new List<ChatLine>();
 const int MaxChatLines = 100;
+
+/// <summary>Voir Docs/Idees.md — historique de tchat persisté : chargé une seule fois par canal (Global/Guilde), à la première ouverture de cet onglet.</summary>
+Task<List<ChatHistoryMessage>>? chatHistoryTask = null;
+var chatHistoryLoadingChannel = ChatChannel.Global;
+HashSet<ChatChannel> chatHistoryLoadedChannels = [];
 
 /// <summary>Voir GDD/demande utilisateur — "discussion privée" avec un ami (voir DrawFriendsPanel) : non-null tant qu'on chuchote à ce joueur, prioritaire sur <see cref="chatChannel"/> à l'envoi.</summary>
 string? chatWhisperTarget = null;
@@ -1164,9 +1197,20 @@ host.Update += deltaTime =>
             combatReturnScene = SceneMode.Interior;
             combatStartTask = StartWildCombatAsync();
         }
+        else if (!interiorIsDungeon && interiorNpcs.Count > 1 && activeDialogueNpc is null && keyboard.WasJustPressed(Key.Left))
+        {
+            // Voir Docs/Idees.md — curseur de sélection PNJ : cycle avant d'engager le dialogue,
+            // seulement quand aucun dialogue n'est déjà en cours (ne doit pas interférer avec la
+            // navigation des répliques, voir UpdateActiveDialogueIfAny).
+            interiorNpcCursor = (interiorNpcCursor - 1 + interiorNpcs.Count) % interiorNpcs.Count;
+        }
+        else if (!interiorIsDungeon && interiorNpcs.Count > 1 && activeDialogueNpc is null && keyboard.WasJustPressed(Key.Right))
+        {
+            interiorNpcCursor = (interiorNpcCursor + 1) % interiorNpcs.Count;
+        }
         else if (!interiorIsDungeon && interiorNpcs.Count > 0 && keyboard.WasJustPressed(Key.E))
         {
-            var npc = interiorNpcs[0];
+            var npc = interiorNpcs[interiorNpcCursor];
             activeDialogueNpc = new Npc(npc.Name, 0, 0, npc.BodyColor, npc.HeadColor, 0f);
             dialogueLineIndex = 0;
         }
@@ -1195,6 +1239,13 @@ host.Update += deltaTime =>
     {
         globalEventStatus = eventStatusTask.IsFaulted ? globalEventStatus : eventStatusTask.Result;
         globalEventStatusTask = null;
+    }
+
+    dungeonPositionPollClock += deltaTime;
+    if (dungeonPositionPollClock >= DungeonPositionPollIntervalSeconds && gameDataApi is not null)
+    {
+        dungeonPositionPollClock = 0f;
+        _ = RefreshDungeonPositionAsync();
     }
 
     hudPollClock += deltaTime;
@@ -1549,6 +1600,7 @@ host.Update += deltaTime =>
                 var layout = BuildingInteriors.ForBuilding(interaction.Building.Name);
                 interiorFurniture = [.. layout.Furniture];
                 interiorNpcs = [.. layout.Npcs];
+                interiorNpcCursor = 0;
                 break;
             case InteractionKind.Dungeon:
                 // Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour
@@ -1746,35 +1798,68 @@ combatApi?.Dispose();
 // Voir retour utilisateur — "faire en sorte que l'on ne puisse pas traverser les murs" : le
 // chemin cliqué s'arrête net avant un bâtiment plutôt que de continuer au travers (plus
 // "static" pour accéder à IsBuildingBlocking, capturé depuis worldMap).
+// Voir Docs/Idees.md — pathfinding BFS : contourne désormais les bâtiments au lieu de
+// simplement s'arrêter net devant (l'ancien algorithme ne calculait qu'un trajet direct
+// X-puis-Y, tronqué au premier obstacle rencontré). BFS 4-directionnel sur toute la carte
+// (50x50, largement assez petit pour rester instantané côté client).
 Queue<(int X, int Y)> BuildOrthogonalPath((int X, int Y) from, (int X, int Y) to)
 {
-    var queue = new Queue<(int X, int Y)>();
-    var x = from.X;
-    var y = from.Y;
-
-    while (x != to.X)
+    var result = new Queue<(int X, int Y)>();
+    if (from == to || IsBuildingBlocking(to.X, to.Y))
     {
-        x += Math.Sign(to.X - x);
-        if (IsBuildingBlocking(x, y))
-        {
-            return queue;
-        }
-
-        queue.Enqueue((x, y));
+        return result;
     }
 
-    while (y != to.Y)
-    {
-        y += Math.Sign(to.Y - y);
-        if (IsBuildingBlocking(x, y))
-        {
-            return queue;
-        }
+    (int Dx, int Dy)[] offsets = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+    var cameFrom = new Dictionary<(int X, int Y), (int X, int Y)>();
+    var visited = new HashSet<(int X, int Y)> { from };
+    var frontier = new Queue<(int X, int Y)>();
+    frontier.Enqueue(from);
+    var found = false;
 
-        queue.Enqueue((x, y));
+    while (frontier.Count > 0 && !found)
+    {
+        var current = frontier.Dequeue();
+        foreach (var (dx, dy) in offsets)
+        {
+            var next = (X: current.X + dx, Y: current.Y + dy);
+            if (!worldMap.IsWithinBounds(next.X, next.Y) || visited.Contains(next) || IsBuildingBlocking(next.X, next.Y))
+            {
+                continue;
+            }
+
+            visited.Add(next);
+            cameFrom[next] = current;
+            if (next == to)
+            {
+                found = true;
+                break;
+            }
+
+            frontier.Enqueue(next);
+        }
     }
 
-    return queue;
+    if (!found)
+    {
+        return result;
+    }
+
+    var path = new List<(int X, int Y)>();
+    var step = to;
+    while (step != from)
+    {
+        path.Add(step);
+        step = cameFrom[step];
+    }
+
+    path.Reverse();
+    foreach (var cell in path)
+    {
+        result.Enqueue(cell);
+    }
+
+    return result;
 }
 
 /// <summary>
@@ -2402,7 +2487,9 @@ void DrawTradePanel(int w, int h)
             var selected = row == tradeCursor;
             var color = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
             var give = offer.OfferedMonsterName is { } name ? $"{name} + {offer.OfferedGold} or" : $"{offer.OfferedGold} or";
-            DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}{offer.InitiatorName} propose : {give} contre {offer.RequestedGold} or (ENTREE : accepter, N : refuser)",
+            // Voir Docs/Idees.md — contrepartie en créature côté joueur ciblé.
+            var want = offer.RequestedMonsterName is { } requestedName ? $"{requestedName} + {offer.RequestedGold} or" : $"{offer.RequestedGold} or";
+            DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}{offer.InitiatorName} propose : {give} contre {want} (ENTREE : accepter, N : refuser)",
                 new Vector2(topLeft.X + 20f, y), 1.3f, color);
             y += 22f;
             row++;
@@ -2425,7 +2512,8 @@ void DrawTradePanel(int w, int h)
         var selected = row == tradeCursor;
         var color = selected ? new Vector4(0.95f, 0.85f, 0.5f, 1f) : Vector4.One;
         var give = offer.OfferedMonsterName is { } name ? $"{name} + {offer.OfferedGold} or" : $"{offer.OfferedGold} or";
-        DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}A {offer.TargetName} : {give} contre {offer.RequestedGold} or (SUPPR : annuler)",
+        var want = offer.RequestedMonsterName is { } requestedName ? $"{requestedName} + {offer.RequestedGold} or" : $"{offer.RequestedGold} or";
+        DrawText(spriteBatch, whiteTexture, $"{(selected ? "> " : "  ")}A {offer.TargetName} : {give} contre {want} (SUPPR : annuler)",
             new Vector2(topLeft.X + 20f, y), 1.3f, color);
         y += 22f;
         row++;
@@ -5065,9 +5153,11 @@ void OnDialogueFinished(string npcName)
 
 /// <summary>
 /// Tutoriel (touche F1, voir GDD/demande utilisateur) : ouvrable/fermable à tout moment depuis
-/// l'extérieur, pas seulement au premier lancement — pas de suivi "déjà vu" persisté pour cette
-/// version, F1 reste toujours disponible comme rappel. Retourne vrai si le tutoriel est affiché
-/// (le monde se fige, comme un dialogue).
+/// l'extérieur, pas seulement au premier lancement. Voir Docs/Idees.md — suivi "déjà vu" : sa
+/// fermeture (F1 ou Échap) le marque comme vu côté serveur une seule fois (voir
+/// MarkTutorialSeenAsync/hasSeenTutorialServerFlag), ce qui déclenche son ouverture automatique
+/// juste après la création/sélection de personnage tant qu'il n'a jamais été fermé. Retourne vrai
+/// si le tutoriel est affiché (le monde se fige, comme un dialogue).
 /// </summary>
 bool UpdateTutorial()
 {
@@ -5075,6 +5165,11 @@ bool UpdateTutorial()
     {
         showTutorial = !showTutorial;
         tutorialPage = 0;
+        if (!showTutorial)
+        {
+            MarkTutorialSeenIfNeeded();
+        }
+
         return showTutorial;
     }
 
@@ -5087,6 +5182,7 @@ bool UpdateTutorial()
     if (keyboard.WasJustPressed(Key.Escape))
     {
         showTutorial = false;
+        MarkTutorialSeenIfNeeded();
     }
     else if (keyboard.WasJustPressed(Key.Right) || keyboard.WasJustPressed(Key.Enter))
     {
@@ -5098,6 +5194,18 @@ bool UpdateTutorial()
     }
 
     return true;
+}
+
+/// <summary>Voir Docs/Idees.md — appelle le serveur une seule fois par personnage (garde locale via hasSeenTutorialServerFlag, pas besoin d'attendre la réponse pour mettre à jour l'état local).</summary>
+void MarkTutorialSeenIfNeeded()
+{
+    if (hasSeenTutorialServerFlag || gameDataApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        return;
+    }
+
+    hasSeenTutorialServerFlag = true;
+    _ = gameDataApi.MarkTutorialSeenAsync(options.SessionToken, chosenCharacterId.Value);
 }
 
 static (string Title, TutorialStep[] Steps)[] TutorialPages() =>
@@ -5379,10 +5487,13 @@ void ConnectAndEnterWorld(Guid characterId)
         }
 
         // Rencontre sauvage aléatoire hors donjon (voir GDD) : uniquement en extérieur, hors
-        // dialogue/panneau/combat déjà en cours. Tiré à chaque case franchie en zone sauvage.
+        // dialogue/panneau/combat déjà en cours. Tiré à chaque case franchie en zone sauvage,
+        // avec une probabilité qui dépend désormais du terrain traversé (voir Docs/Idees.md).
+        var wildEncounterChance = WildEncounterChanceByTerrain.GetValueOrDefault(
+            worldMap.GetTerrain(packet.PositionX, packet.PositionY), 0.11);
         if (sceneMode == SceneMode.Outdoor && combatStartTask is null && activeDialogueNpc is null
             && activePanel == PanelKind.None && worldMap.IsWildEncounterZone(packet.PositionX, packet.PositionY)
-            && Random.Shared.NextDouble() < WildEncounterChance)
+            && Random.Shared.NextDouble() < wildEncounterChance)
         {
             combatMessage = null;
             combatReturnScene = SceneMode.Outdoor;
@@ -5899,6 +6010,7 @@ void EnterDungeonInterior(DungeonData dungeon)
     interiorIsDungeon = true;
     interiorFurniture = [];
     interiorNpcs = [];
+    interiorNpcCursor = 0;
     dungeonFloorNumber = 1;
     dungeonRoomIndex = 0;
     dungeonFloor = null;
@@ -6090,6 +6202,15 @@ void UpdateCharacterSelect()
             RebuildWorldMapForKingdom(chosen.Kingdom);
             ConnectAndEnterWorld(chosen.Id);
             _ = CheckStarterNeedAsync(chosen.Id);
+
+            // Voir Docs/Idees.md — affichage automatique du tutoriel une seule fois tant que le
+            // personnage ne l'a jamais fermé (voir HasSeenTutorial/UpdateTutorial).
+            hasSeenTutorialServerFlag = chosen.HasSeenTutorial;
+            if (!hasSeenTutorialServerFlag)
+            {
+                showTutorial = true;
+                tutorialPage = 0;
+            }
         }
     }
 }
@@ -6202,6 +6323,14 @@ void UpdateCharacterCreate()
                         RebuildWorldMapForKingdom(result.Character.Kingdom);
                         ConnectAndEnterWorld(chosenCharacterId.Value);
                         _ = CheckStarterNeedAsync(chosenCharacterId.Value);
+
+                        // Voir Docs/Idees.md — un personnage tout juste créé n'a jamais vu le tutoriel.
+                        hasSeenTutorialServerFlag = result.Character.HasSeenTutorial;
+                        if (!hasSeenTutorialServerFlag)
+                        {
+                            showTutorial = true;
+                            tutorialPage = 0;
+                        }
                     }
                     else
                     {
@@ -7581,6 +7710,28 @@ async Task<CombatSessionState?> ChallengeTeamDuelAsync(IReadOnlyList<Guid> chall
 /// </summary>
 void UpdateChatPanel()
 {
+    // Voir Docs/Idees.md — historique de tchat persisté : chargé paresseusement, une fois par
+    // canal, à la première fois que cet onglet est affiché (Global à l'ouverture du panneau,
+    // Guilde dès qu'on bascule dessus via Tab).
+    if (chatHistoryTask is { IsCompleted: true } historyTask)
+    {
+        if (!historyTask.IsFaulted)
+        {
+            var historyLines = historyTask.Result
+                .Select(h => new ChatLine(chatHistoryLoadingChannel, h.SenderName, h.SenderRank, h.Message))
+                .ToList();
+            chatMessages.InsertRange(0, historyLines);
+        }
+
+        chatHistoryTask = null;
+    }
+
+    if (chatHistoryTask is null && chosenCharacterId is not null && gameDataApi is not null && chatHistoryLoadedChannels.Add(chatChannel))
+    {
+        chatHistoryLoadingChannel = chatChannel;
+        chatHistoryTask = gameDataApi.GetChatHistoryAsync(chatChannel, chosenCharacterId.Value);
+    }
+
     // Voir GDD/demande utilisateur — "quand on clique sur un pseudo on a ces informations" :
     // bloque le reste de la saisie du tchat tant que la fiche créateur est ouverte, comme un
     // petit panneau modal par-dessus.
@@ -8130,6 +8281,43 @@ void UpdateDungeonCorridor(float deltaTime)
         return;
     }
 
+    // Voir Docs/Idees.md — récompense mécanique salle Piège/Événement/Énigme.
+    if (dungeonTrapTask is { IsCompleted: true } trapTask)
+    {
+        var trap = trapTask.IsFaulted ? null : trapTask.Result;
+        dungeonTrapTask = null;
+        dungeonClearedRooms.Add(dungeonRoomIndex);
+        dungeonRoomMessage = trap is { GoldLost: > 0 }
+            ? $"Un piege se declenche ! Vous perdez {trap.GoldLost} or."
+            : "Un piege se declenche, mais vous n'aviez rien a perdre.";
+        return;
+    }
+
+    if (dungeonEventTask is { IsCompleted: true } eventTask)
+    {
+        var eventResult = eventTask.IsFaulted ? null : eventTask.Result;
+        dungeonEventTask = null;
+        dungeonClearedRooms.Add(dungeonRoomIndex);
+        dungeonRoomMessage = eventResult is { } e
+            ? $"Un evenement heureux vous offre +{e.Gold} or et +{e.Experience} XP !"
+            : "Rien ne se passe.";
+        return;
+    }
+
+    if (dungeonPuzzleTask is { IsCompleted: true } puzzleTask)
+    {
+        var puzzle = puzzleTask.IsFaulted ? null : puzzleTask.Result;
+        dungeonPuzzleTask = null;
+        dungeonClearedRooms.Add(dungeonRoomIndex);
+        dungeonRoomMessage = puzzle switch
+        {
+            { WasCorrect: true } p => $"Bonne reponse ! Vous gagnez {p.GoldDelta} or.",
+            { } p => $"Mauvaise reponse... Vous perdez {-p.GoldDelta} or.",
+            null => "L'enigme reste sans reponse.",
+        };
+        return;
+    }
+
     // Voir GDD/demande utilisateur — "a la fin des 10 etage termine le dongon [...] fait le
     // quitter le dongon donne lui des recompense et ajoute un cooldown" : une fois la récompense
     // confirmée par le serveur (et le cooldown enregistré), on affiche la bannière plein écran
@@ -8149,7 +8337,8 @@ void UpdateDungeonCorridor(float deltaTime)
         return;
     }
 
-    if (dungeonFloorTask is not null || dungeonChestTask is not null || dungeonCompletionTask is not null || dungeonFloor is null)
+    if (dungeonFloorTask is not null || dungeonChestTask is not null || dungeonCompletionTask is not null || dungeonFloor is null
+        || dungeonTrapTask is not null || dungeonEventTask is not null || dungeonPuzzleTask is not null)
     {
         return;
     }
@@ -8287,17 +8476,47 @@ void UpdateDungeonCorridor(float deltaTime)
             return;
         }
 
-        if (room.EncounterType == DungeonEncounterType.Coffre)
+        // Voir Docs/Idees.md — Salle secrète : réutilise le même endpoint que Coffre (voir
+        // DungeonRoomService.OpenChestAsync côté serveur, taux d'objet/or supérieurs).
+        if (room.EncounterType is DungeonEncounterType.Coffre or DungeonEncounterType.SalleSecrete)
         {
             if (keyboard.WasJustPressed(Key.E))
             {
                 dungeonChestTask = gameDataApi!.OpenChestAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
             }
         }
+        else if (room.EncounterType == DungeonEncounterType.Piege)
+        {
+            // Voir Docs/Idees.md — résolu une seule fois, automatiquement à l'entrée (le champ
+            // Task lui-même empêche un second appel tant que le premier n'est pas terminé).
+            dungeonTrapTask ??= gameDataApi!.TriggerTrapAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
+        }
+        else if (room.EncounterType == DungeonEncounterType.Evenement && !room.IsStart)
+        {
+            // Voir Docs/Idees.md — la salle de départ de chaque étage est TOUJOURS de type
+            // Événement (voir DungeonFloorGenerator) mais n'a jamais été un vrai événement
+            // narratif (voir room.IsStart ? null ci-dessous, comportement inchangé) — exclue ici
+            // pour ne pas offrir de l'or/XP gratuits à chaque changement d'étage.
+            dungeonEventTask ??= gameDataApi!.TriggerEventAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex);
+        }
+        else if (room.EncounterType == DungeonEncounterType.Enigme)
+        {
+            dungeonRoomMessage ??= "Enigme : appuyez sur 1 ou 2 pour repondre.";
+            if (dungeonPuzzleTask is null && keyboard.WasJustPressed(Key.Number1))
+            {
+                dungeonPuzzleTask = gameDataApi!.ResolvePuzzleAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex, 0);
+            }
+            else if (dungeonPuzzleTask is null && keyboard.WasJustPressed(Key.Number2))
+            {
+                dungeonPuzzleTask = gameDataApi!.ResolvePuzzleAsync(options.SessionToken!, chosenCharacterId!.Value, worldMap.DungeonId, dungeonFloorNumber, dungeonRoomIndex, 1);
+            }
+        }
         else
         {
-            // Voir GDD/demande utilisateur — types de salle "non simulés" : résolus une seule
-            // fois, automatiquement, à l'entrée (rien à appuyer, contrairement au coffre).
+            // Voir GDD/demande utilisateur — types de salle "non simulés" (Marchand/Autel, voir
+            // Docs/Idees.md) : résolus une seule fois, automatiquement, à l'entrée (rien à
+            // appuyer, contrairement au coffre) — aussi la case de départ de chaque étage
+            // (toujours de type Événement, voir ci-dessus), qui n'a jamais affiché de message.
             dungeonClearedRooms.Add(dungeonRoomIndex);
             dungeonRoomMessage = room.IsStart ? null : DungeonRoomFlavor(room.EncounterType, false);
         }
@@ -10985,11 +11204,16 @@ void DrawInteriorScene()
     {
         if (interiorNpcs.Count > 0)
         {
-            var npc = interiorNpcs[0];
+            var npc = interiorNpcs[interiorNpcCursor];
             var npcCenter = new Vector2(w * 0.5f, h * 0.72f);
             DrawStarterPortrait(npcCenter, 46f, npc.BodyColor);
             DrawTextCentered(spriteBatch, whiteTexture, npc.Name.ToUpperInvariant(), npcCenter + new Vector2(0, 60f), 1.8f, Vector4.One);
-            DrawTextCentered(spriteBatch, whiteTexture, "APPUYEZ SUR E POUR PARLER", npcCenter + new Vector2(0, 84f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+            // Voir Docs/Idees.md — curseur de sélection PNJ : rappel des flèches seulement quand
+            // plusieurs PNJ sont définis pour ce bâtiment (sinon inutile, un seul choix possible).
+            var prompt = interiorNpcs.Count > 1
+                ? $"APPUYEZ SUR E POUR PARLER - FLECHES POUR CHANGER ({interiorNpcCursor + 1}/{interiorNpcs.Count})"
+                : "APPUYEZ SUR E POUR PARLER";
+            DrawTextCentered(spriteBatch, whiteTexture, prompt, npcCenter + new Vector2(0, 84f), 1.7f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
         }
 
         if (interiorIsDungeon)

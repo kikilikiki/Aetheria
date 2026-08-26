@@ -20,6 +20,9 @@ public sealed partial class MainViewModel : ObservableObject
     public IReadOnlyList<Aetheria.Shared.Enums.Element> AvailableElements { get; } = Enum.GetValues<Aetheria.Shared.Enums.Element>();
     public IReadOnlyList<Rarity> AvailableRarities { get; } = Enum.GetValues<Rarity>();
 
+    /// <summary>Voir Docs/Idees.md — le type (rôle de combat) existait déjà sur MonsterSpeciesData, seul un ComboBox manquait ici (auparavant modifiable uniquement via l'API/le seeder).</summary>
+    public IReadOnlyList<MonsterType> AvailableTypes { get; } = Enum.GetValues<MonsterType>();
+
     [ObservableProperty]
     private MonsterSpeciesData? _selectedSpecies;
 
@@ -34,6 +37,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private Rarity _baseRarity = Rarity.Commun;
+
+    [ObservableProperty]
+    private MonsterType _type = MonsterType.Guerrier;
 
     [ObservableProperty]
     private string _habitat = string.Empty;
@@ -70,6 +76,51 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isBusy;
+
+    // Voir Docs/Idees.md — authentification admin dédiée (jusqu'ici cet outil était supposé
+    // lancé uniquement contre un serveur de confiance, sans aucune vérification).
+    [ObservableProperty]
+    private bool _isLoggedIn;
+
+    [ObservableProperty]
+    private string _adminUsernameOrEmail = string.Empty;
+
+    /// <summary>Voir AdminPanel — jamais lié directement en XAML (un PasswordBox ne supporte pas le data binding de son mot de passe pour des raisons de sécurité), assigné depuis le code-behind sur PasswordChanged.</summary>
+    public string AdminPassword { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    private string? _loginErrorMessage;
+
+    private string? _sessionToken;
+
+    [RelayCommand]
+    private async Task AdminLogin()
+    {
+        LoginErrorMessage = null;
+        IsBusy = true;
+        try
+        {
+            var result = await _api.LoginAsync(AdminUsernameOrEmail, AdminPassword);
+            if (!result.IsSuccess)
+            {
+                LoginErrorMessage = result.Error;
+                return;
+            }
+
+            _sessionToken = result.Value!.SessionToken;
+            IsLoggedIn = true;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    partial void OnIsLoggedInChanged(bool value)
+    {
+        SaveCommand.NotifyCanExecuteChanged();
+        DeleteCommand.NotifyCanExecuteChanged();
+    }
 
     [RelayCommand]
     private async Task Load()
@@ -109,6 +160,7 @@ public sealed partial class MainViewModel : ObservableObject
         Name = value.Name;
         Element = value.Element;
         BaseRarity = value.BaseRarity;
+        Type = value.Type;
         Habitat = value.Habitat;
         Lore = value.Lore;
         Health = value.BaseStats.Health;
@@ -129,6 +181,7 @@ public sealed partial class MainViewModel : ObservableObject
         Name = string.Empty;
         Element = Aetheria.Shared.Enums.Element.Neutre;
         BaseRarity = Rarity.Commun;
+        Type = MonsterType.Guerrier;
         Habitat = string.Empty;
         Lore = string.Empty;
         Health = 20;
@@ -142,9 +195,16 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = null;
     }
 
-    [RelayCommand]
+    private bool CanSave() => IsLoggedIn;
+
+    [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task Save()
     {
+        if (_sessionToken is null)
+        {
+            return;
+        }
+
         IsBusy = true;
         StatusMessage = null;
         try
@@ -155,6 +215,7 @@ public sealed partial class MainViewModel : ObservableObject
                 Name = Name,
                 Element = Element,
                 BaseRarity = BaseRarity,
+                Type = Type,
                 Habitat = Habitat,
                 Lore = Lore,
                 BaseStats = new StatBlock(Health, Attack, Defense, Speed, Intelligence, Resistance),
@@ -163,8 +224,8 @@ public sealed partial class MainViewModel : ObservableObject
             };
 
             var result = EditingId is { } id
-                ? await _api.UpdateAsync(id, species)
-                : await _api.CreateAsync(species);
+                ? await _api.UpdateAsync(id, species, _sessionToken)
+                : await _api.CreateAsync(species, _sessionToken);
 
             if (!result.IsSuccess)
             {
@@ -191,10 +252,12 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    private bool CanDelete() => IsLoggedIn;
+
+    [RelayCommand(CanExecute = nameof(CanDelete))]
     private async Task Delete()
     {
-        if (EditingId is not { } id)
+        if (EditingId is not { } id || _sessionToken is null)
         {
             return;
         }
@@ -203,7 +266,7 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = null;
         try
         {
-            var result = await _api.DeleteAsync(id);
+            var result = await _api.DeleteAsync(id, _sessionToken);
             if (!result.IsSuccess)
             {
                 StatusMessage = result.Error;

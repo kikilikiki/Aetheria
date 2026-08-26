@@ -1,16 +1,37 @@
 <Window x:Class="Aetheria.MapEditor.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Aetheria — MapEditor" Height="640" Width="900"
+        xmlns:local="clr-namespace:Aetheria.MapEditor"
+        Title="Aetheria — MapEditor" Height="640" Width="1040"
         WindowStartupLocation="CenterScreen" Background="#101116">
 
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+    </Window.Resources>
+
     <Grid Margin="16">
+        <!-- Voir Docs/Idees.md — écran de connexion admin : tant qu'aucun compte admin/fondateur
+             n'est authentifié, Enregistrer/Supprimer restent désactivés (voir AdminAuthService
+             côté serveur, CanSave/CanDelete côté ViewModel). -->
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="320"
+                    Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBoolToVis}}">
+            <TextBlock Text="Connexion administrateur" FontSize="18" FontWeight="Bold" Foreground="#E8E8F0" Margin="0,0,0,16" HorizontalAlignment="Center" />
+            <TextBlock Text="Pseudo ou email" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <TextBox Text="{Binding AdminUsernameOrEmail, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,0,10" />
+            <TextBlock Text="Mot de passe" Foreground="#A0A0B0" Margin="0,0,0,4" />
+            <PasswordBox x:Name="AdminPasswordBox" Padding="6" Margin="0,0,0,16" PasswordChanged="OnAdminPasswordChanged" />
+            <Button Content="Se connecter" Command="{Binding AdminLoginCommand}" Padding="16,8" HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#F0A0A0" TextWrapping="Wrap" Margin="0,16,0,0" HorizontalAlignment="Center" />
+        </StackPanel>
+
+    <Grid Margin="16" Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVis}}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="240" />
             <ColumnDefinition Width="16" />
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="16" />
-            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="360" />
         </Grid.ColumnDefinitions>
 
         <!-- Liste des donjons -->
@@ -48,13 +69,56 @@
         </StackPanel>
 
         <!-- Prévisualisation d'un étage généré -->
+        <!-- Voir Docs/Idees.md — rendu visuel de grille : DungeonRoom expose déjà GridX/GridY et
+             les 4 portes (voir DungeonFloorGenerator, calculées côté serveur) — jusqu'ici jetés
+             au profit d'une simple liste texte "Salle N — Type". -->
         <DockPanel Grid.Column="4">
             <TextBlock DockPanel.Dock="Top" Text="Prévisualiser un étage" Foreground="#A0A0B0" FontWeight="Bold" Margin="0,0,0,8" />
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                 <TextBox Text="{Binding PreviewFloorNumber, UpdateSourceTrigger=PropertyChanged}" Width="60" Padding="4" Margin="0,0,6,0" />
                 <Button Content="Générer" Command="{Binding PreviewFloorCommand}" Padding="10,6" />
             </StackPanel>
-            <ListBox ItemsSource="{Binding PreviewRooms}" />
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <ItemsControl ItemsSource="{Binding DoorVisuals}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Line X1="{Binding X1}" Y1="{Binding Y1}" X2="{Binding X2}" Y2="{Binding Y2}"
+                                      Stroke="#5A5A66" StrokeThickness="3" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <ItemsControl ItemsSource="{Binding RoomVisuals}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="{Binding Size}" Height="{Binding Size}" Background="{Binding Fill}"
+                                        CornerRadius="4" ToolTip="{Binding EncounterType}">
+                                    <TextBlock Text="{Binding Index}" Foreground="White" FontSize="10"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
+            </ScrollViewer>
         </DockPanel>
+    </Grid>
     </Grid>
 </Window>

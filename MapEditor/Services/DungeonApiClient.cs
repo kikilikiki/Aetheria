@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aetheria.Shared;
 using Aetheria.Shared.Models;
+using Aetheria.Shared.Models.Account;
 
 namespace Aetheria.MapEditor.Services;
 
@@ -71,17 +72,38 @@ public sealed class DungeonApiClient : IDisposable
         }
     }
 
-    public async Task<ApiResult<DungeonData>> CreateAsync(DungeonData dungeon)
-        => await SendAsync(HttpMethod.Post, "/api/dungeons", dungeon);
-
-    public async Task<ApiResult<DungeonData>> UpdateAsync(int id, DungeonData dungeon)
-        => await SendAsync(HttpMethod.Put, $"/api/dungeons/{id}", dungeon);
-
-    public async Task<ApiResult<bool>> DeleteAsync(int id)
+    /// <summary>Voir Docs/Idees.md — authentification admin dédiée : réutilise /api/account/login (même endpoint que l'AdminPanel/Launcher), refusé côté serveur si le compte n'est pas admin/fondateur (voir AdminAuthService).</summary>
+    public async Task<ApiResult<LoginResponse>> LoginAsync(string usernameOrEmail, string password)
     {
         try
         {
-            var response = await _http.DeleteAsync($"/api/dungeons/{id}");
+            var response = await _http.PostAsJsonAsync("/api/account/login", new LoginRequest { UsernameOrEmail = usernameOrEmail, Password = password });
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiErrorBody>();
+                return ApiResult<LoginResponse>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions);
+            return ApiResult<LoginResponse>.Success(body!);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ApiResult<LoginResponse>.Failure($"Impossible de contacter le serveur : {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResult<DungeonData>> CreateAsync(DungeonData dungeon, string sessionToken)
+        => await SendAsync(HttpMethod.Post, $"/api/dungeons?sessionToken={Uri.EscapeDataString(sessionToken)}", dungeon);
+
+    public async Task<ApiResult<DungeonData>> UpdateAsync(int id, DungeonData dungeon, string sessionToken)
+        => await SendAsync(HttpMethod.Put, $"/api/dungeons/{id}?sessionToken={Uri.EscapeDataString(sessionToken)}", dungeon);
+
+    public async Task<ApiResult<bool>> DeleteAsync(int id, string sessionToken)
+    {
+        try
+        {
+            var response = await _http.DeleteAsync($"/api/dungeons/{id}?sessionToken={Uri.EscapeDataString(sessionToken)}");
             return response.IsSuccessStatusCode
                 ? ApiResult<bool>.Success(true)
                 : ApiResult<bool>.Failure($"Erreur serveur ({(int)response.StatusCode}).");

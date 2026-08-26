@@ -68,6 +68,9 @@ public sealed class CharacterEntity
     /// <summary>Dernier palier pour lequel la récompense premium a déjà été distribuée — sert au rattrapage rétroactif si le pass premium est acheté après avoir déjà progressé (voir BattlePassService.PurchasePremiumAsync).</summary>
     public int BattlePassLastPremiumRewardLevel { get; set; }
 
+    /// <summary>Voir Docs/Idees.md — suivi "tutoriel déjà vu" : mis à `true` à la fermeture du tutoriel (F1, voir Client/Program.cs UpdateTutorial), déclenche son affichage automatique une seule fois juste après la création de personnage tant que c'est encore `false`.</summary>
+    public bool HasSeenTutorial { get; set; }
+
     public List<MonsterEntity> Monsters { get; set; } = new();
     public List<InventoryItemEntity> InventoryItems { get; set; } = new();
     public StatisticsEntity? Statistics { get; set; }

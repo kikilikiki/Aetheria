@@ -200,6 +200,9 @@ namespace Aetheria.Database.Migrations
                     b.Property<int>("HairStyleIndex")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("HasSeenTutorial")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Kingdom")
                         .IsRequired()
                         .HasColumnType("text");
@@ -354,6 +357,40 @@ namespace Aetheria.Database.Migrations
                     b.HasIndex("CharacterId");
 
                     b.ToTable("CharacterTitles");
+                });
+
+            modelBuilder.Entity("Aetheria.Database.Entities.ChatMessageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Channel")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GuildId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SenderCharacterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SenderName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SenderRank")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ChatMessages");
                 });
 
             modelBuilder.Entity("Aetheria.Database.Entities.CollectionEntity", b =>
@@ -1337,6 +1374,9 @@ namespace Aetheria.Database.Migrations
                     b.Property<long>("RequestedGold")
                         .HasColumnType("bigint");
 
+                    b.Property<Guid?>("RequestedMonsterId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -1353,6 +1393,9 @@ namespace Aetheria.Database.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasColumnType("text");
 
                     b.Property<string>("BanReason")
                         .HasColumnType("text");

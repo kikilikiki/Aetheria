@@ -14,6 +14,9 @@ public sealed class LoginResponse
 
     /// <summary>Grade communautaire (voir GDD — affiché en jeu, détermine aussi l'accès au panneau d'administration du Launcher pour Fondateur).</summary>
     public required UserRank Rank { get; init; }
+
+    /// <summary>Voir Docs/Idees.md — vraie image de profil : URL relative (ex. <c>/avatars/...</c>), <c>null</c> tant qu'aucune image n'a été envoyée (fallback pastille/initiale côté Launcher).</summary>
+    public string? AvatarUrl { get; init; }
 }
 
 /// <summary>
@@ -31,4 +34,7 @@ public sealed class CharacterSummary
     public int HairColorIndex { get; init; }
     public int ClothesColorIndex { get; init; }
     public int AccessoryIndex { get; init; }
+
+    /// <summary>Voir Docs/Idees.md — suivi "tutoriel déjà vu" : déclenche son affichage automatique une seule fois tant que c'est `false`.</summary>
+    public bool HasSeenTutorial { get; init; }
 }

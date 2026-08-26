@@ -27,6 +27,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<DungeonEntity> Dungeons => Set<DungeonEntity>();
     public DbSet<DungeonCooldownEntity> DungeonCooldowns => Set<DungeonCooldownEntity>();
     public DbSet<TradeOfferEntity> TradeOffers => Set<TradeOfferEntity>();
+    public DbSet<ChatMessageEntity> ChatMessages => Set<ChatMessageEntity>();
     public DbSet<CharacterProfessionEntity> CharacterProfessions => Set<CharacterProfessionEntity>();
     public DbSet<RecipeEntity> Recipes => Set<RecipeEntity>();
     public DbSet<RecipeIngredientEntity> RecipeIngredients => Set<RecipeIngredientEntity>();
