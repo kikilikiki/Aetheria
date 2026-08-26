@@ -138,9 +138,18 @@ save(grid, palette, "personnage-joueur-c.png")
 # Bâtiments (voir Client/World/BuildingInterior.cs pour les noms/rôles) — redo de la Capitale +
 # 4 nouveaux (Forge, Auberge, Hôtel des ventes, Guilde), même style toit-losange que l'existant.
 # ===========================================================================
-def building_grid(roof, roof_shadow, wall, wall_shadow, window, door):
+def building_grid(roof, roof_shadow, wall, wall_shadow, window, door, prop_rows=None, prop_palette=None):
+    """
+    Voir retour utilisateur — "ajoute pour les bâtiments un truc qui les différencie comme une
+    enclume à l'entrée pour la forge" : les 5 bâtiments partageaient jusqu'ici la même silhouette
+    toit-losange + porte, seule la couleur changeait. `prop_rows` ajoute 2 lignes sous la porte
+    avec un petit accessoire propre à chaque bâtiment (voir chaque appel ci-dessous), sur les
+    mêmes colonnes que la porte (6-8 sur une rangée de 17) pour rester centré dessus.
+    """
     palette = {"g": roof, "G": roof_shadow, "w": wall, "W": wall_shadow, "f": window, "d": door}
-    return [
+    if prop_palette:
+        palette.update(prop_palette)
+    grid = [
         "      gggg      ",
         "     gggggg     ",
         "    gggggggg    ",
@@ -154,41 +163,80 @@ def building_grid(roof, roof_shadow, wall, wall_shadow, window, door):
         " WwwwwdddwwwwWw ",
         " WwwwwdddwwwwWw ",
         " WWWWWdddWWWWWW ",
-    ], palette
+    ]
+    if prop_rows:
+        grid += prop_rows
+    return grid, palette
 
 
+# Capitale : deux bannières royales dressées de part et d'autre de l'entrée (hampe + étoffe qui
+# retombe), en couleur or pour rester lisible sur n'importe quelle teinte de mur.
+banner = (217, 178, 63, 255)
 grid, palette = building_grid(
     roof=(217, 178, 63, 255), roof_shadow=(140, 112, 35, 255),
     wall=(200, 170, 130, 255), wall_shadow=(150, 120, 85, 255),
-    window=(235, 210, 120, 255), door=(90, 60, 35, 255))
+    window=(235, 210, 120, 255), door=(90, 60, 35, 255),
+    prop_rows=[
+        "  bb        bb  ",
+        "  bB        Bb  ",
+    ],
+    prop_palette={"b": banner, "B": shade(banner, 0.7)})
 save(grid, palette, "batiment-capitale.png", outline=(30, 22, 10, 200))
 
-# Forge (voir "Apprenti forgeron" — teintes pierre/braise, toit sombre).
+# Forge (voir "Apprenti forgeron") : enclume posée devant l'entrée (base large qui se resserre,
+# reflet clair sur la table de frappe).
+anvil = (75, 75, 85, 255)
 grid, palette = building_grid(
     roof=(90, 90, 95, 255), roof_shadow=(55, 55, 60, 255),
     wall=(150, 120, 100, 255), wall_shadow=(110, 85, 70, 255),
-    window=(235, 130, 60, 255), door=(60, 45, 35, 255))
+    window=(235, 130, 60, 255), door=(60, 45, 35, 255),
+    prop_rows=[
+        "     nNNNNn     ",
+        "       NN       ",
+    ],
+    prop_palette={"n": shade(anvil, 1.3), "N": anvil})
 save(grid, palette, "batiment-forge.png", outline=(20, 15, 12, 200))
 
-# Auberge (voir "Aubergiste" — toit rouge/brun chaleureux).
+# Auberge (voir "Aubergiste") : tonneau posé à côté de l'entrée (couvercle clair, cerclages plus
+# sombres pour lire "tonneau" plutôt qu'un simple carré).
+barrel = (140, 95, 48, 255)
 grid, palette = building_grid(
     roof=(160, 70, 45, 255), roof_shadow=(105, 42, 26, 255),
     wall=(210, 180, 140, 255), wall_shadow=(160, 130, 95, 255),
-    window=(250, 220, 140, 255), door=(90, 60, 35, 255))
+    window=(250, 220, 140, 255), door=(90, 60, 35, 255),
+    prop_rows=[
+        "  tTt           ",
+        "  TtT           ",
+    ],
+    prop_palette={"t": shade(barrel, 1.2), "T": shade(barrel, 0.75)})
 save(grid, palette, "batiment-auberge.png", outline=(35, 18, 10, 200))
 
-# Hôtel des ventes (voir "Commis" — toit bleu-vert commerçant).
+# Hôtel des ventes (voir "Commis") : pile de pièces d'or à côté de l'entrée (silhouette
+# triangulaire pour bien lire "pile", pas un bloc plein).
+coin = (230, 195, 70, 255)
 grid, palette = building_grid(
     roof=(60, 130, 120, 255), roof_shadow=(35, 90, 82, 255),
     wall=(215, 210, 190, 255), wall_shadow=(165, 160, 140, 255),
-    window=(255, 235, 160, 255), door=(70, 55, 40, 255))
+    window=(255, 235, 160, 255), door=(70, 55, 40, 255),
+    prop_rows=[
+        "             k  ",
+        "            kKk ",
+    ],
+    prop_palette={"k": coin, "K": shade(coin, 0.75)})
 save(grid, palette, "batiment-hotel-des-ventes.png", outline=(15, 25, 22, 200))
 
-# Guilde (voir "Archiviste" — toit violet, bannières).
+# Guilde (voir "Archiviste") : emblème en pennant suspendu au-dessus de l'entrée (pointe vers le
+# bas), forme distincte de l'enclume/tonneau/pile ci-dessus.
+emblem = (225, 195, 235, 255)
 grid, palette = building_grid(
     roof=(120, 70, 140, 255), roof_shadow=(80, 45, 95, 255),
     wall=(190, 175, 195, 255), wall_shadow=(140, 125, 145, 255),
-    window=(230, 200, 240, 255), door=(60, 40, 65, 255))
+    window=(230, 200, 240, 255), door=(60, 40, 65, 255),
+    prop_rows=[
+        "      mmm       ",
+        "       M        ",
+    ],
+    prop_palette={"m": emblem, "M": shade(emblem, 0.75)})
 save(grid, palette, "batiment-guilde.png", outline=(25, 15, 28, 200))
 
 # ===========================================================================

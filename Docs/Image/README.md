@@ -53,8 +53,15 @@ bestiaire par royaume/élément).
 
 ### Bâtiments visitables (voir `BuildingInterior.cs` pour les intérieurs correspondants)
 
-- `batiment-capitale.png`, `batiment-forge.png`, `batiment-auberge.png`,
-  `batiment-hotel-des-ventes.png`, `batiment-guilde.png`.
+Jusqu'ici les 5 bâtiments ne se différenciaient que par la couleur (même silhouette toit-losange
++ porte) — chacun a maintenant un petit accessoire propre à son rôle devant/au-dessus de
+l'entrée, pour rester reconnaissable même en noir et blanc :
+
+- `batiment-capitale.png` — deux bannières royales dressées de part et d'autre de l'entrée.
+- `batiment-forge.png` — enclume posée devant la porte.
+- `batiment-auberge.png` — tonneau à côté de l'entrée.
+- `batiment-hotel-des-ventes.png` — pile de pièces d'or à côté de l'entrée.
+- `batiment-guilde.png` — emblème en pennant suspendu au-dessus de la porte.
 
 ## Régénérer
 
