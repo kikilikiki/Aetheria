@@ -111,8 +111,6 @@ détaillées à leur entrée respective.
   `connection.SendMove(...)`, désynchronisant silencieusement la position suivie côté serveur
   après chaque téléportation de royaume — corrigé.
 
-- [ ] **Persistance des PV des créatures entre deux combats** — non fait : question posée à
-  l'utilisateur en cours de session, réponse = laisser tel quel (choix assumé, pas un oubli).
 
 ## Contenu
 
@@ -149,9 +147,12 @@ détaillées à leur entrée respective.
 
 - [ ] **Sprites/textures réels** — toujours pas fait dans le moteur (décision explicite : aucune
   texture réelle câblée dans le rendu, pour ne pas s'engager sur des assets non produits/achetés).
-  À la place **(2026-08-27)**, `Docs/Image/` contient des maquettes PNG générées par code
-  (`generate_concepts.py`, Pillow, palettes de couleurs déjà utilisées en jeu) pour montrer à quoi
-  les sprites pourraient ressembler sans en faire de vrais assets de production.
+  À la place **(2026-08-27, complété le même jour)**, `Docs/Image/` contient des maquettes PNG
+  générées par code (`generate_concepts.py`, Pillow, couleurs exactes déjà utilisées en jeu :
+  `CombatTypeColor`, `CharacterAppearancePalette`, `Npc(...)` de `WorldMap.cs`) pour montrer à
+  quoi les sprites pourraient ressembler sans en faire de vrais assets de production — couvre
+  désormais un exemple par rôle de monstre (10, voir `MonsterType`), 3 variantes de
+  personnalisation du joueur, 4 PNJ nommés et 5 bâtiments visitables, voir `Docs/Image/README.md`.
 
 ## Technique
 
