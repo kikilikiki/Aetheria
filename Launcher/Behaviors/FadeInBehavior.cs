@@ -44,7 +44,7 @@ public static class FadeInBehavior
         };
     }
 
-    private static Task Animate(Control element)
+    private static async Task Animate(Control element)
     {
         var animation = new Animation
         {
@@ -74,6 +74,15 @@ public static class FadeInBehavior
             },
         };
 
-        return animation.RunAsync(element);
+        try
+        {
+            await animation.RunAsync(element);
+        }
+        catch
+        {
+            // Animation cosmétique : un échec ne doit jamais remonter en erreur fatale (voir
+            // App.axaml.cs, filet TaskScheduler.UnobservedTaskException).
+            element.Opacity = 1d;
+        }
     }
 }
