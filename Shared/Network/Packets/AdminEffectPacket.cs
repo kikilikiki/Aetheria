@@ -8,6 +8,14 @@ public enum AdminEffectKind : byte
 
     /// <summary>Transforme l'apparence de tous les joueurs en panneau pendant <see cref="AdminEffectPacket.DurationSeconds"/>.</summary>
     SignMode = 1,
+
+    /// <summary>
+    /// Voir demande utilisateur — "message entre modos pour toutes les actions" et "message à la
+    /// personne qui a reçu un monstre/une modification, que lui et les modos voient" : bannière
+    /// secondaire, discrète, affichée uniquement aux destinataires choisis par le serveur (le
+    /// serveur restreint l'audience via WorldSessionRegistry.SendToStaff, pas le Client).
+    /// </summary>
+    StaffNotice = 2,
 }
 
 /// <summary>

@@ -51,7 +51,9 @@ public sealed class CaptureService(AetheriaDbContext db, SessionTokenStore token
         // compense le bonus de statistiques par un taux de capture réduit, appliqué par-dessus
         // la pénalité de rareté existante.
         var successChance = ComputeSuccessChance(request.TargetHealthPercent, species.BaseRarity)
-            * MonsterVariantCatalog.Get(request.Variant).CaptureRateMultiplier;
+            * MonsterVariantCatalog.Get(request.Variant).CaptureRateMultiplier
+            // Voir demande utilisateur — "augmenter la capture" : bonus additif pendant un boost admin (voir GlobalEventService).
+            + GlobalEventService.CaptureChanceBonus;
         successChance = Math.Clamp(successChance, 0.02, 0.95);
         var success = Random.NextDouble() < successChance;
 

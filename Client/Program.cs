@@ -444,6 +444,11 @@ void PushSystemToast(string text, Vector4 color)
 // tant que non expirés plutôt que sur un évènement ponctuel (le rendu tourne en continu).
 string? adminBannerMessage = null;
 var adminBannerExpiresAtUtc = DateTime.MinValue;
+// Voir demande utilisateur — "message entre modos" et "message au destinataire d'un monstre, que
+// lui et les modos voient" : bannière secondaire, plus discrète (AdminEffectKind.StaffNotice, le
+// serveur ne l'envoie qu'aux bons destinataires).
+string? staffNoticeMessage = null;
+var staffNoticeExpiresAtUtc = DateTime.MinValue;
 var signModeExpiresAtUtc = DateTime.MinValue;
 var woodPanelColor = new Vector4(0.55f, 0.38f, 0.22f, 1f);
 var woodPanelOutline = new Vector4(0.35f, 0.22f, 0.12f, 1f);
@@ -509,9 +514,10 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
         "INVOQUER BOSS MONDIAL (pv)",
-        "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
+        "XP GLOBALE POUR TOUS (minutes;multiplicateur, defaut 30;2)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
+        "CHANCES VARIANTES/CAPTURE (minutes;multiplicateur, defaut 30;4)",
         "DONNER DES GEMMES (perso;montant)",
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
         "DONNER DES PALIERS DE PASSE (perso;niveaux)",
@@ -549,9 +555,10 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "DEFINIR NIVEAU (perso;niveau)",
         "DEBANNIR (nom du personnage)",
         "INVOQUER BOSS MONDIAL (pv)",
-        "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
+        "XP GLOBALE POUR TOUS (minutes;multiplicateur, defaut 30;2)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
+        "CHANCES VARIANTES/CAPTURE (minutes;multiplicateur, defaut 30;4)",
         "FAIRE APPARAITRE UN DONJON (nom du donjon)",
         "FAIRE APPARAITRE UN COMBAT (idEspece;variante;niveau)",
         "MODIFIER UN MONSTRE (perso;nomMonstre;variante;niveau)",
@@ -600,6 +607,9 @@ PremiumStatus? premiumStatus = null;
 string? premiumMessage = null;
 Task<PremiumStatus?>? premiumLoadTask = null;
 Task<ShopPurchaseResponse>? premiumActionTask = null;
+// Voir demande utilisateur — "achat en gemmes d'un multiplicateur d'XP MONDIAL escaladant (X2, X4, X8…)".
+GlobalXpBoostStatus? globalXpBoostStatus = null;
+Task<GlobalXpBoostStatus?>? globalXpBoostTask = null;
 
 // Voir GDD/demande utilisateur — "un endroit pour modifier son profil (description, item à
 // montrer, titre, grade)" : panneau Profil (touche U), toujours le sien propre pour cette version
@@ -1804,6 +1814,7 @@ host.Render += _ =>
     // scènes (c'est le but — tous les joueurs la voient, pas seulement l'admin qui l'a envoyée) ;
     // le panel de commandes lui-même seulement quand ouvert (F2, Fondateur uniquement).
     DrawAdminBanner(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+    DrawStaffNotice(uiCamera.ViewportWidth);
     if (isAdminPanelOpen)
     {
         DrawAdminGamePanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
@@ -4388,6 +4399,15 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
         return;
     }
 
+    if (label.StartsWith("CHANCES VARIANTES/CAPTURE", StringComparison.Ordinal))
+    {
+        var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var minutes = parts.Length >= 1 && int.TryParse(parts[0], out var m) && m > 0 ? m : 30;
+        var mult = parts.Length >= 2 && double.TryParse(parts[1], out var mu) && mu >= 2 ? mu : 4.0;
+        adminPanelActionTask = gameDataApi!.ActivateRareBoostAsync(options.SessionToken!, minutes, mult);
+        return;
+    }
+
     if (label.StartsWith("FAIRE APPARAITRE UN COMBAT", StringComparison.Ordinal))
     {
         _ = SpawnAdminEncounterAsync(input);
@@ -4523,9 +4543,11 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
         }
         case 13:
         {
-            // Voir GDD/demande utilisateur — "commandes admin abuse : double XP" (voir GlobalEventService).
-            var minutes = int.TryParse(input.Trim(), out var xpMinutes) && xpMinutes > 0 ? xpMinutes : 30;
-            adminPanelActionTask = gameDataApi!.ActivateDoubleXpAsync(options.SessionToken!, minutes);
+            // Voir demande utilisateur — "XP globale : l'admin choisit le multiplicateur" (format minutes;multiplicateur).
+            var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            var minutes = parts.Length >= 1 && int.TryParse(parts[0], out var xpMinutes) && xpMinutes > 0 ? xpMinutes : 30;
+            var mult = parts.Length >= 2 && double.TryParse(parts[1], out var xpMult) && xpMult >= 2 ? xpMult : 2.0;
+            adminPanelActionTask = gameDataApi!.ActivateDoubleXpAsync(options.SessionToken!, minutes, mult);
             break;
         }
         case 14:
@@ -5949,6 +5971,11 @@ void ConnectAndEnterWorld(Guid characterId)
             else if (packet.Kind == AdminEffectKind.SignMode)
             {
                 signModeExpiresAtUtc = DateTime.UtcNow.AddSeconds(packet.DurationSeconds);
+            }
+            else if (packet.Kind == AdminEffectKind.StaffNotice)
+            {
+                staffNoticeMessage = packet.Message;
+                staffNoticeExpiresAtUtc = DateTime.UtcNow.AddSeconds(8);
             }
         }
     };
@@ -9953,7 +9980,9 @@ float OutdoorHudButtonsStartY() => (myProfile is not null ? 14f + TextRenderer.L
 /// <summary>Voir GDD/demande utilisateur — "indicateurs visuels quand double XP/loot sont actifs" : hauteur occupée par les badges XP x2/BUTIN x2 (0 si aucun minuteur actif), factorisée pour que <see cref="OutdoorHudButtonsStartY"/> (donc aussi <see cref="IsPointOverOutdoorHudButtons"/>) et <see cref="DrawOutdoorHudButtons"/> restent en accord sur la géométrie.</summary>
 float ActiveEventBadgesHeight()
 {
-    var activeCount = (globalEventStatus?.IsDoubleXpActive is true ? 1 : 0) + (globalEventStatus?.IsDoubleLootActive is true ? 1 : 0);
+    var activeCount = (globalEventStatus?.IsDoubleXpActive is true ? 1 : 0)
+        + (globalEventStatus?.IsDoubleLootActive is true ? 1 : 0)
+        + (globalEventStatus?.RareBoostMultiplier > 1.0 ? 1 : 0);
     if (activeCount == 0)
     {
         return 0f;
@@ -10010,7 +10039,7 @@ void DrawOutdoorHudButtons(int w, int h)
     // totale du bloc : on part de startY - cette hauteur pour dessiner les badges, puis les
     // boutons commencent exactement à startY, sans dupliquer le calcul de hauteur.
     var startY = OutdoorHudButtonsStartY();
-    if (globalEventStatus is { IsDoubleXpActive: true } or { IsDoubleLootActive: true })
+    if (globalEventStatus is { IsDoubleXpActive: true } or { IsDoubleLootActive: true } || globalEventStatus?.RareBoostMultiplier > 1.0)
     {
         var pulse = 0.6f + 0.4f * MathF.Sin(animationClock * 4f);
         const float badgePixelSize = 1.5f;
@@ -10026,12 +10055,17 @@ void DrawOutdoorHudButtons(int w, int h)
 
         if (globalEventStatus!.IsDoubleXpActive)
         {
-            DrawEventBadge("XP x2 ACTIF", new Vector4(0.4f, 0.85f, 0.95f, 1f));
+            DrawEventBadge($"XP MONDIALE x{globalEventStatus.GlobalXpMultiplier:0} ACTIF", new Vector4(0.4f, 0.85f, 0.95f, 1f));
         }
 
         if (globalEventStatus.IsDoubleLootActive)
         {
             DrawEventBadge("BUTIN x2 ACTIF", new Vector4(0.85f, 0.7f, 0.3f, 1f));
+        }
+
+        if (globalEventStatus.RareBoostMultiplier > 1.0)
+        {
+            DrawEventBadge($"VARIANTES x{globalEventStatus.RareBoostMultiplier:0} ACTIF", new Vector4(0.95f, 0.55f, 0.95f, 1f));
         }
     }
 
@@ -10986,6 +11020,24 @@ void DrawAdminBanner(int w, int h)
     DrawTextCentered(spriteBatch, whiteTexture, adminBannerMessage, new Vector2(w / 2f, 95f), 2.6f, new Vector4(0.98f, 0.85f, 0.3f, 1f));
 }
 
+/// <summary>
+/// Voir demande utilisateur — bannière secondaire, discrète : fil réservé au staff (« [STAFF] X a
+/// fait Y ») et message au destinataire d'un monstre donné/modifié. Le serveur ne l'envoie qu'aux
+/// bons destinataires (voir WorldSessionRegistry.SendToStaff/SendToCharacterAndStaff), pas de
+/// filtre de grade côté client. Placée sous la bannière admin plein écran pour coexister.
+/// </summary>
+void DrawStaffNotice(int w)
+{
+    if (staffNoticeMessage is null || DateTime.UtcNow >= staffNoticeExpiresAtUtc)
+    {
+        return;
+    }
+
+    var y = adminBannerMessage is not null && DateTime.UtcNow < adminBannerExpiresAtUtc ? 138f : 60f;
+    DrawPanel(new Vector2(0, y), new Vector2(w, 30f), new Vector4(0.10f, 0.06f, 0.16f, 0.9f));
+    DrawTextCentered(spriteBatch, whiteTexture, staffNoticeMessage, new Vector2(w / 2f, y + 15f), 1.6f, new Vector4(0.78f, 0.68f, 0.98f, 1f));
+}
+
 /// <summary>Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres doivent accepter" : popup accepter/refuser, envoyée via le bouton DUEL ou <c>/duel &lt;pseudo&gt;</c> dans le tchat (voir PlayerSession.HandleDuelCommand). Si <paramref name="teamSize"/> &gt; 1, précise que tout le groupe doit accepter pour que le combat démarre.</summary>
 void DrawDuelInvitePopup(int w, int h, string challengerName, int teamSize)
 {
@@ -11016,6 +11068,13 @@ void UpdateGemShopPanel()
     {
         premiumStatus = loadTask.IsFaulted ? null : loadTask.Result;
         premiumLoadTask = null;
+        globalXpBoostTask ??= gameDataApi?.GetGlobalXpBoostStatusAsync();
+    }
+
+    if (globalXpBoostTask is { IsCompleted: true } boostLoad)
+    {
+        globalXpBoostStatus = boostLoad.IsFaulted ? globalXpBoostStatus : boostLoad.Result;
+        globalXpBoostTask = null;
     }
 
     if (premiumActionTask is { IsCompleted: true } actionTask)
@@ -11056,12 +11115,33 @@ void UpdateGemShopPanel()
         premiumMessage = null;
         premiumActionTask = gameDataApi.UpgradePremiumGradeAsync(options.SessionToken, chosenCharacterId.Value);
     }
+    else if (keyboard.WasJustPressed(Key.X) && globalXpBoostStatus is { CurrentMultiplier: < 64.0 } && globalXpBoostTask is null)
+    {
+        // Voir demande utilisateur — financer (en gemmes) le multiplicateur d'XP MONDIAL suivant.
+        premiumMessage = null;
+        globalXpBoostTask = FinanceGlobalXpBoostAsync();
+    }
+}
+
+async Task<GlobalXpBoostStatus?> FinanceGlobalXpBoostAsync()
+{
+    if (gameDataApi is null || options.SessionToken is null || chosenCharacterId is null)
+    {
+        return globalXpBoostStatus;
+    }
+
+    var result = await gameDataApi.BuyGlobalXpBoostAsync(options.SessionToken, chosenCharacterId.Value);
+    premiumMessage = result is null
+        ? "Achat impossible (pas assez de gemmes ?)."
+        : $"XP mondiale portée à x{result.CurrentMultiplier:0} pour tout le monde.";
+    premiumLoadTask = gameDataApi.GetPremiumStatusAsync(options.SessionToken);
+    return result ?? globalXpBoostStatus;
 }
 
 void DrawGemShopPanel(int w, int h)
 {
-    const float boxWidth = 520f;
-    const float boxHeight = 320f;
+    const float boxWidth = 560f;
+    const float boxHeight = 372f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.08f, 0.06f, 0.1f, 0.95f));
@@ -11093,7 +11173,19 @@ void DrawGemShopPanel(int w, int h)
         ? $"[G] Passer {premiumStatus.NextGradeTierName} : {gradeCost} gemmes"
         : "Grade au palier maximum (Légende).";
     DrawText(spriteBatch, whiteTexture, gradeLine, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.9f, 0.75f, 0.98f, 1f));
-    y += 44f;
+    y += 34f;
+
+    // Voir demande utilisateur — financer un multiplicateur d'XP MONDIAL (pour tous), escaladant.
+    if (globalXpBoostStatus is { } boost)
+    {
+        var current = boost.CurrentMultiplier > 1.0 ? $"XP mondiale actuelle : x{boost.CurrentMultiplier:0}. " : "";
+        var line = boost.CurrentMultiplier < 64.0
+            ? $"{current}[X] Financer XP mondiale x{boost.NextMultiplier:0} : {boost.NextTierGemCost} gemmes"
+            : $"{current}Multiplicateur mondial au maximum (x64).";
+        DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.5f, 0.85f, 0.95f, 1f));
+    }
+
+    y += 40f;
 
     DrawText(spriteBatch, whiteTexture, "Acheter des gemmes avec de l'argent reel :", new Vector2(topLeft.X + 20f, y), 1.5f, new Vector4(0.55f, 0.55f, 0.6f, 1f));
     y += 26f;

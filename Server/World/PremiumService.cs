@@ -42,6 +42,20 @@ public static class PremiumService
     public const long GoldPerGemBlock = 100_000_000;
     public const long GemsPerGemBlock = 10;
 
+    /// <summary>
+    /// Voir demande utilisateur — "achat en gemmes de X2 XP global puis on repaie pour X4 puis X8
+    /// etc de plus en plus cher" : coût en gemmes du prochain palier, à partir du multiplicateur
+    /// mondial en cours. Base 250 gemmes (×1 → ×2), puis ×3 par palier (×2 → ×4 : 750, ×4 → ×8 :
+    /// 2250, ×8 → ×16 : 6750…).
+    /// </summary>
+    public const long GlobalXpBoostBaseCostGems = 250;
+
+    public static long GemCostForNextGlobalXpTier(double currentMultiplier)
+    {
+        var tier = (int)Math.Round(Math.Log2(Math.Max(1.0, currentMultiplier)));
+        return GlobalXpBoostBaseCostGems * (long)Math.Pow(3, tier);
+    }
+
     public static int MaxCharacters(UserEntity user) =>
         user.Rank == UserRank.Fondateur ? int.MaxValue : 2 + GradeTierSlotBonus[EffectiveGradeTier(user)];
 

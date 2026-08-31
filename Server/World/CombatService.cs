@@ -117,7 +117,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // Voir demande utilisateur — modificateur de donjon "spécial saison" (variante garantie,
             // ex. Cristallin) et commande admin "faire apparaître un combat" (variante choisie) :
             // forcedVariant court-circuite le tirage habituel quand il est renseigné.
-            var variant = forcedVariant ?? (isInvasion ? GlobalEventService.RollInvasionVariant(Random.Shared) : MonsterVariantCatalog.RollWeighted(Random.Shared));
+            var variant = forcedVariant ?? (isInvasion ? GlobalEventService.RollInvasionVariant(Random.Shared) : MonsterVariantCatalog.RollWeighted(Random.Shared, GlobalEventService.RareVariantWeightMultiplier));
             var variantDefinition = MonsterVariantCatalog.Get(variant);
             // Voir GDD/demande utilisateur — "donjon hardcore (niv 15+)" : statistiques des
             // monstres majorées de 50%, en contrepartie de récompenses plus généreuses (voir

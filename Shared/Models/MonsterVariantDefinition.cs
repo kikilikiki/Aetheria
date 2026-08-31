@@ -96,15 +96,23 @@ public static class MonsterVariantCatalog
         return builder.ToString().ToUpperInvariant();
     }
 
-    /// <summary>Tire une variante pondérée par <see cref="MonsterVariantDefinition.SpawnWeight"/> — voir CombatService.StartAsync/StartWildEncounterAsync (rencontres sauvages).</summary>
-    public static MonsterVariant RollWeighted(Random random)
+    /// <summary>
+    /// Tire une variante pondérée par <see cref="MonsterVariantDefinition.SpawnWeight"/> — voir
+    /// CombatService.StartAsync/StartWildEncounterAsync (rencontres sauvages). Voir demande
+    /// utilisateur — "augmenter les chances d'avoir des monstres modifiés" : pendant un boost, le
+    /// poids de toutes les variantes non-Normal est multiplié par <paramref name="rareWeightMultiplier"/>
+    /// (voir GlobalEventService.RareVariantWeightMultiplier).
+    /// </summary>
+    public static MonsterVariant RollWeighted(Random random, double rareWeightMultiplier = 1.0)
     {
-        var totalWeight = All.Sum(d => d.SpawnWeight);
+        double Weight(MonsterVariantDefinition d) => d.Variant == MonsterVariant.Normal ? d.SpawnWeight : d.SpawnWeight * rareWeightMultiplier;
+
+        var totalWeight = All.Sum(Weight);
         var roll = random.NextDouble() * totalWeight;
         var cumulative = 0.0;
         foreach (var definition in All)
         {
-            cumulative += definition.SpawnWeight;
+            cumulative += Weight(definition);
             if (roll < cumulative)
             {
                 return definition.Variant;

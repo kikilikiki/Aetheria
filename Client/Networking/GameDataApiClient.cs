@@ -1186,11 +1186,25 @@ public sealed class GameDataApiClient : IDisposable
         => await PostAdminActionAsync("/api/admin/game/spawn-world-boss", new SpawnWorldBossRequest { SessionToken = sessionToken, MaxHealth = maxHealth }, ct);
 
     // Voir GDD/demande utilisateur — "commandes admin abuse : double XP, double butin, invasion de monstres".
-    public async Task<AdminGameActionResponse> ActivateDoubleXpAsync(string sessionToken, int durationMinutes, CancellationToken ct = default)
-        => await PostAdminActionAsync("/api/admin/game/double-xp", new AdminGlobalEventRequest { SessionToken = sessionToken, DurationMinutes = durationMinutes }, ct);
+    public async Task<AdminGameActionResponse> ActivateDoubleXpAsync(string sessionToken, int durationMinutes, double multiplier = 2.0, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/double-xp", new AdminGlobalEventRequest { SessionToken = sessionToken, DurationMinutes = durationMinutes, Multiplier = multiplier }, ct);
 
     public async Task<AdminGameActionResponse> ActivateDoubleLootAsync(string sessionToken, int durationMinutes, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/double-loot", new AdminGlobalEventRequest { SessionToken = sessionToken, DurationMinutes = durationMinutes }, ct);
+
+    /// <summary>Voir demande utilisateur — "augmenter les chances d'avoir des monstres modifiés (shiny etc.) et la capture", multiplicateur choisi par l'admin.</summary>
+    public async Task<AdminGameActionResponse> ActivateRareBoostAsync(string sessionToken, int durationMinutes, double multiplier, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/rare-boost", new AdminGlobalEventRequest { SessionToken = sessionToken, DurationMinutes = durationMinutes, Multiplier = multiplier }, ct);
+
+    /// <summary>Voir demande utilisateur — "achat en gemmes de X2 XP global puis X4, X8… de plus en plus cher".</summary>
+    public async Task<GlobalXpBoostStatus?> GetGlobalXpBoostStatusAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<GlobalXpBoostStatus>("/api/shop/xp-boost/status", JsonOptions, ct);
+
+    public async Task<GlobalXpBoostStatus?> BuyGlobalXpBoostAsync(string sessionToken, Guid characterId, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/shop/xp-boost/buy", new PurchasePremiumTierRequest { SessionToken = sessionToken, CharacterId = characterId }, JsonOptions, ct);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<GlobalXpBoostStatus>(JsonOptions, ct) : null;
+    }
 
     public async Task<AdminGameActionResponse> ActivateInvasionAsync(string sessionToken, KingdomType kingdom, int durationMinutes, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/invasion", new AdminInvasionRequest { SessionToken = sessionToken, Kingdom = kingdom, DurationMinutes = durationMinutes }, ct);

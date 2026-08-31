@@ -124,6 +124,46 @@ if (usingSqlite)
 }
 
 var dbFactory = app.Services.GetRequiredService<IDbContextFactory<AetheriaDbContext>>();
+
+// Voir demande utilisateur — annonces plein écran + fil réservé au staff. Helpers partagés par
+// tous les endpoints ci-dessous (le staff = IsAdmin ou grade Modérateur/Fondateur, voir
+// WorldSessionRegistry.SendToStaff).
+void Announce(string message) =>
+    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.Broadcast,
+        Message = message,
+    });
+
+void NotifyStaff(string message) =>
+    app.Services.GetRequiredService<WorldSessionRegistry>().SendToStaff(new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.StaffNotice,
+        Message = message,
+    });
+
+void NotifyPlayerAndStaff(Guid characterId, string message) =>
+    app.Services.GetRequiredService<WorldSessionRegistry>().SendToCharacterAndStaff(characterId, new AdminEffectPacket
+    {
+        Kind = AdminEffectKind.StaffNotice,
+        Message = message,
+    });
+
+// Voir demande utilisateur — "message d'annonce entre les modos pour toutes les actions" : une
+// seule ligne à ajouter dans chaque endpoint admin, qui résout elle-même le nom de l'admin
+// depuis le jeton (les endpoints admin sont rares, un aller-retour DB de plus est sans impact).
+async Task NotifyStaffActionAsync(string sessionToken, string action)
+{
+    var name = "un admin";
+    if (app.Services.GetRequiredService<SessionTokenStore>().TryValidate(sessionToken, out var uid))
+    {
+        await using var lookupDb = await dbFactory.CreateDbContextAsync();
+        name = await lookupDb.Users.Where(u => u.Id == uid).Select(u => u.Username).FirstOrDefaultAsync() ?? name;
+    }
+
+    NotifyStaff($"[STAFF] {name} : {action}");
+}
+
 await using (var db = await dbFactory.CreateDbContextAsync())
 {
     await db.Database.MigrateAsync();
@@ -1409,6 +1449,59 @@ app.MapPost("/api/shop/premium/grade/upgrade", async (PurchasePremiumTierRequest
     await db.SaveChangesAsync();
 
     return Results.Ok(PremiumService.ToStatus(user));
+});
+
+// Voir demande utilisateur — "ajoute un achat en gemmes de X2 XP global puis on peut repayer en
+// gemmes pour X4 puis X8 etc de plus en plus cher" : n'importe quel joueur finance un
+// multiplicateur d'XP MONDIAL (pour tous), escaladant à chaque rachat. État en mémoire (voir
+// GlobalEventService), 30 min par achat, minuteur prolongé à chaque fois.
+static GlobalXpBoostStatus BuildGlobalXpBoostStatus()
+{
+    var current = GlobalEventService.GlobalXpUntilUtc is null ? 1.0 : GlobalEventService.GlobalXpMultiplier;
+    return new GlobalXpBoostStatus(
+        current,
+        GlobalEventService.GlobalXpUntilUtc,
+        current < 64.0 ? Math.Max(2.0, current * 2.0) : 64.0,
+        PremiumService.GemCostForNextGlobalXpTier(current));
+}
+
+app.MapGet("/api/shop/xp-boost/status", () => Results.Ok(BuildGlobalXpBoostStatus()));
+
+app.MapPost("/api/shop/xp-boost/buy", async (PurchasePremiumTierRequest request) =>
+{
+    var tokenStore = app.Services.GetRequiredService<SessionTokenStore>();
+    if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null)
+    {
+        return Results.Conflict(new ApiError { Message = "Compte introuvable." });
+    }
+
+    var currentMultiplier = GlobalEventService.GlobalXpUntilUtc is null ? 1.0 : GlobalEventService.GlobalXpMultiplier;
+    if (currentMultiplier >= 64.0)
+    {
+        return Results.Conflict(new ApiError { Message = "Le multiplicateur d'XP mondial est déjà au maximum (x64)." });
+    }
+
+    var cost = PremiumService.GemCostForNextGlobalXpTier(currentMultiplier);
+    if (user.Gems < cost)
+    {
+        return Results.Conflict(new ApiError { Message = $"Pas assez de gemmes (coût : {cost} gemmes)." });
+    }
+
+    user.Gems -= cost;
+    var newMultiplier = GlobalEventService.EscalateGlobalXp(TimeSpan.FromMinutes(30));
+    await db.SaveChangesAsync();
+
+    Announce($"{user.Username} a financé l'XP MONDIALE x{newMultiplier:0} pour tout le monde pendant 30 minutes !");
+    NotifyStaff($"[STAFF] {user.Username} a financé l'XP mondiale x{newMultiplier:0} ({cost} gemmes).");
+
+    return Results.Ok(BuildGlobalXpBoostStatus());
 });
 
 // Passe de Niveau (voir GDD/demande utilisateur — "un pass de niveaux de joueur ou chaque xp que
@@ -2714,6 +2807,7 @@ app.MapPost("/api/admin/reports/{reportId:guid}/resolve", async (Guid reportId, 
 
     report.Resolved = true;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, "a traité un signalement de joueur");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = "Signalement marqué comme traité." });
 });
 
@@ -2779,6 +2873,7 @@ app.MapPost("/api/admin/users/{userId:guid}/delete", async (Guid userId, AdminSe
 
     user.IsDeleted = true;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a supprimé le compte {user.Username}");
     return Results.Ok();
 });
 
@@ -2802,6 +2897,7 @@ app.MapPost("/api/admin/users/{userId:guid}/restore", async (Guid userId, AdminS
 
     user.IsDeleted = false;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a restauré le compte {user.Username}");
     return Results.Ok();
 });
 
@@ -2825,6 +2921,7 @@ app.MapPost("/api/admin/users/{userId:guid}/set-admin", async (Guid userId, Admi
 
     user.IsAdmin = request.IsAdmin;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a {(request.IsAdmin ? "promu" : "rétrogradé")} {user.Username} (admin)");
     return Results.Ok();
 });
 
@@ -2854,6 +2951,7 @@ app.MapPost("/api/admin/users/{userId:guid}/set-rank", async (Guid userId, Admin
     // nouveau grade immédiatement, pas seulement au prochain /link.
     await app.Services.GetRequiredService<DiscordRoleSyncService>().SyncUserRoleAsync(user);
 
+    await NotifyStaffActionAsync(request.SessionToken, $"a mis le grade de {user.Username} à {request.Rank}");
     return Results.Ok();
 });
 
@@ -2879,6 +2977,7 @@ app.MapPost("/api/admin/users/{userId:guid}/set-mute", async (Guid userId, Admin
 
     user.IsMuted = request.IsMuted;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a {(request.IsMuted ? "muté" : "démuté")} {user.Username}");
     return Results.Ok();
 });
 
@@ -2914,6 +3013,7 @@ app.MapPost("/api/admin/users/{userId:guid}/ban-ip", async (Guid userId, AdminSe
         await db.SaveChangesAsync();
     }
 
+    await NotifyStaffActionAsync(request.SessionToken, $"a banni l'IP de {user.Username}");
     return Results.Ok();
 });
 
@@ -2988,6 +3088,7 @@ app.MapPost("/api/admin/users/{userId:guid}/reset-profile", async (Guid userId, 
 
     db.Characters.RemoveRange(characters);
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a réinitialisé le profil de jeu de {user.Username}");
     return Results.Ok();
 });
 
@@ -3020,6 +3121,7 @@ app.MapPost("/api/admin/users/{userId:guid}/modify", async (Guid userId, AdminMo
     }
 
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a modifié le compte {user.Username} (identifiants)");
     return Results.Ok();
 });
 
@@ -3044,6 +3146,7 @@ app.MapPost("/api/admin/users/{userId:guid}/ban", async (Guid userId, BanUserReq
         session.Kick();
     }
 
+    await NotifyStaffActionAsync(string.Empty, $"a banni le compte {user.Username} (AdminPanel)");
     return Results.Ok();
 });
 
@@ -3059,6 +3162,7 @@ app.MapPost("/api/admin/users/{userId:guid}/unban", async (Guid userId) =>
     user.IsBanned = false;
     user.BanReason = null;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(string.Empty, $"a débanni le compte {user.Username} (AdminPanel)");
     return Results.Ok();
 });
 
@@ -3125,6 +3229,7 @@ app.MapPost("/api/admin/game/broadcast", async (AdminBroadcastRequest request) =
         Message = request.Message,
     });
 
+    await NotifyStaffActionAsync(request.SessionToken, $"message diffusé « {request.Message} »");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = "Message diffusé." });
 });
 
@@ -3147,6 +3252,7 @@ app.MapPost("/api/admin/game/sign-mode", async (AdminSignModeRequest request) =>
         DurationSeconds = duration,
     });
 
+    await NotifyStaffActionAsync(request.SessionToken, $"mode panneau activé ({duration}s)");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Mode panneau activé pour {duration}s." });
 });
 
@@ -3179,6 +3285,7 @@ app.MapPost("/api/admin/game/give-item", async (AdminGiveItemRequest request) =>
     await InventoryStackingService.AddQuantityAsync(db, target.Id, item.Id, quantity, item.MaxStackSize);
 
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a donné {quantity}x {item.Name} à {target.Name}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{quantity}x {item.Name} donné(s) à {target.Name}." });
 });
 
@@ -3201,6 +3308,7 @@ app.MapPost("/api/admin/game/kick", async (AdminKickRequest request) =>
     }
 
     session.Kick();
+    await NotifyStaffActionAsync(request.SessionToken, $"a expulsé {request.TargetCharacterName}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a été expulsé." });
 });
 
@@ -3233,6 +3341,7 @@ app.MapPost("/api/admin/game/toggle-admin", async (AdminToggleAdminRequest reque
     target.User.IsAdmin = !target.User.IsAdmin;
     await db.SaveChangesAsync();
 
+    await NotifyStaffActionAsync(request.SessionToken, $"a {(target.User.IsAdmin ? "promu" : "rétrogradé")} {request.TargetCharacterName} (admin)");
     return Results.Ok(new AdminGameActionResponse
     {
         Success = true,
@@ -3272,6 +3381,7 @@ app.MapPost("/api/admin/game/ban", async (AdminBanRequest request) =>
     // (le /ban de tchat, lui, ne le faisait pas — voir Docs/README.md sur cette limite).
     app.Services.GetRequiredService<WorldSessionRegistry>().FindByCharacterName(request.TargetCharacterName)?.Kick();
 
+    await NotifyStaffActionAsync(request.SessionToken, $"a banni {request.TargetCharacterName}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a été banni." });
 });
 
@@ -3300,6 +3410,7 @@ app.MapPost("/api/admin/game/transform", async (AdminTransformRequest request) =
     var duration = Math.Clamp(request.DurationSeconds, 5, 3600);
     session.SendPacket(new AdminEffectPacket { Kind = AdminEffectKind.SignMode, DurationSeconds = duration });
 
+    await NotifyStaffActionAsync(request.SessionToken, $"a transformé {request.TargetCharacterName} en panneau ({duration}s)");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} transformé en panneau pour {duration}s." });
 });
 
@@ -3328,6 +3439,7 @@ app.MapPost("/api/admin/game/level-up-monster", async (AdminLevelUpMonsterReques
     // Voir GDD/demande utilisateur — évolutions : un changement de niveau admin doit aussi pouvoir déclencher une évolution, comme un gain de niveau normal.
     await MonsterEvolutionService.CheckAndApplyAsync(db, monster);
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a monté {monster.Nickname} au niveau {monster.Level}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monster.Nickname} est maintenant niveau {monster.Level}." });
 });
 
@@ -3379,6 +3491,15 @@ app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest reque
     await db.SaveChangesAsync();
 
     var variantSuffix = monster.Variant == MonsterVariant.Normal ? "" : $" ({MonsterVariantCatalog.Get(monster.Variant).DisplayName})";
+    // Voir demande utilisateur — "ajoute un message à la personne qui a reçu un monstre, comme une
+    // annonce mais que lui et les modos le voient".
+    var giverName = "un administrateur";
+    if (app.Services.GetRequiredService<SessionTokenStore>().TryValidate(request.SessionToken, out var giverId))
+    {
+        giverName = await db.Users.Where(u => u.Id == giverId).Select(u => u.Username).FirstOrDefaultAsync() ?? giverName;
+    }
+
+    NotifyPlayerAndStaff(target.Id, $"{target.Name} a reçu de {giverName} : {species.Name}{variantSuffix} niv. {giveLevel}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{species.Name}{variantSuffix} niv. {giveLevel} donné à {target.Name}." });
 });
 
@@ -3427,6 +3548,14 @@ app.MapPost("/api/admin/game/set-monster-variant", async (AdminSetMonsterVariant
     }
 
     await db.SaveChangesAsync();
+
+    var editorName = "un administrateur";
+    if (app.Services.GetRequiredService<SessionTokenStore>().TryValidate(request.SessionToken, out var editorId))
+    {
+        editorName = await db.Users.Where(u => u.Id == editorId).Select(u => u.Username).FirstOrDefaultAsync() ?? editorName;
+    }
+
+    NotifyPlayerAndStaff(target.Id, $"{editorName} a modifié {monster.Nickname} de {target.Name} : variante {MonsterVariantCatalog.Get(monster.Variant).DisplayName}, niveau {monster.Level}");
     return Results.Ok(new AdminGameActionResponse
     {
         Success = true,
@@ -3455,6 +3584,8 @@ app.MapPost("/api/admin/game/spawn-dungeon", async (AdminSpawnDungeonRequest req
     }
 
     DungeonAdminOverride.SetForCurrentHour(dungeon.Id);
+    Announce($"Un donjon spécial apparaît sur la carte : {dungeon.Name} !");
+    await NotifyStaffActionAsync(request.SessionToken, $"a fait apparaître le donjon {dungeon.Name}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"« {dungeon.Name} » apparaît sur la carte jusqu'à la prochaine rotation horaire." });
 });
 
@@ -3467,7 +3598,9 @@ app.MapPost("/api/admin/game/spawn-encounter", async (AdminSpawnEncounterRequest
 
     try
     {
-        return Results.Ok(await combatService.StartAdminEncounterAsync(request));
+        var state = await combatService.StartAdminEncounterAsync(request);
+        await NotifyStaffActionAsync(request.SessionToken, $"a fait apparaître un combat (espèce {request.SpeciesId}, {request.Variant}, niv {request.Level})");
+        return Results.Ok(state);
     }
     catch (AccountOperationException ex)
     {
@@ -3498,6 +3631,7 @@ app.MapPost("/api/admin/game/give-battlepass-level", async (AdminGiveBattlePassL
     await BattlePassService.GrantLevelsAsync(db, target, levels);
     await db.SaveChangesAsync();
 
+    await NotifyStaffActionAsync(request.SessionToken, $"a donné {levels} palier(s) de Passe de Niveau à {target.Name}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{levels} palier(s) de Passe de Niveau donné(s) à {target.Name} (niveau {target.BattlePassLevel})." });
 });
 
@@ -3535,6 +3669,7 @@ app.MapPost("/api/admin/game/give-mount", async (AdminGiveMountRequest request) 
     db.Collections.Add(new CollectionEntity { Id = Guid.NewGuid(), UserId = target.UserId, CollectionKey = mount.Key, Category = "Monture" });
     await db.SaveChangesAsync();
 
+    await NotifyStaffActionAsync(request.SessionToken, $"a donné la monture {mount.Name} à {target.Name}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{mount.Name} donnée à {target.Name}." });
 });
 
@@ -3569,6 +3704,7 @@ app.MapPost("/api/admin/game/max-level-team", async (AdminMaxLevelTeamRequest re
     }
 
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a mis les {monsters.Count} créature(s) de {target.Name} au niveau max");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{monsters.Count} créature(s) de {target.Name} au niveau {MonsterProgressionService.MaxLevel}." });
 });
 
@@ -3597,6 +3733,7 @@ app.MapPost("/api/admin/game/give-money", async (AdminGiveMoneyRequest request) 
 
     target.Gold = Math.Max(0, target.Gold + request.Amount);
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a donné {request.Amount} pièces à {target.Name}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{target.Name} a maintenant {target.Gold} pièces." });
 });
 
@@ -3621,6 +3758,7 @@ app.MapPost("/api/admin/game/give-xp", async (AdminGiveXpRequest request) =>
 
     CharacterProgressionService.GrantExperience(target, request.Amount);
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a donné {request.Amount} XP à {target.Name}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{target.Name} est maintenant niveau {target.Level}." });
 });
 
@@ -3646,6 +3784,7 @@ app.MapPost("/api/admin/game/set-level", async (AdminSetLevelRequest request) =>
     target.Level = Math.Max(1, request.Level);
     target.Experience = 0;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a mis {target.Name} au niveau {target.Level}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{target.Name} est maintenant niveau {target.Level}." });
 });
 
@@ -3671,6 +3810,7 @@ app.MapPost("/api/admin/game/unban", async (AdminUnbanCharacterRequest request) 
     target.User.IsBanned = false;
     target.User.BanReason = null;
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a débanni {request.TargetCharacterName}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a été débanni." });
 });
 
@@ -3699,6 +3839,7 @@ app.MapPost("/api/admin/game/give-gems", async (AdminGiveGemsRequest request) =>
 
     target.User.Gems = Math.Max(0, target.User.Gems + request.Amount);
     await db.SaveChangesAsync();
+    await NotifyStaffActionAsync(request.SessionToken, $"a donné {request.Amount} gemmes à {request.TargetCharacterName}");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{request.TargetCharacterName} a maintenant {target.User.Gems} gemmes." });
 });
 
@@ -3727,12 +3868,8 @@ app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest req
         return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
     }
 
-    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
-    {
-        Kind = AdminEffectKind.Broadcast,
-        Message = $"Un boss mondial est apparu : {boss.Name} ({boss.MaxHealth} PV) !",
-    });
-
+    Announce($"Un boss mondial est apparu : {boss.Name} ({boss.MaxHealth} PV) !");
+    await NotifyStaffActionAsync(request.SessionToken, $"a invoqué le boss mondial {boss.Name} ({boss.MaxHealth} PV)");
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{boss.Name} a été invoqué avec {boss.MaxHealth} PV." });
 });
 
@@ -3743,14 +3880,17 @@ app.MapPost("/api/admin/game/spawn-world-boss", async (SpawnWorldBossRequest req
 // périodiquement par le Client pour afficher un badge tant qu'un minuteur est actif.
 app.MapGet("/api/game/events/status", () => Results.Ok(new GlobalEventStatus(
     GlobalEventService.DoubleXpUntilUtc is not null, GlobalEventService.DoubleXpUntilUtc,
-    GlobalEventService.DoubleLootUntilUtc is not null, GlobalEventService.DoubleLootUntilUtc)));
+    GlobalEventService.DoubleLootUntilUtc is not null, GlobalEventService.DoubleLootUntilUtc,
+    GlobalEventService.GlobalXpMultiplier, GlobalEventService.GlobalXpUntilUtc,
+    GlobalEventService.RareBoostMultiplier, GlobalEventService.RareBoostUntilUtc)));
 
 app.MapPost("/api/admin/game/double-xp", async (AdminGlobalEventRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    UserEntity actingAdmin;
     try
     {
-        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+        actingAdmin = await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
     }
     catch (AccountOperationException ex)
     {
@@ -3758,23 +3898,48 @@ app.MapPost("/api/admin/game/double-xp", async (AdminGlobalEventRequest request)
     }
 
     var duration = TimeSpan.FromMinutes(Math.Max(1, request.DurationMinutes));
-    GlobalEventService.ActivateDoubleXp(duration);
+    // Voir demande utilisateur — "XP globale : l'admin choisit le multiplicateur au lancement".
+    var multiplier = Math.Clamp(request.Multiplier, 2.0, 64.0);
+    GlobalEventService.SetGlobalXp(multiplier, duration);
 
-    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
+    Announce($"Evenement : XP x{multiplier:0} pour tout le monde pendant {duration.TotalMinutes:0} minutes !");
+    NotifyStaff($"[STAFF] {actingAdmin.Username} : XP mondiale x{multiplier:0} pour {duration.TotalMinutes:0} min.");
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"XP x{multiplier:0} activée pour {duration.TotalMinutes:0} minutes." });
+});
+
+// Voir demande utilisateur — "commande + bouton pour augmenter les chances d'avoir des monstres
+// modifiés (shiny etc.) et la capture", multiplicateur choisi par l'admin, annonce plein écran.
+app.MapPost("/api/admin/game/rare-boost", async (AdminGlobalEventRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    UserEntity actingAdmin;
+    try
     {
-        Kind = AdminEffectKind.Broadcast,
-        Message = $"Evenement : XP DOUBLEE pour tout le monde pendant {duration.TotalMinutes:0} minutes !",
-    });
+        actingAdmin = await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
 
-    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"XP doublée activée pour {duration.TotalMinutes:0} minutes." });
+    var duration = TimeSpan.FromMinutes(Math.Max(1, request.DurationMinutes));
+    var multiplier = Math.Clamp(request.Multiplier, 2.0, 20.0);
+    GlobalEventService.ActivateRareBoost(multiplier, duration);
+
+    Announce($"Evenement : CHANCES DE VARIANTES ET DE CAPTURE x{multiplier:0} pour tout le monde pendant {duration.TotalMinutes:0} minutes !");
+    NotifyStaff($"[STAFF] {actingAdmin.Username} : boost variantes/capture x{multiplier:0} pour {duration.TotalMinutes:0} min.");
+
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Boost variantes/capture x{multiplier:0} activé pour {duration.TotalMinutes:0} minutes." });
 });
 
 app.MapPost("/api/admin/game/double-loot", async (AdminGlobalEventRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    UserEntity actingAdmin;
     try
     {
-        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+        actingAdmin = await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
     }
     catch (AccountOperationException ex)
     {
@@ -3784,11 +3949,8 @@ app.MapPost("/api/admin/game/double-loot", async (AdminGlobalEventRequest reques
     var duration = TimeSpan.FromMinutes(Math.Max(1, request.DurationMinutes));
     GlobalEventService.ActivateDoubleLoot(duration);
 
-    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
-    {
-        Kind = AdminEffectKind.Broadcast,
-        Message = $"Evenement : BUTIN DOUBLE pour tout le monde pendant {duration.TotalMinutes:0} minutes !",
-    });
+    Announce($"Evenement : BUTIN DOUBLE pour tout le monde pendant {duration.TotalMinutes:0} minutes !");
+    NotifyStaff($"[STAFF] {actingAdmin.Username} : butin doublé pour {duration.TotalMinutes:0} min.");
 
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Butin doublé activé pour {duration.TotalMinutes:0} minutes." });
 });
@@ -3800,9 +3962,10 @@ app.MapPost("/api/admin/game/double-loot", async (AdminGlobalEventRequest reques
 app.MapPost("/api/admin/game/toggle-combats", async (AdminToggleCombatsRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    UserEntity actingAdmin;
     try
     {
-        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+        actingAdmin = await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
     }
     catch (AccountOperationException ex)
     {
@@ -3812,14 +3975,11 @@ app.MapPost("/api/admin/game/toggle-combats", async (AdminToggleCombatsRequest r
     var nowDisabled = !GlobalEventService.AreCombatsDisabled;
     GlobalEventService.SetCombatsDisabled(nowDisabled);
 
-    if (nowDisabled)
-    {
-        app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
-        {
-            Kind = AdminEffectKind.Broadcast,
-            Message = "Les combats sont temporairement désactivés par un administrateur.",
-        });
-    }
+    // Voir demande utilisateur — annoncer AUSSI la réactivation (seule la désactivation l'était).
+    Announce(nowDisabled
+        ? "Les combats sont temporairement désactivés par un administrateur."
+        : "Les combats sauvages sont de nouveau actifs.");
+    NotifyStaff($"[STAFF] {actingAdmin.Username} : combats {(nowDisabled ? "désactivés" : "réactivés")}.");
 
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = nowDisabled ? "Combats désactivés." : "Combats réactivés." });
 });
@@ -3827,9 +3987,10 @@ app.MapPost("/api/admin/game/toggle-combats", async (AdminToggleCombatsRequest r
 app.MapPost("/api/admin/game/invasion", async (AdminInvasionRequest request) =>
 {
     await using var db = await dbFactory.CreateDbContextAsync();
+    UserEntity actingAdmin;
     try
     {
-        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+        actingAdmin = await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
     }
     catch (AccountOperationException ex)
     {
@@ -3839,11 +4000,8 @@ app.MapPost("/api/admin/game/invasion", async (AdminInvasionRequest request) =>
     var duration = TimeSpan.FromMinutes(Math.Max(1, request.DurationMinutes));
     GlobalEventService.ActivateInvasion(request.Kingdom, duration);
 
-    app.Services.GetRequiredService<WorldSessionRegistry>().BroadcastAll(new AdminEffectPacket
-    {
-        Kind = AdminEffectKind.Broadcast,
-        Message = $"Evenement : INVASION DE MONSTRES au royaume {request.Kingdom} pendant {duration.TotalMinutes:0} minutes !",
-    });
+    Announce($"Evenement : INVASION DE MONSTRES au royaume {request.Kingdom} pendant {duration.TotalMinutes:0} minutes !");
+    NotifyStaff($"[STAFF] {actingAdmin.Username} : invasion au royaume {request.Kingdom} pour {duration.TotalMinutes:0} min.");
 
     return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"Invasion déclenchée au royaume {request.Kingdom} pour {duration.TotalMinutes:0} minutes." });
 });
