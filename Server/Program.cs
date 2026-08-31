@@ -814,6 +814,50 @@ app.MapGet("/api/dungeons", async () =>
     return Results.Ok(dungeons.Select(ToDungeonData));
 });
 
+// Voir demande utilisateur — "toujours un donjon de niveau 1 et un donjon d'un niveau aléatoire",
+// rotation toutes les heures, + un 3ᵉ portail éventuel invoqué par un admin. Sert à placer les
+// portails sur la carte du monde et à remplir le panneau de choix de modificateur (Client).
+app.MapGet("/api/dungeons/active", async () =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var dungeons = await db.Dungeons.ToListAsync();
+    var hourBucket = DungeonWorldService.CurrentHourBucket;
+    var portals = DungeonWorldService.GetActivePortals(dungeons, hourBucket);
+
+    var season = await db.Seasons.FirstOrDefaultAsync(s => s.IsActive);
+    var seasonal = SeasonalDungeonModifierCatalog.ForSeason(season?.Number ?? 1);
+
+    return Results.Ok(new ActiveDungeonsResponse
+    {
+        Portals = portals.Select(p => new ActiveDungeonPortal
+        {
+            Dungeon = new DungeonData
+            {
+                Id = p.Dungeon.Id,
+                Name = p.Dungeon.Name,
+                KingdomId = p.Dungeon.KingdomId,
+                Description = p.Dungeon.Description,
+                Seed = p.Dungeon.Seed,
+                WorldX = p.WorldX,
+                WorldY = p.WorldY,
+                MinLevel = p.Dungeon.MinLevel,
+                MaxMonsterLevel = p.Dungeon.MaxMonsterLevel,
+                IsHardcore = p.Dungeon.IsHardcore,
+                IsMythic = p.Dungeon.IsMythic,
+                MythicModifierDescription = p.Dungeon.MythicModifierDescription,
+            },
+            Slot = p.Slot,
+            IsAdminSpawned = p.IsAdminSpawned,
+        }).ToList(),
+        Hardcore = new DungeonModifierInfo
+        {
+            Name = "Hardcore",
+            Description = "1 vie, monstres +50 % de statistiques. Butin plus rare mais aucune limite de vies quotidienne.",
+        },
+        Seasonal = new DungeonModifierInfo { Name = seasonal.Name, Description = seasonal.Description },
+    });
+});
+
 // CRUD destiné au MapEditor. Voir Docs/Idees.md — authentification admin dédiée (même
 // AdminAuthService que MonsterEditor ci-dessus), jusqu'ici absente sur ces trois endpoints.
 app.MapPost("/api/dungeons", async (string sessionToken, DungeonData dungeon) =>
@@ -3316,14 +3360,17 @@ app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest reque
         return Results.NotFound(new ApiError { Message = "Espèce introuvable." });
     }
 
+    // Voir demande utilisateur — "ajoute la possibilité d'ajouter un truc si un monstre est shiny
+    // ou autre" : variante et niveau optionnels sur le don de monstre.
+    var giveLevel = Math.Clamp(request.Level ?? 1, 1, MonsterProgressionService.MaxLevel);
     var monster = new MonsterEntity
     {
         Id = Guid.NewGuid(),
         OwnerCharacterId = target.Id,
         SpeciesId = species.Id,
-        Variant = MonsterVariant.Normal,
+        Variant = request.Variant ?? MonsterVariant.Normal,
         Nickname = species.Name,
-        Level = 1,
+        Level = giveLevel,
         Nature = MonsterNatureCatalog.RollRandom(Random.Shared),
     };
     MonsterIvRoller.RollInto(monster, Random.Shared);
@@ -3331,7 +3378,101 @@ app.MapPost("/api/admin/game/give-monster", async (AdminGiveMonsterRequest reque
     db.Monsters.Add(monster);
     await db.SaveChangesAsync();
 
-    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{species.Name} donné à {target.Name}." });
+    var variantSuffix = monster.Variant == MonsterVariant.Normal ? "" : $" ({MonsterVariantCatalog.Get(monster.Variant).DisplayName})";
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"{species.Name}{variantSuffix} niv. {giveLevel} donné à {target.Name}." });
+});
+
+// Voir demande utilisateur — "ajoute la possibilité d'ajouter un truc si un monstre est shiny ou
+// autre pour modifier" : change la variante (et éventuellement le niveau) d'un monstre déjà
+// possédé par un joueur. Les statistiques sont recalculées à la lecture depuis Variant/Level.
+app.MapPost("/api/admin/game/set-monster-variant", async (AdminSetMonsterVariantRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var target = (await db.Characters.ToListAsync()).FirstOrDefault(c => TextMatching.NamesMatch(c.Name, request.TargetCharacterName));
+    if (target is null)
+    {
+        return Results.NotFound(new ApiError { Message = "Personnage introuvable." });
+    }
+
+    var monsters = await db.Monsters.Where(m => m.OwnerCharacterId == target.Id).ToListAsync();
+    var monster = monsters.FirstOrDefault(m => TextMatching.NamesMatch(m.Nickname, request.MonsterName));
+    if (monster is null)
+    {
+        // Repli : correspondance par nom d'espèce.
+        var speciesByName = (await db.MonsterSpecies.ToListAsync())
+            .Where(s => TextMatching.NamesMatch(s.Name, request.MonsterName))
+            .Select(s => s.Id)
+            .ToHashSet();
+        monster = monsters.FirstOrDefault(m => speciesByName.Contains(m.SpeciesId));
+    }
+
+    if (monster is null)
+    {
+        return Results.NotFound(new ApiError { Message = $"Aucun monstre « {request.MonsterName} » chez {target.Name}." });
+    }
+
+    monster.Variant = request.Variant;
+    if (request.Level is { } level)
+    {
+        monster.Level = Math.Clamp(level, 1, MonsterProgressionService.MaxLevel);
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new AdminGameActionResponse
+    {
+        Success = true,
+        Message = $"{monster.Nickname} : variante {MonsterVariantCatalog.Get(monster.Variant).DisplayName}, niveau {monster.Level}.",
+    });
+});
+
+// Voir demande utilisateur — "faire apparaître un donjon spécifique" : 3ᵉ portail temporaire,
+// visible par tous, jusqu'à la rotation horaire suivante (voir DungeonAdminOverride).
+app.MapPost("/api/admin/game/spawn-dungeon", async (AdminSpawnDungeonRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    try
+    {
+        await AdminAuthService.RequireAdminAsync(db, app.Services.GetRequiredService<SessionTokenStore>(), request.SessionToken);
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Json(new ApiError { Message = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var dungeon = (await db.Dungeons.ToListAsync()).FirstOrDefault(d => TextMatching.NamesMatch(d.Name, request.DungeonName));
+    if (dungeon is null)
+    {
+        return Results.NotFound(new ApiError { Message = $"Donjon « {request.DungeonName} » introuvable." });
+    }
+
+    DungeonAdminOverride.SetForCurrentHour(dungeon.Id);
+    return Results.Ok(new AdminGameActionResponse { Success = true, Message = $"« {dungeon.Name} » apparaît sur la carte jusqu'à la prochaine rotation horaire." });
+});
+
+// Voir demande utilisateur — "faire apparaître à combattre" un monstre d'espèce/variante/niveau
+// choisis. Démarre immédiatement un combat contre le personnage connecté de l'admin.
+app.MapPost("/api/admin/game/spawn-encounter", async (AdminSpawnEncounterRequest request) =>
+{
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var combatService = new CombatService(db, app.Services.GetRequiredService<SessionTokenStore>(), app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
+
+    try
+    {
+        return Results.Ok(await combatService.StartAdminEncounterAsync(request));
+    }
+    catch (AccountOperationException ex)
+    {
+        return Results.Conflict(new ApiError { Message = ex.Message });
+    }
 });
 
 // Voir GDD/demande utilisateur — "ajoute une commande et un champ admin pour donner des palier a un joueur" (paliers du Passe de Niveau).

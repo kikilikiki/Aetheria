@@ -57,8 +57,8 @@ float MeasureTextWidth(string text, float pixelSize)
 
 var worldMap = new WorldMap(size: 50);
 Console.WriteLine($"Monde généré : {worldMap.Size}x{worldMap.Size} cases, {worldMap.Buildings.Count} bâtiments, " +
-    $"{worldMap.Npcs.Count} PNJ, entrée de donjon « {worldMap.DungeonName} » en " +
-    $"({worldMap.DungeonEntrance.X}, {worldMap.DungeonEntrance.Y}). Clic gauche pour se déplacer, E pour interagir.");
+    $"{worldMap.Npcs.Count} PNJ. Les portails de donjon (2 + 1 admin) sont chargés une fois connecté. " +
+    "Clic gauche pour se déplacer, E pour interagir.");
 
 const int StarterColumns = 5;
 
@@ -466,21 +466,19 @@ MountKind? pendingIslandKind = null;
 /// <summary>Voir Docs/Idees.md — vraie géographie île volante/aquatique : royaume à retrouver au bâtiment "Retour" de l'île, <c>null</c> tant qu'on n'est pas sur une île.</summary>
 KingdomType? islandReturnKingdom = null;
 
-// Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour rentrer" : le
-// portail du royaume n'ouvrait auparavant TOUJOURS que le donjon dont le nom correspond au biome
-// (voir RefreshDungeonPositionAsync), rendant les autres donjons du même royaume (hardcore,
-// mythique) inaccessibles. Liste de sélection plutôt qu'une entrée automatique.
-var isDungeonSelectOpen = false;
-var dungeonSelectCursor = 0;
-List<DungeonData> dungeonSelectOptions = [];
-Task<(List<DungeonData> Dungeons, List<KingdomData> Kingdoms)>? dungeonSelectTask = null;
-
-/// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller" : donjons actuellement en recharge pour ce personnage (Id du donjon -> date de fin), rafraîchi à chaque ouverture du panneau (voir LoadDungeonCooldownsAsync).</summary>
+// Voir demande utilisateur — "toujours un donjon de niveau 1 et un donjon d'un niveau aléatoire",
+// écrit au-dessus du portail, entrée directe en marchant dedans (plus de liste de sélection).
+// À l'entrée : choix du modificateur Normal / Hardcore / Spécial saison.
+var isDungeonModifierOpen = false;
+var dungeonModifierCursor = 0;
+DungeonPortalInfo? dungeonModifierPortal = null;
+string? dungeonModifierMessage = null;
+DungeonModifierInfo dungeonHardcoreInfo = new() { Name = "Hardcore", Description = "1 vie, monstres +50 %." };
+DungeonModifierInfo dungeonSeasonalInfo = new() { Name = "Spécial saison", Description = "" };
+/// <summary>Modificateur choisi à l'entrée, porté jusqu'au combat engagé (voir StartDungeonRoomCombatAsync).</summary>
+var dungeonModifier = DungeonModifier.Normal;
+/// <summary>Donjons en recharge pour ce personnage (Id -> date de fin), rafraîchi à l'ouverture du panneau de modificateur.</summary>
 Dictionary<int, DateTime> dungeonCooldownUntil = [];
-Task<Dictionary<int, DateTime>>? dungeonCooldownTask = null;
-string? dungeonSelectMessage = null;
-/// <summary>Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des dongon a part mais que l'on peut choisir hardcore ou normal" : choix fait sur l'écran de sélection (touche TAB, seulement si le donjon sélectionné le propose), porté jusqu'au combat engagé (voir StartDungeonRoomCombatAsync).</summary>
-var dungeonHardcoreRequested = false;
 
 var isAdminPanelOpen = false;
 var adminPanelCursor = 0;
@@ -504,7 +502,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "EXPULSER (nom du personnage)",
         "BANNIR (nom du personnage)",
         "TRANSFORMER EN PANNEAU (nom du personnage)",
-        "DONNER UN MONSTRE (perso;idEspece)",
+        "DONNER UN MONSTRE (perso;idEspece;variante;niveau)",
         "NIVEAU MAX EQUIPE (nom du personnage)",
         "DONNER DE L'ARGENT (perso;montant)",
         "DONNER DE L'XP (perso;montant)",
@@ -518,6 +516,12 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "PROMOUVOIR/RETROGRADER ADMIN (nom du personnage)",
         "DONNER DES PALIERS DE PASSE (perso;niveaux)",
         "DONNER UNE MONTURE (perso;cleMonture)",
+        // Voir demande utilisateur — donjons / monstres shiny : faire apparaître un donjon
+        // spécifique, faire apparaître un combat, modifier un monstre possédé. Placées juste
+        // avant SIGNALEMENTS/DESACTIVER (dispatchées par libellé dans SubmitAdminPanelCommand).
+        "FAIRE APPARAITRE UN DONJON (nom du donjon)",
+        "FAIRE APPARAITRE UN COMBAT (idEspece;variante;niveau)",
+        "MODIFIER UN MONSTRE (perso;nomMonstre;variante;niveau)",
         // Voir retour utilisateur — "les combos de touches CTRL+ALT/CTRL+MAJ ne fonctionnent
         // pas, fait en sorte que ce soit la commande /admin" : le panneau Signalements se
         // rejoint désormais depuis ici plutôt qu'un raccourci clavier séparé (peu fiable, voir
@@ -538,7 +542,7 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "EXPULSER (nom du personnage)",
         "BANNIR (nom du personnage)",
         "TRANSFORMER EN PANNEAU (nom du personnage)",
-        "DONNER UN MONSTRE (perso;idEspece)",
+        "DONNER UN MONSTRE (perso;idEspece;variante;niveau)",
         "NIVEAU MAX EQUIPE (nom du personnage)",
         "DONNER DE L'ARGENT (perso;montant)",
         "DONNER DE L'XP (perso;montant)",
@@ -548,6 +552,9 @@ string[] AdminPanelCommands() => myRank == UserRank.Fondateur
         "XP DOUBLEE POUR TOUS (minutes, defaut 30)",
         "BUTIN DOUBLE POUR TOUS (minutes, defaut 30)",
         "INVASION DE MONSTRES (royaume;minutes)",
+        "FAIRE APPARAITRE UN DONJON (nom du donjon)",
+        "FAIRE APPARAITRE UN COMBAT (idEspece;variante;niveau)",
+        "MODIFIER UN MONSTRE (perso;nomMonstre;variante;niveau)",
         "SIGNALEMENTS DE JOUEURS (aucune saisie)",
         "DESACTIVER/REACTIVER LES COMBATS (aucune saisie)",
     ];
@@ -1121,9 +1128,9 @@ host.Update += deltaTime =>
         return;
     }
 
-    if (isDungeonSelectOpen)
+    if (isDungeonModifierOpen)
     {
-        UpdateDungeonSelectPanel();
+        UpdateDungeonModifierPanel();
         return;
     }
 
@@ -1644,18 +1651,15 @@ host.Update += deltaTime =>
                 interiorNpcs = [.. layout.Npcs];
                 interiorNpcCursor = 0;
                 break;
-            case InteractionKind.Dungeon:
-                // Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour
-                // rentrer" : liste de sélection (voir UpdateDungeonSelectPanel) plutôt qu'une
-                // entrée automatique dans le seul donjon associé au biome du royaume.
-                isDungeonSelectOpen = true;
-                dungeonSelectCursor = 0;
-                dungeonSelectOptions = [];
-                dungeonSelectTask = LoadDungeonSelectDataAsync();
-                dungeonHardcoreRequested = false;
-                dungeonCooldownUntil = [];
-                dungeonCooldownTask = null;
-                dungeonSelectMessage = null;
+            case InteractionKind.Dungeon when interaction.DungeonPortal is { } portal:
+                // Voir demande utilisateur — "pas le choix à chaque fois que l'on rentre" : on entre
+                // directement dans le donjon du portail, après avoir seulement choisi le
+                // modificateur (Normal / Hardcore / Spécial saison, voir DrawDungeonModifierPanel).
+                dungeonModifierPortal = portal;
+                dungeonModifierCursor = 0;
+                dungeonModifierMessage = null;
+                isDungeonModifierOpen = true;
+                _ = LoadDungeonCooldownForPortalAsync(portal.Id);
                 break;
         }
     }
@@ -1705,12 +1709,22 @@ host.Render += _ =>
         // Éléments en hauteur (bâtiments, portail, PNJ, joueur) : triés par profondeur pour une occlusion correcte.
         var playerBob = MathF.Sin(animationClock * (isPlayerMoving ? 9f : 2.4f)) * (isPlayerMoving ? 3.2f : 1.1f);
 
-        var depthJobs = new List<(float Depth, Action Draw)>(worldMap.Buildings.Count + worldMap.Npcs.Count + 2)
+        var depthJobs = new List<(float Depth, Action Draw)>(worldMap.Buildings.Count + worldMap.Npcs.Count + worldMap.DungeonPortals.Count + 1)
         {
             (currentGridPosition.X + currentGridPosition.Y + 0.5f, () => DrawPlayerFigure(currentGridPosition, playerBob)),
-            (worldMap.DungeonEntrance.X + worldMap.DungeonEntrance.Y,
-                () => DrawPortal(new Vector2(worldMap.DungeonEntrance.X, worldMap.DungeonEntrance.Y), animationClock)),
         };
+
+        // Voir demande utilisateur — chaque portail de donjon actif, avec son nom + niveau écrits
+        // au-dessus (voir DrawPortalLabel).
+        foreach (var portal in worldMap.DungeonPortals)
+        {
+            var p = portal;
+            depthJobs.Add((p.X + p.Y, () =>
+            {
+                DrawPortal(new Vector2(p.X, p.Y), animationClock);
+                DrawPortalLabel(new Vector2(p.X, p.Y), p);
+            }));
+        }
 
         foreach (var building in worldMap.Buildings)
         {
@@ -1806,9 +1820,9 @@ host.Render += _ =>
         DrawTeleportPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
     }
 
-    if (isDungeonSelectOpen)
+    if (isDungeonModifierOpen)
     {
-        DrawDungeonSelectPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
+        DrawDungeonModifierPanel(uiCamera.ViewportWidth, uiCamera.ViewportHeight);
     }
 
     if (isMinePanelOpen)
@@ -1937,11 +1951,14 @@ NearbyInteraction? ComputeNearbyInteraction(Vector2 position)
         }
     }
 
-    var dungeonDistance = Vector2.Distance(position, new Vector2(worldMap.DungeonEntrance.X, worldMap.DungeonEntrance.Y));
-    if (dungeonDistance < bestDistance)
+    foreach (var portal in worldMap.DungeonPortals)
     {
-        bestDistance = dungeonDistance;
-        best = new NearbyInteraction(InteractionKind.Dungeon, worldMap.DungeonName, null, null);
+        var distance = Vector2.Distance(position, new Vector2(portal.X, portal.Y));
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            best = new NearbyInteraction(InteractionKind.Dungeon, portal.Name, null, null, portal);
+        }
     }
 
     foreach (var npc in worldMap.Npcs)
@@ -4361,6 +4378,38 @@ void UpdateAdminGamePanel()
 
 void SubmitAdminPanelCommand(int commandIndex, string input)
 {
+    // Voir demande utilisateur — commandes donjons/monstres : dispatchées par libellé plutôt que
+    // par index, car leur position diffère entre la liste Fondateur et la liste admin (voir
+    // AdminPanelCommands) et se décale à chaque ajout.
+    var label = commandIndex >= 0 && commandIndex < AdminPanelCommands().Length ? AdminPanelCommands()[commandIndex] : "";
+    if (label.StartsWith("FAIRE APPARAITRE UN DONJON", StringComparison.Ordinal))
+    {
+        adminPanelActionTask = gameDataApi!.SpawnDungeonAsync(options.SessionToken!, input.Trim());
+        return;
+    }
+
+    if (label.StartsWith("FAIRE APPARAITRE UN COMBAT", StringComparison.Ordinal))
+    {
+        _ = SpawnAdminEncounterAsync(input);
+        return;
+    }
+
+    if (label.StartsWith("MODIFIER UN MONSTRE", StringComparison.Ordinal))
+    {
+        var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 3 && MonsterVariantCatalog.TryParse(parts[2], out var setVariant))
+        {
+            int? setLevel = parts.Length >= 4 && int.TryParse(parts[3], out var lvl) ? lvl : null;
+            adminPanelActionTask = gameDataApi!.SetMonsterVariantAsync(options.SessionToken!, parts[0], parts[1], setVariant, setLevel);
+        }
+        else
+        {
+            adminPanelMessage = "Format attendu : perso;nomMonstre;variante[;niveau]";
+        }
+
+        return;
+    }
+
     switch (commandIndex)
     {
         case 0:
@@ -4395,11 +4444,14 @@ void SubmitAdminPanelCommand(int commandIndex, string input)
             var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 2 && int.TryParse(parts[1], out var giveMonsterSpeciesId))
             {
-                adminPanelActionTask = gameDataApi!.GiveMonsterToPlayerAsync(options.SessionToken!, parts[0], giveMonsterSpeciesId);
+                // Voir demande utilisateur — variante + niveau optionnels (perso;idEspece;variante;niveau).
+                MonsterVariant? giveVariant = parts.Length >= 3 && MonsterVariantCatalog.TryParse(parts[2], out var v) ? v : null;
+                int? giveLevel = parts.Length >= 4 && int.TryParse(parts[3], out var l) ? l : null;
+                adminPanelActionTask = gameDataApi!.GiveMonsterToPlayerAsync(options.SessionToken!, parts[0], giveMonsterSpeciesId, giveVariant, giveLevel);
             }
             else
             {
-                adminPanelMessage = "Format attendu : personnage;idEspece";
+                adminPanelMessage = "Format attendu : personnage;idEspece[;variante][;niveau]";
             }
 
             break;
@@ -6199,6 +6251,11 @@ async Task CompleteStoryQuestAsync(string questName)
     }
 }
 
+/// <summary>
+/// Voir demande utilisateur — récupère les portails de donjon actifs (2 + 1 admin éventuel,
+/// rotation horaire côté serveur, voir DungeonWorldService.GetActivePortals) et le détail des
+/// modificateurs Hardcore / Spécial saison affichés dans le panneau de choix à l'entrée.
+/// </summary>
 async Task RefreshDungeonPositionAsync()
 {
     if (gameDataApi is null)
@@ -6208,196 +6265,139 @@ async Task RefreshDungeonPositionAsync()
 
     try
     {
-        var dungeons = await gameDataApi.GetDungeonsAsync();
-        var dungeon = dungeons.FirstOrDefault(d => d.Name == worldMap.DungeonName) ?? dungeons.FirstOrDefault();
-        if (dungeon is not null)
-        {
-            worldMap.SetDungeon(dungeon.Id, dungeon.WorldX, dungeon.WorldY);
-            Console.WriteLine($"[Donjon] « {dungeon.Name} » positionné en ({dungeon.WorldX}, {dungeon.WorldY}) pour cette heure.");
-        }
+        var active = await gameDataApi.GetActiveDungeonsAsync();
+        worldMap.SetDungeonPortals(active.Portals
+            .Select(p => new DungeonPortalInfo(p.Dungeon.Id, p.Dungeon.Name, p.Dungeon.MinLevel, p.Dungeon.MaxMonsterLevel, p.Dungeon.WorldX, p.Dungeon.WorldY, p.Slot, p.IsAdminSpawned))
+            .ToList());
+        dungeonHardcoreInfo = active.Hardcore;
+        dungeonSeasonalInfo = active.Seasonal;
+        Console.WriteLine($"[Donjon] {worldMap.DungeonPortals.Count} portail(s) actif(s) pour cette heure.");
     }
     catch (HttpRequestException ex)
     {
-        Console.WriteLine($"[Donjon] Impossible de récupérer la position du donjon : {ex.Message}");
+        Console.WriteLine($"[Donjon] Impossible de récupérer les donjons actifs : {ex.Message}");
     }
 }
 
-async Task<(List<DungeonData> Dungeons, List<KingdomData> Kingdoms)> LoadDungeonSelectDataAsync()
+/// <summary>Voir GDD/demande utilisateur — cooldown 1h : vérifie le seul donjon dans lequel on s'apprête à entrer.</summary>
+async Task LoadDungeonCooldownForPortalAsync(int dungeonId)
 {
-    if (gameDataApi is null)
-    {
-        return ([], []);
-    }
-
-    var dungeons = await gameDataApi.GetDungeonsAsync();
-    var kingdoms = await gameDataApi.GetKingdomsAsync();
-    return (dungeons, kingdoms);
-}
-
-/// <summary>Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller" : un aller-retour par donjon affiché, acceptable vu le petit nombre de donjons par royaume.</summary>
-async Task<Dictionary<int, DateTime>> LoadDungeonCooldownsAsync(List<DungeonData> dungeons)
-{
-    var result = new Dictionary<int, DateTime>();
     if (gameDataApi is null || options.SessionToken is null || chosenCharacterId is null)
     {
-        return result;
+        return;
     }
 
-    foreach (var dungeon in dungeons)
+    try
     {
-        var status = await gameDataApi.GetDungeonEntryStatusAsync(options.SessionToken, chosenCharacterId.Value, dungeon.Id);
+        var status = await gameDataApi.GetDungeonEntryStatusAsync(options.SessionToken, chosenCharacterId.Value, dungeonId);
         if (status is { Allowed: false, AvailableAtUtc: { } availableAt })
         {
-            result[dungeon.Id] = availableAt;
+            dungeonCooldownUntil[dungeonId] = availableAt;
+        }
+        else
+        {
+            dungeonCooldownUntil.Remove(dungeonId);
         }
     }
-
-    return result;
+    catch (HttpRequestException)
+    {
+    }
 }
 
-/// <summary>Voir GDD/demande utilisateur — "de nouveaux donjons avec leur niveau min pour rentrer" : liste des donjons du royaume courant (voir <see cref="isDungeonSelectOpen"/>).</summary>
-void UpdateDungeonSelectPanel()
+/// <summary>
+/// Voir demande utilisateur — "quand on rentre ajoute le choix entre hardcore, normal ou spécial
+/// saison avec les détails de chaque modification". 3 options, entrée directe dans le donjon du
+/// portail visé une fois le modificateur choisi (voir <see cref="isDungeonModifierOpen"/>).
+/// </summary>
+void UpdateDungeonModifierPanel()
 {
-    if (dungeonSelectTask is { IsCompleted: true } loadTask)
-    {
-        var (dungeons, kingdoms) = loadTask.IsFaulted ? ([], new List<KingdomData>()) : loadTask.Result;
-        var kingdomId = kingdoms.FirstOrDefault(k => k.Type == currentKingdom)?.Id;
-        dungeonSelectOptions = kingdomId is null ? [] : dungeons.Where(d => d.KingdomId == kingdomId).OrderBy(d => d.MinLevel).ToList();
-        dungeonSelectCursor = 0;
-        dungeonSelectTask = null;
-        dungeonCooldownUntil = [];
-        dungeonCooldownTask = LoadDungeonCooldownsAsync(dungeonSelectOptions);
-        return;
-    }
-
-    if (dungeonCooldownTask is { IsCompleted: true } cooldownTask)
-    {
-        dungeonCooldownUntil = cooldownTask.IsFaulted ? [] : cooldownTask.Result;
-        dungeonCooldownTask = null;
-        return;
-    }
-
-    if (dungeonSelectTask is not null)
-    {
-        return;
-    }
-
     if (keyboard.WasJustPressed(Key.Escape))
     {
-        isDungeonSelectOpen = false;
-        return;
-    }
-
-    if (dungeonSelectOptions.Count == 0)
-    {
+        isDungeonModifierOpen = false;
         return;
     }
 
     if (keyboard.WasJustPressed(Key.Down))
     {
-        dungeonSelectCursor = Math.Min(dungeonSelectCursor + 1, dungeonSelectOptions.Count - 1);
-        dungeonHardcoreRequested = false;
+        dungeonModifierCursor = Math.Min(dungeonModifierCursor + 1, 2);
     }
     else if (keyboard.WasJustPressed(Key.Up))
     {
-        dungeonSelectCursor = Math.Max(dungeonSelectCursor - 1, 0);
-        dungeonHardcoreRequested = false;
+        dungeonModifierCursor = Math.Max(dungeonModifierCursor - 1, 0);
     }
-    // Voir GDD/demande utilisateur — "le hardcore peut etre mis dans tout les dongon" : le
-    // mode hardcore est proposable sur n'importe quel donjon, plus de garde-fou IsHardcore.
-    else if (keyboard.WasJustPressed(Key.Tab))
+    else if (keyboard.WasJustPressed(Key.Enter) && dungeonModifierPortal is { } portal)
     {
-        dungeonHardcoreRequested = !dungeonHardcoreRequested;
-    }
-    else if (keyboard.WasJustPressed(Key.Enter))
-    {
-        // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon
-        // c'est le niveau des monstres, pas celui du personnage" : plus aucun garde-fou de
-        // niveau de personnage ici ni côté serveur (voir CombatService.StartFromDungeonAsync) —
-        // MinLevel/MaxMonsterLevel décrivent seulement le niveau des monstres rencontrés.
-        var selected = dungeonSelectOptions[dungeonSelectCursor];
-        // Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne
-        // dans le dongon ou il vient d'aller" : bloqué côté client (confort, évite l'aller-retour
-        // serveur) — la validation faisant foi reste GetDungeonEntryStatusAsync côté serveur.
-        if (dungeonCooldownUntil.TryGetValue(selected.Id, out var availableAt) && availableAt > DateTime.UtcNow)
+        // Cooldown 1h — bloqué côté client (confort) ; GetDungeonEntryStatusAsync côté serveur fait foi.
+        if (dungeonCooldownUntil.TryGetValue(portal.Id, out var availableAt) && availableAt > DateTime.UtcNow)
         {
-            var remaining = availableAt - DateTime.UtcNow;
-            dungeonSelectMessage = $"Ce donjon recharge encore ({(int)Math.Ceiling(remaining.TotalMinutes)} min).";
+            dungeonModifierMessage = $"Ce donjon recharge encore ({(int)Math.Ceiling((availableAt - DateTime.UtcNow).TotalMinutes)} min).";
             return;
         }
 
-        isDungeonSelectOpen = false;
-        EnterDungeonInterior(selected);
+        var modifier = dungeonModifierCursor switch
+        {
+            1 => DungeonModifier.Hardcore,
+            2 => DungeonModifier.Saison,
+            _ => DungeonModifier.Normal,
+        };
+
+        isDungeonModifierOpen = false;
+        EnterDungeonInterior(portal, modifier);
     }
 }
 
-void DrawDungeonSelectPanel(int w, int h)
+void DrawDungeonModifierPanel(int w, int h)
 {
-    const float boxWidth = 480f;
-    const float boxHeight = 380f;
+    const float boxWidth = 520f;
+    const float boxHeight = 340f;
     var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.04f, 0.09f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), WorldMap.PortalMidColorBright);
-    DrawTextCentered(spriteBatch, whiteTexture, "DONJONS", new Vector2(w / 2f, topLeft.Y + 24f), 2.6f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
 
-    if (dungeonSelectTask is not null)
+    var title = dungeonModifierPortal is { } p
+        ? $"{p.Name.ToUpperInvariant()} — NIV. {p.MinLevel}" + (p.MaxMonsterLevel > p.MinLevel ? $"-{p.MaxMonsterLevel}" : "")
+        : "DONJON";
+    DrawTextCentered(spriteBatch, whiteTexture, title, new Vector2(w / 2f, topLeft.Y + 24f), 2.2f, new Vector4(0.75f, 0.6f, 0.98f, 1f));
+
+    (string Name, string Desc)[] options =
+    [
+        ("NORMAL", "3 vies. Statistiques et récompenses standard."),
+        (dungeonHardcoreInfo.Name.ToUpperInvariant(), dungeonHardcoreInfo.Description),
+        ("SPÉCIAL SAISON — " + dungeonSeasonalInfo.Name.ToUpperInvariant(), dungeonSeasonalInfo.Description),
+    ];
+
+    var y = topLeft.Y + 60f;
+    for (var i = 0; i < options.Length; i++)
     {
-        DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT...", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-    }
-    else if (dungeonSelectOptions.Count == 0)
-    {
-        DrawTextCentered(spriteBatch, whiteTexture, "AUCUN DONJON DANS CE ROYAUME", new Vector2(w / 2f, topLeft.Y + boxHeight / 2f), 2f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
-    }
-    else
-    {
-        var y = topLeft.Y + 62f;
-        for (var i = 0; i < dungeonSelectOptions.Count; i++)
+        var isSelected = i == dungeonModifierCursor;
+        var color = isSelected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
+        DrawText(spriteBatch, whiteTexture, (isSelected ? "> " : "  ") + options[i].Name, new Vector2(topLeft.X + 24f, y), 1.9f, color);
+        y += 24f;
+        foreach (var line in WrapTextToLines(options[i].Desc, boxWidth - 60f, 1.3f))
         {
-            var dungeon = dungeonSelectOptions[i];
-            var isSelected = i == dungeonSelectCursor;
-            var prefix = isSelected ? "> " : "  ";
-            var color = isSelected ? new Vector4(0.75f, 0.6f, 0.98f, 1f) : Vector4.One;
-            // Voir GDD/demande utilisateur — "le hardcore peut etre mis dans tout les dongon donc
-            // retire le texte hardcore dispo" : plus de tag "disponible", uniquement "actif".
-            var hardcoreTag = isSelected && dungeonHardcoreRequested ? " [HARDCORE ACTIVE - TAB]" : "";
-            // Voir GDD/demande utilisateur — "ajoute un cooldown de 1h avant que il puisse retourne dans le dongon ou il vient d'aller".
-            var cooldownTag = dungeonCooldownUntil.TryGetValue(dungeon.Id, out var availableAt) && availableAt > DateTime.UtcNow
-                ? $" [RECHARGE {(int)Math.Ceiling((availableAt - DateTime.UtcNow).TotalMinutes)}MIN]"
-                : "";
-            var tags = (dungeon.IsMythic ? " [MYTHIQUE]" : "") + hardcoreTag + cooldownTag;
-            // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon
-            // c'est le niveau des monstres" : plage affichee (etage 1 -> dernier etage) plutot
-            // qu'un simple "niveau min pour rentrer".
-            var levelLabel = dungeon.MaxMonsterLevel > dungeon.MinLevel ? $"NIV. {dungeon.MinLevel}-{dungeon.MaxMonsterLevel}" : $"NIV. {dungeon.MinLevel}";
-            DrawText(spriteBatch, whiteTexture, $"{prefix}{dungeon.Name.ToUpperInvariant()} - {levelLabel}{tags}", new Vector2(topLeft.X + 24f, y), 1.8f, color);
-            y += 28f;
+            DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 40f, y), 1.3f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
+            y += 17f;
         }
 
-        var selected = dungeonSelectOptions[dungeonSelectCursor];
-        var descY = topLeft.Y + boxHeight - 96f;
-        var descText = selected.IsMythic && selected.MythicModifierDescription.Length > 0 ? selected.MythicModifierDescription : selected.Description;
-        foreach (var line in WrapTextToLines(descText, boxWidth - 40f, 1.4f))
-        {
-            DrawText(spriteBatch, whiteTexture, line, new Vector2(topLeft.X + 20f, descY), 1.4f, new Vector4(0.75f, 0.75f, 0.8f, 1f));
-            descY += 20f;
-        }
+        y += 10f;
     }
 
-    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - TAB : hardcore/normal - ENTREE : entrer - ECHAP : fermer", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, "HAUT/BAS : choisir - ENTREE : entrer - ECHAP : annuler", new Vector2(w / 2f, topLeft.Y + boxHeight - 18f), 1.5f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 
-    if (dungeonSelectMessage is not null)
+    if (dungeonModifierMessage is not null)
     {
-        DrawTextCentered(spriteBatch, whiteTexture, dungeonSelectMessage, new Vector2(w / 2f, topLeft.Y + boxHeight + 22f), 1.6f, new Vector4(0.95f, 0.6f, 0.4f, 1f));
+        DrawTextCentered(spriteBatch, whiteTexture, dungeonModifierMessage, new Vector2(w / 2f, topLeft.Y + boxHeight + 22f), 1.6f, new Vector4(0.95f, 0.6f, 0.4f, 1f));
     }
 }
 
-/// <summary>Voir GDD/demande utilisateur — extrait de l'ex-<c>case InteractionKind.Dungeon</c> pour être réutilisable depuis <see cref="UpdateDungeonSelectPanel"/>.</summary>
-void EnterDungeonInterior(DungeonData dungeon)
+/// <summary>Voir demande utilisateur — entrée directe dans le donjon du portail avec le modificateur choisi.</summary>
+void EnterDungeonInterior(DungeonPortalInfo portal, DungeonModifier modifier)
 {
-    worldMap.SetDungeon(dungeon.Id, dungeon.WorldX, dungeon.WorldY);
+    worldMap.SetActiveDungeon(portal.Id, portal.Name, portal.X, portal.Y);
+    dungeonModifier = modifier;
     sceneMode = SceneMode.Interior;
-    interiorTitle = dungeon.Name;
+    interiorTitle = portal.Name;
     interiorBodyLines = DungeonFlavor();
     interiorAccent = WorldMap.PortalMidColorBright;
     interiorIsDungeon = true;
@@ -6418,7 +6418,7 @@ void EnterDungeonInterior(DungeonData dungeon)
     dungeonEncounterPreviewRoomIndex = -1;
     if (gameDataApi is not null)
     {
-        dungeonFloorTask = gameDataApi.GetDungeonFloorAsync(dungeon.Id, dungeonFloorNumber);
+        dungeonFloorTask = gameDataApi.GetDungeonFloorAsync(portal.Id, dungeonFloorNumber);
     }
 
     // Voir GDD/demande utilisateur — quête 6 "Les échos du donjon".
@@ -9040,7 +9040,7 @@ async Task<CombatResult> StartDungeonRoomCombatAsync(int floorNumber, int roomIn
         var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
         var monsterIds = SelectActiveTeamIds(monsters);
 
-        return await combatApi.StartDungeonCombatAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, worldMap.DungeonId, floorNumber, roomIndex, dungeonHardcoreRequested);
+        return await combatApi.StartDungeonCombatAsync(options.SessionToken, chosenCharacterId.Value, monsterIds, worldMap.DungeonId, floorNumber, roomIndex, dungeonModifier);
     }
     catch (HttpRequestException)
     {
@@ -9096,6 +9096,48 @@ async Task<CombatResult> StartWorldBossCombatAsync()
         var monsters = await starterApi.GetCharacterMonstersAsync(chosenCharacterId.Value);
         var monsterIds = SelectActiveTeamIds(monsters);
         return await combatApi.StartWorldBossEncounterAsync(options.SessionToken, chosenCharacterId.Value, monsterIds);
+    }
+    catch (HttpRequestException)
+    {
+        return new CombatResult(null, "Connexion au serveur impossible.");
+    }
+}
+
+/// <summary>
+/// Voir demande utilisateur — commande/panneau admin "faire apparaître un combat" : démarre un
+/// combat contre une espèce (id), variante et niveau au choix (format « idEspece;variante;niveau »).
+/// Réutilise le chemin de démarrage de combat générique (combatStartTask, voir la boucle Update).
+/// </summary>
+async Task SpawnAdminEncounterAsync(string input)
+{
+    var parts = input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length < 1 || !int.TryParse(parts[0], out var speciesId))
+    {
+        adminPanelMessage = "Format attendu : idEspece[;variante][;niveau]";
+        return;
+    }
+
+    var variant = parts.Length >= 2 && MonsterVariantCatalog.TryParse(parts[1], out var v) ? v : MonsterVariant.Normal;
+    var level = parts.Length >= 3 && int.TryParse(parts[2], out var lvl) ? Math.Max(1, lvl) : 1;
+
+    if (combatApi is null || starterApi is null || chosenCharacterId is null || options.SessionToken is null)
+    {
+        adminPanelMessage = "Connexion requise.";
+        return;
+    }
+
+    isAdminPanelOpen = false;
+    combatReturnScene = SceneMode.Outdoor;
+    combatStartTask = SpawnAdminEncounterTaskAsync(speciesId, variant, level);
+}
+
+async Task<CombatResult> SpawnAdminEncounterTaskAsync(int speciesId, MonsterVariant variant, int level)
+{
+    try
+    {
+        var monsters = await starterApi!.GetCharacterMonstersAsync(chosenCharacterId!.Value);
+        var monsterIds = SelectActiveTeamIds(monsters);
+        return await combatApi!.SpawnAdminEncounterAsync(options.SessionToken!, chosenCharacterId.Value, monsterIds, speciesId, variant, level);
     }
     catch (HttpRequestException)
     {
@@ -9624,6 +9666,27 @@ void DrawPortal(Vector2 gridPos, float animClock)
     DrawIsoDiamond(gridPos, 1.3f, WorldMap.PortalOuterColor);
     DrawIsoDiamond(gridPos, 0.88f, Vector4.Lerp(WorldMap.PortalMidColorDark, WorldMap.PortalMidColorBright, pulse));
     DrawIsoDiamond(gridPos, 0.46f, Vector4.Lerp(WorldMap.PortalMidColorBright, WorldMap.PortalCoreColor, pulse));
+}
+
+/// <summary>
+/// Voir demande utilisateur — "écrit au-dessus du donjon le nom + le niveau" : plaque nommée
+/// au-dessus du portail (même style que les enseignes de bâtiment, voir DrawBuilding), avec la
+/// plage de niveau des monstres et un tag [ADMIN] pour un portail invoqué par un administrateur.
+/// </summary>
+void DrawPortalLabel(Vector2 gridPos, DungeonPortalInfo portal)
+{
+    var levelText = portal.MaxMonsterLevel > portal.MinLevel ? $"NIV. {portal.MinLevel}-{portal.MaxMonsterLevel}" : $"NIV. {portal.MinLevel}";
+    var line1 = portal.Name.ToUpperInvariant() + (portal.IsAdminSpawned ? " [ADMIN]" : "");
+
+    const float scale = 0.85f;
+    var width = MathF.Max(MeasureTextWidth(line1, scale), MeasureTextWidth(levelText, scale)) + 10f;
+
+    var anchor = IsoMath.GridToIso(gridPos.X, gridPos.Y) - new Vector2(0, IsoMath.TileHeight * 1.9f);
+    var plaqueSize = new Vector2(width, IsoMath.TileHeight * 0.72f);
+    var plaquePos = anchor - new Vector2(plaqueSize.X / 2f, plaqueSize.Y);
+    spriteBatch.Draw(whiteTexture, plaquePos, plaqueSize, WorldMap.SignboardColor);
+    DrawTextCentered(spriteBatch, whiteTexture, line1, plaquePos + new Vector2(plaqueSize.X / 2f, plaqueSize.Y * 0.3f), scale, new Vector4(0.25f, 0.17f, 0.09f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, levelText, plaquePos + new Vector2(plaqueSize.X / 2f, plaqueSize.Y * 0.72f), scale, new Vector4(0.42f, 0.24f, 0.55f, 1f));
 }
 
 void DrawFigure(Vector2 gridPos, float bodyHeight, Vector4 roofColor, Vector4 wallLeftColor, Vector4 wallRightColor, Vector4 headColor, float bobPixels, string? label = null, string? sublabel = null, Vector2 screenOffset = default)
@@ -12041,6 +12104,53 @@ IEnumerable<(int X, int Y)> CombatReachableCells(CombatantState actor, CombatAct
     }
 }
 
+/// <summary>
+/// Voir demande utilisateur — "chaque mob : affiche son niveau, sa vie et s'il est spécial
+/// (shiny ou autre) en haut à droite avec son nom". Un encart par ennemi vivant.
+/// </summary>
+void DrawCombatEnemyPanel(float screenWidth)
+{
+    if (combatState is null)
+    {
+        return;
+    }
+
+    var enemies = combatState.Combatants.Where(c => c.Team != 0 && c.IsAlive).ToList();
+    if (enemies.Count == 0)
+    {
+        return;
+    }
+
+    const float panelWidth = 240f;
+    const float rowHeight = 46f;
+    var x = screenWidth - panelWidth - 12f;
+    var y = 12f;
+
+    foreach (var enemy in enemies)
+    {
+        DrawPanel(new Vector2(x, y), new Vector2(panelWidth, rowHeight), new Vector4(0.08f, 0.06f, 0.10f, 0.92f));
+
+        DrawText(spriteBatch, whiteTexture, $"{enemy.Name.ToUpperInvariant()}  NV. {enemy.Level}", new Vector2(x + 8f, y + 5f), 1.3f, Vector4.One);
+
+        var hpRatio = enemy.MaxHealth > 0 ? Math.Clamp((float)enemy.CurrentHealth / enemy.MaxHealth, 0f, 1f) : 0f;
+        var barTop = new Vector2(x + 8f, y + 24f);
+        DrawPanel(barTop, new Vector2(panelWidth - 16f, 8f), new Vector4(0.2f, 0.05f, 0.05f, 1f));
+        DrawPanel(barTop, new Vector2((panelWidth - 16f) * hpRatio, 8f), new Vector4(0.85f, 0.3f, 0.28f, 1f));
+        DrawText(spriteBatch, whiteTexture, $"{enemy.CurrentHealth}/{enemy.MaxHealth}", new Vector2(x + 8f, y + 33f), 1.0f, new Vector4(0.85f, 0.85f, 0.9f, 1f));
+
+        if (enemy.Variant != MonsterVariant.Normal)
+        {
+            var def = MonsterVariantCatalog.Get(enemy.Variant);
+            var badge = def.DisplayName.ToUpperInvariant();
+            var badgeWidth = MeasureTextWidth(badge, 1.0f) + 8f;
+            DrawPanel(new Vector2(x + panelWidth - badgeWidth - 6f, y + 32f), new Vector2(badgeWidth, 12f), new Vector4(def.ColorR, def.ColorG, def.ColorB, 0.9f));
+            DrawText(spriteBatch, whiteTexture, badge, new Vector2(x + panelWidth - badgeWidth - 2f, y + 33f), 1.0f, new Vector4(0.1f, 0.08f, 0.06f, 1f));
+        }
+
+        y += rowHeight + 6f;
+    }
+}
+
 void DrawCombat()
 {
     var w = uiCamera.ViewportWidth;
@@ -12168,10 +12278,18 @@ void DrawCombat()
         DrawTextCentered(spriteBatch, whiteTexture, combatant.Type.ToString().ToUpperInvariant(), center + new Vector2(0, cellSize * 0.42f + 14f), 0.9f, typeColor);
     }
 
+    DrawCombatEnemyPanel(w);
+
     if (combatState.IsFinished)
     {
-        var resultText = combatState.WinningTeam == 0 ? "VICTOIRE !" : "DEFAITE...";
-        var resultColor = combatState.WinningTeam == 0 ? new Vector4(0.4f, 0.9f, 0.4f, 1f) : new Vector4(0.9f, 0.4f, 0.4f, 1f);
+        // Voir retour utilisateur — "quand un monstre s'échappe il y a écrit victoire" : capture
+        // ratée => WinningTeam null (ni victoire ni défaite), voir CombatService.ResolveCaptureAsync.
+        var (resultText, resultColor) = combatState.WinningTeam switch
+        {
+            0 => ("VICTOIRE !", new Vector4(0.4f, 0.9f, 0.4f, 1f)),
+            null => ("LE MONSTRE S'EST ÉCHAPPÉ", new Vector4(0.9f, 0.82f, 0.4f, 1f)),
+            _ => ("DEFAITE...", new Vector4(0.9f, 0.4f, 0.4f, 1f)),
+        };
 
         if (activeLoot is { IsResolved: false })
         {
@@ -12984,4 +13102,4 @@ enum StarterStage
     Sending,
 }
 
-sealed record NearbyInteraction(InteractionKind Kind, string Label, Building? Building, Npc? Npc);
+sealed record NearbyInteraction(InteractionKind Kind, string Label, Building? Building, Npc? Npc, DungeonPortalInfo? DungeonPortal = null);

@@ -25,7 +25,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// <summary>Voir GDD/demande utilisateur — "ajoute aussi des ev" : montant fixe par victoire (même simplification que PveVictoryExperience ci-dessus), plafonné à 252 par statistique (voir MonsterEntity.EvHealth etc.).</summary>
     private const int EvGainPerVictory = 4;
     private const int MaxEv = 252;
-    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false, bool isMythic = false, int wildLevel = 1, int? dungeonId = null)
+    public async Task<CombatSessionState> StartAsync(StartCombatRequest request, CancellationToken ct = default, bool isDungeonCombat = false, bool isHardcore = false, bool isMythic = false, int wildLevel = 1, int? dungeonId = null, double extraStatMultiplier = 1.0, MonsterVariant? forcedVariant = null, double rewardMultiplier = 1.0)
     {
         // Voir retour utilisateur — "ajouter un admin pour desactiver les combats".
         if (GlobalEventService.AreCombatsDisabled)
@@ -73,7 +73,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
                     return ToState(existingSession);
                 }
 
-                return await CreateWildCombatSessionAsync(request, character, userId, party, isDungeonCombat, isHardcore, isMythic, wildLevel, dungeonId, ct);
+                return await CreateWildCombatSessionAsync(request, character, userId, party, isDungeonCombat, isHardcore, isMythic, wildLevel, dungeonId, extraStatMultiplier, forcedVariant, rewardMultiplier, ct);
             }
             finally
             {
@@ -81,11 +81,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
         }
 
-        return await CreateWildCombatSessionAsync(request, character, userId, party, isDungeonCombat, isHardcore, isMythic, wildLevel, dungeonId, ct);
+        return await CreateWildCombatSessionAsync(request, character, userId, party, isDungeonCombat, isHardcore, isMythic, wildLevel, dungeonId, extraStatMultiplier, forcedVariant, rewardMultiplier, ct);
     }
 
     /// <summary>Construit et enregistre une nouvelle session PvE (extrait de <see cref="StartAsync"/> pour être appelable sous le verrou par groupe — voir Docs/Idees.md).</summary>
-    private async Task<CombatSessionState> CreateWildCombatSessionAsync(StartCombatRequest request, CharacterEntity character, Guid userId, PartySummary? party, bool isDungeonCombat, bool isHardcore, bool isMythic, int wildLevel, int? dungeonId, CancellationToken ct)
+    private async Task<CombatSessionState> CreateWildCombatSessionAsync(StartCombatRequest request, CharacterEntity character, Guid userId, PartySummary? party, bool isDungeonCombat, bool isHardcore, bool isMythic, int wildLevel, int? dungeonId, double extraStatMultiplier, MonsterVariant? forcedVariant, double rewardMultiplier, CancellationToken ct)
     {
         var wildSpecies = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == request.WildSpeciesId, ct)
             ?? throw new AccountOperationException("Espèce de créature inconnue.");
@@ -114,7 +114,10 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // Voir GDD/demande utilisateur — variantes de créature (voir MonsterVariantCatalog) :
             // tirée à chaque monstre sauvage engagé, indépendamment des autres (une rencontre à
             // plusieurs ennemis peut mélanger les variantes).
-            var variant = isInvasion ? GlobalEventService.RollInvasionVariant(Random.Shared) : MonsterVariantCatalog.RollWeighted(Random.Shared);
+            // Voir demande utilisateur — modificateur de donjon "spécial saison" (variante garantie,
+            // ex. Cristallin) et commande admin "faire apparaître un combat" (variante choisie) :
+            // forcedVariant court-circuite le tirage habituel quand il est renseigné.
+            var variant = forcedVariant ?? (isInvasion ? GlobalEventService.RollInvasionVariant(Random.Shared) : MonsterVariantCatalog.RollWeighted(Random.Shared));
             var variantDefinition = MonsterVariantCatalog.Get(variant);
             // Voir GDD/demande utilisateur — "donjon hardcore (niv 15+)" : statistiques des
             // monstres majorées de 50%, en contrepartie de récompenses plus généreuses (voir
@@ -125,7 +128,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             // impossibles" (contenu end-game) : statistiques ×3, cumulé avec l'invasion mais pas
             // avec le hardcore (un donjon est soit hardcore, soit mythique, jamais les deux — voir
             // DungeonSeeder).
-            var hardcoreMultiplier = isMythic ? 3.0 : isHardcore ? 1.5 : 1.0;
+            var hardcoreMultiplier = (isMythic ? 3.0 : isHardcore ? 1.5 : 1.0) * extraStatMultiplier;
             var invasionMultiplier = isInvasion ? 1.3 : 1.0;
             var namePrefix = (variant == MonsterVariant.Normal ? "" : variantDefinition.DisplayName + " ") + (isMythic ? "[MYTHIQUE] " : "") + (isInvasion ? "[INVASION] " : "") + (isHardcore ? "[HARDCORE] " : "");
             // Voir GDD/demande utilisateur — CORRECTION : "le niveau requis pour aller en donjon
@@ -148,7 +151,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             });
         }
 
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat, IsMythic = isMythic, PartyId = party?.Id, DungeonId = dungeonId, IsHardcoreCombat = isHardcore };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = false, Combatants = combatants, IsDungeonCombat = isDungeonCombat, IsMythic = isMythic, PartyId = party?.Id, DungeonId = dungeonId, IsHardcoreCombat = isHardcore, RewardMultiplier = rewardMultiplier };
         session.TeamOwnerUserId[0] = userId;
         session.TeamCharacterId[0] = character.Id;
 
@@ -207,6 +210,40 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             MonsterIds = request.MonsterIds,
             WildSpeciesId = species.Id,
         }, ct);
+    }
+
+    /// <summary>
+    /// Voir demande utilisateur — "dans le panel admin et en commande ajoute la possibilité de
+    /// faire apparaître un monstre à combattre" (variante shiny/autre + niveau au choix). Démarre
+    /// immédiatement un combat contre l'espèce demandée, forcée à la variante et au niveau donnés.
+    /// </summary>
+    public async Task<CombatSessionState> StartAdminEncounterAsync(Aetheria.Shared.Models.Admin.AdminSpawnEncounterRequest request, CancellationToken ct = default)
+    {
+        await AdminAuthService.RequireAdminAsync(db, tokenStore, request.SessionToken, ct);
+
+        if (GlobalEventService.AreCombatsDisabled)
+        {
+            throw new AccountOperationException("Les combats sont temporairement désactivés par un administrateur.");
+        }
+
+        if (!tokenStore.TryValidate(request.SessionToken, out var userId))
+        {
+            throw new AccountOperationException("Session invalide ou expirée.");
+        }
+
+        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == request.CharacterId && c.UserId == userId, ct)
+            ?? throw new AccountOperationException("Personnage introuvable pour ce compte.");
+
+        var species = await db.MonsterSpecies.FirstOrDefaultAsync(s => s.Id == request.SpeciesId, ct)
+            ?? throw new AccountOperationException("Espèce de créature inconnue.");
+
+        return await StartAsync(new StartCombatRequest
+        {
+            SessionToken = request.SessionToken,
+            CharacterId = character.Id,
+            MonsterIds = request.MonsterIds,
+            WildSpeciesId = species.Id,
+        }, ct, wildLevel: Math.Clamp(request.Level, 1, MonsterProgressionService.MaxLevel), forcedVariant: request.Variant);
     }
 
     /// <summary>
@@ -488,19 +525,32 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
         }
 
-        // Voir GDD/demande utilisateur — "le hardcore peut etre mis dans tout les dongon" : le
-        // mode hardcore est proposable sur n'importe quel donjon, plus de garde-fou IsHardcore.
-        var effectiveHardcore = request.HardcoreRequested;
+        // Voir demande utilisateur — "quand on rentre ajoute le choix entre hardcore, normal ou
+        // spécial saison" : le modificateur choisi à l'entrée (voir StartDungeonCombatRequest.Modifier)
+        // pilote la difficulté et les récompenses de ce combat de donjon.
+        var effectiveHardcore = request.Modifier == DungeonModifier.Hardcore;
+        var extraStatMultiplier = 1.0;
+        var rewardMultiplier = 1.0;
+        MonsterVariant? forcedVariant = null;
+
+        if (request.Modifier == DungeonModifier.Saison)
+        {
+            var season = await db.Seasons.FirstOrDefaultAsync(s => s.IsActive, ct);
+            var seasonal = SeasonalDungeonModifierCatalog.ForSeason(season?.Number ?? 1);
+            extraStatMultiplier = seasonal.StatMultiplier;
+            rewardMultiplier = seasonal.XpMultiplier;
+            forcedVariant = seasonal.ForcedVariant;
+        }
 
         // Voir GDD/demande utilisateur — "fait en sorte que les dongon normal on est 3 vie" :
-        // uniquement en mode normal (hardcore/mythique n'en consomment pas, plus risqués par
-        // ailleurs). Bloqué avant même de tirer l'espèce rencontrée, comme les autres gardes.
+        // hors hardcore/mythique (plus risqués par ailleurs). Le mode "spécial saison" garde les
+        // 3 vies. Bloqué avant même de tirer l'espèce rencontrée, comme les autres gardes.
         if (!effectiveHardcore && !dungeon.IsMythic)
         {
             var lives = await GetOrResetDungeonLivesAsync(request.CharacterId, dungeonId, ct);
             if (lives.LivesRemaining <= 0)
             {
-                throw new AccountOperationException("Plus de vie pour ce donjon aujourd'hui (mode normal) — revenez demain, ou tentez le mode hardcore s'il est disponible.");
+                throw new AccountOperationException("Plus de vie pour ce donjon aujourd'hui (mode normal) — revenez demain, ou tentez le mode hardcore.");
             }
         }
 
@@ -525,7 +575,8 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             CharacterId = request.CharacterId,
             MonsterIds = request.MonsterIds,
             WildSpeciesId = species.Id,
-        }, ct, isDungeonCombat: true, isHardcore: effectiveHardcore, isMythic: dungeon.IsMythic, wildLevel: wildLevel, dungeonId: dungeonId);
+        }, ct, isDungeonCombat: true, isHardcore: effectiveHardcore, isMythic: dungeon.IsMythic, wildLevel: wildLevel, dungeonId: dungeonId,
+        extraStatMultiplier: extraStatMultiplier, forcedVariant: forcedVariant, rewardMultiplier: rewardMultiplier);
 
         // Voir Docs/Idees.md — table de butin dédiée aux matériaux de boss : type de salle
         // conservé sur la session pour être lu à la résolution de la victoire (voir
@@ -786,8 +837,12 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             return null;
         }
 
+        // Voir demande utilisateur — modificateurs de donjon "spécial saison" : XP de victoire
+        // majorée (session.RewardMultiplier, 1.0 hors donjon ou en mode Normal).
+        var victoryExperience = (long)Math.Round(PveVictoryExperience * session.RewardMultiplier);
+
         var partyService = new PartyService(db, tokenStore);
-        await partyService.GrantSharedExperienceAsync(winnerCharacterId, PveVictoryExperience, ct);
+        await partyService.GrantSharedExperienceAsync(winnerCharacterId, victoryExperience, ct);
 
         // Voir GDD/demande utilisateur — "Défis hebdomadaires" (progression dérivée de cette statistique).
         var winnerStatsForChallenge = await db.Statistics.FirstOrDefaultAsync(s => s.CharacterId == winnerCharacterId, ct);
@@ -812,7 +867,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             foreach (var monster in allyMonsters)
             {
                 var levelBeforeGrant = monster.Level;
-                MonsterProgressionService.GrantExperience(monster, (int)PveVictoryExperience);
+                MonsterProgressionService.GrantExperience(monster, (int)victoryExperience);
                 if (monster.Level > levelBeforeGrant)
                 {
                     // Voir GDD/demande utilisateur — "ajoute de la lumière autour des monstre qui
@@ -1130,7 +1185,11 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         session.LastMessage = result.Message;
         session.IsFinished = true;
-        session.WinningTeam = actor.Team;
+        // Voir retour utilisateur — "quand on veut capturer un monstre et qu'il s'échappe il y a
+        // écrit victoire" : une capture ratée n'est ni une victoire ni une défaite. WinningTeam
+        // null => le Client affiche « LE MONSTRE S'EST ÉCHAPPÉ » (voir DrawCombat) et aucune
+        // récompense n'est accordée (ApplyPveVictoryRewardsAsync sort déjà si WinningTeam != 0).
+        session.WinningTeam = result.Success ? actor.Team : null;
     }
 
     private async Task ApplyPvpResultAsync(CombatSession session, CancellationToken ct)

@@ -28,8 +28,15 @@ public sealed class CombatSession
     /// <summary>Voir Docs/Idees.md — table de butin dédiée aux matériaux de boss : type de salle affrontée (Monstre/MiniBoss/Boss/BossLegendaire), <c>null</c> hors combat de donjon. Renseigné par <c>CombatService.StartFromDungeonAsync</c>.</summary>
     public DungeonEncounterType? RoomEncounterType { get; set; }
 
-    /// <summary>Vrai si le mode hardcore a été choisi pour ce combat de donjon (voir <c>StartDungeonCombatRequest.HardcoreRequested</c>) — le hardcore/mythique ne consomme pas de vie (voir <c>ApplyPveVictoryRewardsAsync</c>).</summary>
+    /// <summary>Vrai si le mode hardcore a été choisi pour ce combat de donjon (voir <c>StartDungeonCombatRequest.Modifier</c>) — le hardcore/mythique ne consomme pas de vie (voir <c>ApplyPveVictoryRewardsAsync</c>).</summary>
     public bool IsHardcoreCombat { get; init; }
+
+    /// <summary>
+    /// Voir demande utilisateur — "spécial saison" : multiplicateur d'XP appliqué à la victoire
+    /// (modificateur de donjon Hardcore/Saison, voir <see cref="Aetheria.Shared.Enums.DungeonModifier"/>).
+    /// 1.0 par défaut (aucun bonus).
+    /// </summary>
+    public double RewardMultiplier { get; init; } = 1.0;
 
     /// <summary>Vrai pour un combat contre le boss mondial (voir GDD/demande utilisateur — "fait que sa soit un vrai combat") : voir <c>CombatService.StartWorldBossEncounterAsync</c>/<c>ApplyWorldBossResultAsync</c>, dégâts appliqués au total de PV partagé même en cas de défaite/fuite.</summary>
     public bool IsWorldBossCombat { get; init; }

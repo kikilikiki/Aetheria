@@ -20,6 +20,9 @@ public enum TerrainType
     GrassDark,
 }
 
+/// <summary>Un portail de donjon affiché sur la carte du monde (voir <see cref="WorldMap.DungeonPortals"/>).</summary>
+public sealed record DungeonPortalInfo(int Id, string Name, int MinLevel, int MaxMonsterLevel, int X, int Y, int Slot, bool IsAdminSpawned);
+
 public sealed class WorldMap
 {
     public int Size { get; }
@@ -28,11 +31,18 @@ public sealed class WorldMap
     public IReadOnlyList<Building> Buildings { get; }
     public IReadOnlyList<Npc> Npcs { get; }
     public (int X, int Y) SpawnPosition { get; }
-    public (int X, int Y) DungeonEntrance { get; private set; }
-    public string DungeonName { get; }
 
-    /// <summary>Identifiant serveur du donjon affiché ici, résolu après coup via <see cref="SetDungeon"/> (voir GET /api/dungeons) — -1 tant qu'inconnu.</summary>
+    /// <summary>
+    /// Voir demande utilisateur — "toujours un donjon de niveau 1 et un donjon d'un niveau
+    /// aléatoire", + un 3ᵉ portail éventuel invoqué par un admin. Portails visibles sur la carte
+    /// du monde, remplis via <see cref="SetDungeonPortals"/> (endpoint GET /api/dungeons/active).
+    /// </summary>
+    public IReadOnlyList<DungeonPortalInfo> DungeonPortals { get; private set; } = [];
+
+    /// <summary>Donjon dans lequel le joueur est actuellement entré (voir <see cref="SetActiveDungeon"/>) — utilisé par les appels d'étage/salle une fois à l'intérieur. -1 tant qu'aucun.</summary>
     public int DungeonId { get; private set; } = -1;
+    public string DungeonName { get; private set; }
+    public (int X, int Y) DungeonEntrance { get; private set; }
 
     private readonly Vector4 GrassLight;
     private readonly Vector4 GrassMid;
@@ -258,16 +268,25 @@ public sealed class WorldMap
         && MathF.Sqrt(MathF.Pow(x - _pond.X, 2) + MathF.Pow(y - _pond.Y, 2)) >= 4.5f;
 
     /// <summary>
-    /// Applique la position serveur du donjon (voir <c>DungeonWorldService</c> côté serveur — la
-    /// position tourne chaque heure UTC). Appelé une fois après connexion (voir Program.cs) : le
-    /// donjon garde sa position d'origine tant que le client n'est pas encore connecté/n'a pas
-    /// encore reçu la liste des donjons. **Limite assumée** : les chemins de terre tracés à la
-    /// construction (<see cref="MarkPath"/>) ne sont pas retracés vers la nouvelle position —
-    /// seule l'entrée (portail + zone d'interaction) se déplace réellement.
+    /// Applique la liste des portails actifs renvoyée par le serveur (voir
+    /// <c>GET /api/dungeons/active</c> — 2 donjons + 1 portail admin éventuel, rotation horaire).
+    /// **Limite assumée** : les chemins de terre tracés à la construction (<see cref="MarkPath"/>)
+    /// ne sont pas retracés vers les nouvelles positions — seuls les portails/zones d'interaction
+    /// se déplacent réellement.
     /// </summary>
-    public void SetDungeon(int id, int worldX, int worldY)
+    public void SetDungeonPortals(IReadOnlyList<DungeonPortalInfo> portals)
+    {
+        DungeonPortals = portals.Where(p => IsWithinBounds(p.X, p.Y)).ToList();
+    }
+
+    /// <summary>
+    /// Mémorise le donjon dans lequel le joueur vient d'entrer (voir <c>EnterDungeonInterior</c>) —
+    /// c'est ce donjon que les appels d'étage/salle/combat ciblent tant qu'on est à l'intérieur.
+    /// </summary>
+    public void SetActiveDungeon(int id, string name, int worldX, int worldY)
     {
         DungeonId = id;
+        DungeonName = name;
         if (IsWithinBounds(worldX, worldY))
         {
             DungeonEntrance = (worldX, worldY);

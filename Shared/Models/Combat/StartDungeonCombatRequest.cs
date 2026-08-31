@@ -1,3 +1,5 @@
+using Aetheria.Shared.Enums;
+
 namespace Aetheria.Shared.Models.Combat;
 
 /// <summary>
@@ -10,6 +12,10 @@ public sealed class StartDungeonCombatRequest
     public required Guid CharacterId { get; init; }
     public required IReadOnlyList<Guid> MonsterIds { get; init; }
 
-    /// <summary>Voir GDD/demande utilisateur — "fait en sorte que les dongon hardcore soit pas des dongon a part mais que l'on peut choisir hardcore ou normal" : n'a d'effet que si le donjon propose le mode hardcore (voir DungeonEntity.IsHardcore).</summary>
-    public bool HardcoreRequested { get; init; }
+    /// <summary>
+    /// Voir demande utilisateur — "quand on rentre ajoute le choix entre hardcore, normal ou
+    /// spécial saison" : choisi une fois à l'entrée du donjon, porté jusqu'au combat engagé.
+    /// Remplace l'ancien booléen <c>HardcoreRequested</c>.
+    /// </summary>
+    public DungeonModifier Modifier { get; init; } = DungeonModifier.Normal;
 }

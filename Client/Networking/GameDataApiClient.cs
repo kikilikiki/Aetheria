@@ -257,6 +257,16 @@ public sealed class GameDataApiClient : IDisposable
         return result ?? [];
     }
 
+    /// <summary>
+    /// Voir demande utilisateur — les 2 (ou 3) donjons actifs pour l'heure courante + le détail
+    /// des modificateurs Hardcore / Spécial saison affichés dans le panneau de choix à l'entrée.
+    /// </summary>
+    public async Task<ActiveDungeonsResponse> GetActiveDungeonsAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<ActiveDungeonsResponse>("/api/dungeons/active", JsonOptions, ct);
+        return result ?? new ActiveDungeonsResponse();
+    }
+
     /// <summary>Séquence de salles d'un étage de donjon (voir GDD — exploration en couloir linéaire).</summary>
     public async Task<DungeonFloor?> GetDungeonFloorAsync(int dungeonId, int floorNumber, CancellationToken ct = default)
     {
@@ -900,8 +910,16 @@ public sealed class GameDataApiClient : IDisposable
     public async Task<AdminGameActionResponse> TransformPlayerAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/transform", new AdminTransformRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, DurationSeconds = 60 }, ct);
 
-    public async Task<AdminGameActionResponse> GiveMonsterToPlayerAsync(string sessionToken, string targetCharacterName, int speciesId, CancellationToken ct = default)
-        => await PostAdminActionAsync("/api/admin/game/give-monster", new AdminGiveMonsterRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, SpeciesId = speciesId }, ct);
+    public async Task<AdminGameActionResponse> GiveMonsterToPlayerAsync(string sessionToken, string targetCharacterName, int speciesId, MonsterVariant? variant = null, int? level = null, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/give-monster", new AdminGiveMonsterRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, SpeciesId = speciesId, Variant = variant, Level = level }, ct);
+
+    /// <summary>Voir demande utilisateur — "pour modifier" un monstre déjà possédé (variante shiny/autre + niveau).</summary>
+    public async Task<AdminGameActionResponse> SetMonsterVariantAsync(string sessionToken, string targetCharacterName, string monsterName, MonsterVariant variant, int? level, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/set-monster-variant", new AdminSetMonsterVariantRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName, MonsterName = monsterName, Variant = variant, Level = level }, ct);
+
+    /// <summary>Voir demande utilisateur — "faire apparaître un donjon spécifique" (3ᵉ portail temporaire).</summary>
+    public async Task<AdminGameActionResponse> SpawnDungeonAsync(string sessionToken, string dungeonName, CancellationToken ct = default)
+        => await PostAdminActionAsync("/api/admin/game/spawn-dungeon", new AdminSpawnDungeonRequest { SessionToken = sessionToken, DungeonName = dungeonName }, ct);
 
     public async Task<AdminGameActionResponse> MaxLevelTeamAsync(string sessionToken, string targetCharacterName, CancellationToken ct = default)
         => await PostAdminActionAsync("/api/admin/game/max-level-team", new AdminMaxLevelTeamRequest { SessionToken = sessionToken, TargetCharacterName = targetCharacterName }, ct);

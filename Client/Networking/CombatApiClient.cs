@@ -5,6 +5,7 @@ using Aetheria.Shared;
 using Aetheria.Shared.Enums;
 using Aetheria.Shared.Models;
 using Aetheria.Shared.Models.Account;
+using Aetheria.Shared.Models.Admin;
 using Aetheria.Shared.Models.Combat;
 
 namespace Aetheria.Client.Networking;
@@ -79,14 +80,31 @@ public sealed class CombatApiClient : IDisposable
 
     /// <summary>Engage le combat contre le monstre d'une salle de donjon précise (voir GDD — exploration en couloir linéaire).</summary>
     public async Task<CombatResult> StartDungeonCombatAsync(
-        string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, int dungeonId, int floorNumber, int roomIndex, bool hardcoreRequested = false, CancellationToken ct = default)
+        string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, int dungeonId, int floorNumber, int roomIndex, DungeonModifier modifier = DungeonModifier.Normal, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync($"/api/dungeons/{dungeonId}/floors/{floorNumber}/rooms/{roomIndex}/engage", new StartDungeonCombatRequest
         {
             SessionToken = sessionToken,
             CharacterId = characterId,
             MonsterIds = monsterIds,
-            HardcoreRequested = hardcoreRequested,
+            Modifier = modifier,
+        }, JsonOptions, ct);
+
+        return await ReadResultAsync(response, ct);
+    }
+
+    /// <summary>Voir demande utilisateur — commande/panneau admin "faire apparaître un combat" contre une espèce/variante/niveau choisis.</summary>
+    public async Task<CombatResult> SpawnAdminEncounterAsync(
+        string sessionToken, Guid characterId, IReadOnlyList<Guid> monsterIds, int speciesId, MonsterVariant variant, int level, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/api/admin/game/spawn-encounter", new AdminSpawnEncounterRequest
+        {
+            SessionToken = sessionToken,
+            CharacterId = characterId,
+            MonsterIds = monsterIds,
+            SpeciesId = speciesId,
+            Variant = variant,
+            Level = level,
         }, JsonOptions, ct);
 
         return await ReadResultAsync(response, ct);

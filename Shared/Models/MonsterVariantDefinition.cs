@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Aetheria.Shared.Enums;
 
 namespace Aetheria.Shared.Models;
@@ -52,6 +54,47 @@ public static class MonsterVariantCatalog
         All.ToDictionary(d => d.Variant);
 
     public static MonsterVariantDefinition Get(MonsterVariant variant) => ByVariant[variant];
+
+    /// <summary>
+    /// Voir demande utilisateur — commandes/panneau admin sur les variantes : résout un texte
+    /// saisi à la main (nom d'enum "Shiny" ou nom d'affichage "Brillant"/"Doré"), insensible à la
+    /// casse et aux accents. Retourne <c>false</c> pour une saisie vide ou inconnue.
+    /// </summary>
+    public static bool TryParse(string? text, out MonsterVariant variant)
+    {
+        variant = MonsterVariant.Normal;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var normalized = Normalize(text);
+        foreach (var definition in All)
+        {
+            if (Normalize(definition.Variant.ToString()) == normalized || Normalize(definition.DisplayName) == normalized)
+            {
+                variant = definition.Variant;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string Normalize(string value)
+    {
+        var decomposed = value.Trim().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+        foreach (var c in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            {
+                builder.Append(c);
+            }
+        }
+
+        return builder.ToString().ToUpperInvariant();
+    }
 
     /// <summary>Tire une variante pondérée par <see cref="MonsterVariantDefinition.SpawnWeight"/> — voir CombatService.StartAsync/StartWildEncounterAsync (rencontres sauvages).</summary>
     public static MonsterVariant RollWeighted(Random random)
