@@ -1,0 +1,94 @@
+@page "/admin/candidatures"
+@model Aetheria.Web.Pages.Admin.CandidaturesModel
+@using Aetheria.Shared.Enums
+@{
+    ViewData["Title"] = "Candidatures bêta";
+}
+
+<div class="container">
+    <h1 class="section-title" style="text-align:left;">Candidatures bêta</h1>
+
+    @if (!string.IsNullOrEmpty(Model.Flash))
+    {
+        <div class="alert alert-ok">@Model.Flash</div>
+    }
+
+    <p>
+        Filtre :
+        <a href="?filter=pending">En attente</a> ·
+        <a href="?filter=approved">Acceptées</a> ·
+        <a href="?filter=rejected">Refusées</a> ·
+        <a href="?filter=all">Toutes</a>
+    </p>
+
+    @if (Model.Applications.Count == 0)
+    {
+        <p style="color:var(--text-dim);">Aucune candidature.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data">
+                <thead>
+                    <tr>
+                        <th>Date</th><th>Compte</th><th>Discord</th><th>Plateforme</th>
+                        <th>Config PC</th><th>Remarques</th><th>Statut</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var a in Model.Applications)
+                {
+                    var cls = a.Status == BetaApplicationStatus.Approved ? "approved"
+                        : a.Status == BetaApplicationStatus.Rejected ? "rejected" : "pending";
+                    <tr>
+                        <td>@a.CreatedAtUtc.ToString("dd/MM/yy HH:mm")</td>
+                        <td>@a.Username<br /><span style="color:var(--text-dim);font-size:.8rem;">@a.ContactEmail</span></td>
+                        <td>
+                            @a.DiscordHandle
+                            @if (!string.IsNullOrEmpty(a.DiscordTicketChannelId) && Model.Discord.GuildId is not null)
+                            {
+                                <br /><a href="@Model.Discord.TicketUrl(a.DiscordTicketChannelId)" target="_blank" rel="noopener" style="font-size:.8rem;">salon</a>
+                            }
+                        </td>
+                        <td>@a.Platform</td>
+                        <td style="max-width:220px;white-space:pre-wrap;">@a.HardwareSpecs</td>
+                        <td style="max-width:200px;white-space:pre-wrap;">@a.Notes</td>
+                        <td>
+                            <span class="badge @cls">@a.Status</span>
+                            @if (!string.IsNullOrWhiteSpace(a.ReviewedByUsername))
+                            {
+                                <br /><span style="color:var(--text-dim);font-size:.75rem;">par @a.ReviewedByUsername</span>
+                            }
+                        </td>
+                        <td>
+                            <div class="row-actions">
+                                @if (a.Status != BetaApplicationStatus.Approved)
+                                {
+                                    <form method="post" asp-page-handler="Approve" asp-route-id="@a.Id" asp-route-filter="@Model.Filter">
+                                        <label style="font-size:.75rem;color:var(--text-dim);"><input type="checkbox" name="grantTester" value="true" /> grade Testeur</label>
+                                        <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">Valider</button>
+                                    </form>
+                                }
+                                @if (a.Status != BetaApplicationStatus.Rejected)
+                                {
+                                    <form method="post" asp-page-handler="Reject" asp-route-id="@a.Id" asp-route-filter="@Model.Filter">
+                                        <input type="text" name="note" class="mini-input" placeholder="raison (option.)" />
+                                        <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">Refuser</button>
+                                    </form>
+                                }
+                                @if (!string.IsNullOrEmpty(a.DiscordTicketChannelId))
+                                {
+                                    <form method="post" asp-page-handler="Archive" asp-route-id="@a.Id" asp-route-filter="@Model.Filter"
+                                          onsubmit="return confirm('Supprimer le salon Discord de cette candidature ?');">
+                                        <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">Archiver salon</button>
+                                    </form>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

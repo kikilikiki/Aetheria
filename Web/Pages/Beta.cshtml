@@ -1,0 +1,94 @@
+@page "/beta"
+@model BetaModel
+@{
+    ViewData["Title"] = "Candidature bêta";
+}
+
+<div class="container narrow">
+    <h1 class="section-title" style="text-align:left;">Devenir bêta-testeur</h1>
+
+    @if (Model.Submitted)
+    {
+        <div class="alert alert-ok">
+            Candidature enregistrée !
+            @if (Model.TicketCreated)
+            {
+                <text>Un salon privé <strong>beta-test-@(Aetheria.Web.Services.DiscordTicketService.Slug(Model.Existing!.InGamePseudo))</strong> vient d'être créé sur le Discord : le staff t'y répondra.</text>
+            }
+            else
+            {
+                <text>Le salon Discord n'a pas pu être créé automatiquement — un membre du staff s'en chargera.</text>
+            }
+        </div>
+        <a class="btn btn-secondary" href="/mon-compte">Voir le statut</a>
+    }
+    else if (Model.Existing is { Status: Aetheria.Shared.Enums.BetaApplicationStatus.Pending })
+    {
+        <div class="alert alert-info">Ta candidature est déjà en attente de traitement. Suis-la dans ton salon Discord privé.</div>
+        <a class="btn btn-secondary" href="/mon-compte">Voir le statut</a>
+    }
+    else if (Model.Existing is { Status: Aetheria.Shared.Enums.BetaApplicationStatus.Approved })
+    {
+        <div class="alert alert-ok">Tu es déjà accepté·e en bêta. Bienvenue !</div>
+    }
+    else
+    {
+        if (Model.Existing is { Status: Aetheria.Shared.Enums.BetaApplicationStatus.Rejected })
+        {
+            <div class="alert alert-info">
+                Ta candidature précédente a été refusée@(string.IsNullOrWhiteSpace(Model.Existing.AdminNote) ? "." : $" : {Model.Existing.AdminNote}") Tu peux en soumettre une nouvelle.
+            </div>
+        }
+
+        <p style="color:var(--text-dim);">
+            La candidature crée un salon privé sur le
+            <a href="@Aetheria.Shared.GameInfo.DiscordInviteUrl" target="_blank" rel="noopener">Discord</a>
+            avec le staff. Tu dois donc avoir rejoint le serveur Discord.
+        </p>
+
+        @if (!string.IsNullOrEmpty(Model.Error))
+        {
+            <div class="alert alert-error">@Model.Error</div>
+        }
+
+        <form method="post" class="form-panel">
+            <div class="field">
+                <label for="d">Pseudo Discord</label>
+                @if (Model.DiscordLinked)
+                {
+                    <input id="d" value="Compte Discord lié ✔" disabled />
+                    <div class="hint">Ton compte Discord est déjà lié, on l'utilise directement.</div>
+                }
+                else
+                {
+                    <input id="d" name="DiscordHandle" value="@Model.DiscordHandle" placeholder="ton_pseudo" required />
+                    <div class="hint">Ton nom d'utilisateur Discord (pas un surnom de serveur).</div>
+                }
+            </div>
+            <div class="field">
+                <label for="e">Email de contact</label>
+                <input id="e" name="ContactEmail" type="email" value="@Model.ContactEmail" required />
+            </div>
+            <div class="field">
+                <label for="p">Pseudo en jeu</label>
+                <input id="p" name="InGamePseudo" value="@Model.InGamePseudo" required />
+            </div>
+            <div class="field">
+                <label for="pf">Plateforme</label>
+                <select id="pf" name="Platform">
+                    <option value="Windows" selected="@(Model.Platform != "Linux")">Windows</option>
+                    <option value="Linux" selected="@(Model.Platform == "Linux")">Linux</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="hw">Configuration PC (processeur, carte graphique, RAM)</label>
+                <textarea id="hw" name="HardwareSpecs" required>@Model.HardwareSpecs</textarea>
+            </div>
+            <div class="field">
+                <label for="n">Autre / remarques (facultatif)</label>
+                <textarea id="n" name="Notes">@Model.Notes</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Envoyer ma candidature</button>
+        </form>
+    }
+</div>

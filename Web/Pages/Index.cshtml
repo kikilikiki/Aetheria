@@ -1,0 +1,55 @@
+@page
+@{
+    ViewData["Title"] = "MMORPG tactique";
+    var winUrl = "https://github.com/kikilikiki/Aetheria/releases/latest/download/AetheriaSetup.exe";
+}
+
+<section class="hero">
+    <h1>Aetheria</h1>
+    <p class="tagline">
+        Un MMORPG tactique : combats sur grille, collection de créatures, donjons générés à
+        l'infini et guerres de royaumes hebdomadaires. Développé entièrement en C#, moteur maison.
+    </p>
+    <div>
+        <a class="btn btn-primary" href="@winUrl">Installer le Launcher (Windows)</a>
+        <a class="btn btn-secondary" href="/telecharger">Autres plateformes</a>
+    </div>
+    <p style="margin-top:14px;color:var(--text-dim);font-size:.85rem;">
+        <span class="status-dot" id="server-dot"></span><span id="server-status">Statut du serveur…</span>
+    </p>
+</section>
+
+<div class="container">
+    <h2 class="section-title">Un monde vivant</h2>
+    <p class="section-lead">Stratégie sur grille, collection de créatures et exploration procédurale au service d'un monde persistant.</p>
+    <div class="grid">
+        <div class="card"><h3>Combat tactique</h3><p>Affrontements tour par tour sur grille : positionnement, portée, éléments et synergies d'équipe.</p></div>
+        <div class="card"><h3>Collection de créatures</h3><p>Affaiblissez, capturez, faites évoluer. 17 variantes, du Shiny au Titan.</p></div>
+        <div class="card"><h3>Donjons infinis</h3><p>Mini-boss tous les 10 étages, boss tous les 50, boss légendaire tous les 100.</p></div>
+        <div class="card"><h3>Métiers &amp; artisanat</h3><p>Minerai, forge, enchantement, hôtel des ventes : une économie portée par les joueurs.</p></div>
+        <div class="card"><h3>Guildes &amp; PvP classé</h3><p>Fondez une guilde, montez son niveau, grimpez les classements ELO.</p></div>
+        <div class="card"><h3>Guerres de royaumes</h3><p>Les territoires changent réellement de main chaque semaine selon les points de guerre.</p></div>
+    </div>
+</div>
+
+<div class="container">
+    <h2 class="section-title">Choisissez votre royaume</h2>
+    <p class="section-lead">Au commencement de l'aventure, votre allégeance façonne votre histoire.</p>
+    <div class="grid">
+        <div class="card kingdom feu"><h3>Royaume du Feu</h3><p>Terre des forges ardentes et des créatures embrasées.</p></div>
+        <div class="card kingdom nature"><h3>Royaume de la Nature</h3><p>Forêts anciennes et esprits végétaux.</p></div>
+        <div class="card kingdom glaces"><h3>Royaume des Glaces</h3><p>Cavernes cristallines et froid éternel.</p></div>
+        <div class="card kingdom ombres"><h3>Royaume des Ombres</h3><p>Ruines oubliées et créatures nocturnes.</p></div>
+    </div>
+</div>
+
+<div class="container narrow" style="text-align:center;">
+    <h2 class="section-title">Rejoindre la communauté</h2>
+    <p class="section-lead">Actus, entraide et candidatures bêta se passent sur le Discord.</p>
+    <a class="btn btn-primary" href="@Aetheria.Shared.GameInfo.DiscordInviteUrl" target="_blank" rel="noopener">Rejoindre le Discord</a>
+    <a class="btn btn-secondary" href="/beta">Devenir bêta-testeur</a>
+</div>
+
+@section Scripts {
+    <script src="~/js/site.js" asp-append-version="true"></script>
+}

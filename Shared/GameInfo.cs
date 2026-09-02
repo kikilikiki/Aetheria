@@ -27,9 +27,18 @@ public static class GameInfo
 
     /// <summary>
     /// Voir GDD/demande utilisateur — "une page A propos avec un bouton pour aller sur les CGU
-    /// du site" (voir Launcher, panneau À propos). Le site n'est pas encore déployé sur un nom
-    /// de domaine dédié (voir Sites/README.md) — pointe vers le fichier réel du dépôt GitHub en
-    /// attendant, à mettre à jour dès que le site a une adresse propre.
+    /// du site" (voir Launcher, panneau À propos). Pointe vers la page CGU du portail web
+    /// (<c>Aetheria.Web</c>, déployé sur Render) — voir <c>Docs/Deploiement-Web.md</c> ;
+    /// remplacer le sous-domaine si l'URL Render définitive diffère.
     /// </summary>
-    public const string TermsOfServiceUrl = "https://github.com/kikilikiki/Aetheria/blob/main/Sites/conditions-generales.html";
+    public const string TermsOfServiceUrl = "https://aetheria-web.onrender.com/cgu";
+
+    /// <summary>Adresse du portail web (site vitrine + comptes + candidatures bêta).</summary>
+    public const string WebsiteUrl = "https://aetheria-web.onrender.com";
+
+    // Réseaux officiels — partagés par le site (Aetheria.Web) et le Launcher (panneau « À propos »).
+    public const string DiscordInviteUrl = "https://discord.gg/8NqXPsg7gE";
+    public const string TikTokUrl = "https://www.tiktok.com/@aetheriafr";
+    public const string YouTubeUrl = "https://www.youtube.com/channel/UClmvwFtRxYnfaqmxyxIXqgw";
+    public const string ContactEmail = "aetheria.devteam@hotmail.com";
 }

@@ -19,31 +19,27 @@ TestResults/
 publish/
 *.pubxml.user
 
-# Installateurs : publiés en GitHub Releases (voir Sites/README.md), pas commités dans le
+# Installateurs : publiés en GitHub Releases (voir Build/README.md), pas commités dans le
 # dépôt — ni les artefacts finaux, ni les fichiers extraits/loose qui servent à les reconstruire.
-Sites/downloads/AetheriaSetup.exe
-Sites/downloads/Payload/
-Sites/downloads/AetheriaInstaller.*
-Sites/downloads/Aetheria.Shared.dll
-Sites/downloads/Aetheria.Shared.pdb
-Sites/downloads/CommunityToolkit.Mvvm.dll
+Sites/
+Build/downloads/
 
-# Voir Sites/README.md — section "Paquet Linux" : binaires regenerables via
+# Voir Build/README.md — section "Paquet Linux" : binaires regenerables via
 # `dotnet publish -r linux-x64`, pas commites (scaffolding/scripts commites, pas les artefacts).
 # Catch-all (pas une liste de fichiers un par un) : le Launcher self-contained publie des
 # dizaines de .so natifs (SkiaSharp/HarfBuzzSharp/CoreCLR, voir dotnet publish -r linux-x64) en
 # plus du Client et de sa propre libglfw.so.3 — intraitable à énumérer un par un.
-Sites/downloads/linux/aetheria-client-deb/opt/aetheria/*
-!Sites/downloads/linux/aetheria-client-deb/opt/aetheria/README-linux.txt
-Sites/downloads/linux/Aetheria.AppDir/usr/bin/*
-Sites/downloads/linux/*.deb
-Sites/downloads/linux/*.AppImage
-Sites/downloads/linux/*.tar.gz
+Build/linux/aetheria-client-deb/opt/aetheria/*
+!Build/linux/aetheria-client-deb/opt/aetheria/README-linux.txt
+Build/linux/Aetheria.AppDir/usr/bin/*
+Build/linux/*.deb
+Build/linux/*.AppImage
+Build/linux/*.tar.gz
 
 # La règle globale "bin/" ci-dessus attrape aussi le usr/bin/ du paquet Linux (FHS) : on garde
 # le petit script wrapper (le vrai binaire reste ignoré via les règles explicites ci-dessus).
-!Sites/downloads/linux/aetheria-client-deb/usr/bin/
-!Sites/downloads/linux/aetheria-client-deb/usr/bin/aetheria
+!Build/linux/aetheria-client-deb/usr/bin/
+!Build/linux/aetheria-client-deb/usr/bin/aetheria
 
 # Base de données locale / secrets
 *.db

@@ -628,7 +628,7 @@
                  crédits (créé par/code par/logo/musique/graphisme). -->
             <Border Grid.Row="0" Grid.RowSpan="3" Background="#000000AA"
                     IsVisible="{Binding IsAboutOpen}">
-                <Border Classes="overlayCard" Width="420" Height="430" behaviors:FadeInBehavior.Enable="True"
+                <Border Classes="overlayCard" Width="420" Height="580" behaviors:FadeInBehavior.Enable="True"
                         HorizontalAlignment="Center" VerticalAlignment="Center" Padding="26">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" FontSize="18" FontWeight="Bold"
@@ -647,6 +647,20 @@
                             <TextBlock Text="{loc:Tr 'Logo par Korbak'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
                             <TextBlock Text="{loc:Tr 'Musique par Konss'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
                             <TextBlock Text="{loc:Tr 'Graphisme par feelsman'}" Foreground="#E7E5E3" Margin="0,0,0,8" />
+
+                            <!-- Voir demande utilisateur — "dans le launcher et sur le site ajoute
+                                 les contact les reseaux" : réutilise OpenCreatorLinkCommand (ouvre
+                                 une URL via le navigateur/client mail par défaut). -->
+                            <TextBlock Text="{loc:Tr 'Réseaux'}" Foreground="{StaticResource TextMutedBrush}"
+                                       FontWeight="Bold" Margin="0,10,0,6" />
+                            <Button Content="Discord" Command="{Binding OpenCreatorLinkCommand}"
+                                    CommandParameter="{Binding DiscordUrl}" Classes="link" Margin="0,0,0,4" />
+                            <Button Content="TikTok" Command="{Binding OpenCreatorLinkCommand}"
+                                    CommandParameter="{Binding TikTokUrl}" Classes="link" Margin="0,0,0,4" />
+                            <Button Content="YouTube" Command="{Binding OpenCreatorLinkCommand}"
+                                    CommandParameter="{Binding YouTubeUrl}" Classes="link" Margin="0,0,0,4" />
+                            <Button Content="{Binding ContactEmail}" Command="{Binding OpenCreatorLinkCommand}"
+                                    CommandParameter="{Binding ContactMailUrl}" Classes="link" Margin="0,0,0,4" />
                         </StackPanel>
                     </DockPanel>
                 </Border>

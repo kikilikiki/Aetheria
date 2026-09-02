@@ -1,0 +1,18 @@
+@page "/admin"
+@model Aetheria.Web.Pages.Admin.IndexModel
+@{
+    ViewData["Title"] = "Administration";
+}
+
+<div class="container">
+    <h1 class="section-title" style="text-align:left;">Administration</h1>
+
+    <div class="grid">
+        <div class="card"><h3>@Model.Pending</h3><p>Candidatures en attente</p></div>
+        <div class="card"><h3>@Model.Approved</h3><p>Acceptées</p></div>
+        <div class="card"><h3>@Model.Rejected</h3><p>Refusées</p></div>
+        <div class="card"><h3>@Model.Accounts</h3><p>Comptes</p></div>
+    </div>
+
+    <p style="margin-top:24px;"><a class="btn btn-primary" href="/admin/candidatures">Traiter les candidatures</a></p>
+</div>

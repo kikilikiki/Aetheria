@@ -1,0 +1,52 @@
+@page "/mon-compte"
+@model CompteModel
+@{
+    ViewData["Title"] = "Mon compte";
+}
+
+<div class="container narrow">
+    <h1 class="section-title" style="text-align:left;">Mon compte</h1>
+
+    <div class="form-panel">
+        <div class="field"><label>Pseudo</label><div>@Model.Account.Username</div></div>
+        <div class="field"><label>Email</label><div>@Model.Account.Email</div></div>
+        <div class="field"><label>Grade</label><div>@Model.Account.Rank</div></div>
+        <div class="field">
+            <label>Compte Discord lié</label>
+            <div>
+                @if (string.IsNullOrEmpty(Model.Account.DiscordUserId))
+                {
+                    <span style="color:var(--text-dim);">Non lié — tape <code>/discord</code> en jeu puis <code>/link</code> sur le serveur Discord.</span>
+                }
+                else
+                {
+                    <span style="color:var(--ok);">Lié ✔</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    <h2 style="margin-top:36px;">Candidature bêta</h2>
+    @if (Model.Application is null)
+    {
+        <p style="color:var(--text-dim);">Tu n'as pas encore postulé.</p>
+        <a class="btn btn-primary" href="/beta">Postuler pour la bêta</a>
+    }
+    else
+    {
+        var a = Model.Application;
+        var cls = a.Status == Aetheria.Shared.Enums.BetaApplicationStatus.Approved ? "approved"
+            : a.Status == Aetheria.Shared.Enums.BetaApplicationStatus.Rejected ? "rejected" : "pending";
+        <div class="form-panel">
+            <p>Statut : <span class="badge @cls">@a.Status</span> &nbsp; <span style="color:var(--text-dim);">soumise le @a.CreatedAtUtc.ToString("dd/MM/yyyy")</span></p>
+            @if (!string.IsNullOrWhiteSpace(a.AdminNote))
+            {
+                <p><strong>Message du staff :</strong> @a.AdminNote</p>
+            }
+            @if (a.Status == Aetheria.Shared.Enums.BetaApplicationStatus.Pending)
+            {
+                <p style="color:var(--text-dim);">Le suivi se fait dans ton salon privé sur le Discord.</p>
+            }
+        </div>
+    }
+</div>

@@ -1,0 +1,32 @@
+# Contexte de build pour Web/Dockerfile — seuls Directory.Build.props, Shared/, Database/ et Web/
+# sont réellement copiés par le Dockerfile ; ceci réduit la taille du contexte envoyé au démon.
+.git/
+build/
+**/bin/
+**/obj/
+**/*.user
+.vs/
+.idea/
+.vscode/
+.claude/
+.obsidian/
+
+# Autres projets de la solution, inutiles au portail web
+Client/
+Engine/
+Launcher/
+MapEditor/
+MonsterEditor/
+AdminPanel/
+Installer/
+Sites/
+Build/
+Docs/
+Music/
+Tools/
+
+# Secrets / bases locales
+.env
+*.db
+*.db-shm
+*.db-wal

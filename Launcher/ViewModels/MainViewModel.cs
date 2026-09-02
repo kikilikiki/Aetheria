@@ -31,6 +31,13 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _title = $"{GameInfo.Name} Launcher — v{GameInfo.Version}";
 
+    // Réseaux officiels (panneau « À propos ») — valeurs partagées avec le site, voir GameInfo.
+    public string DiscordUrl => GameInfo.DiscordInviteUrl;
+    public string TikTokUrl => GameInfo.TikTokUrl;
+    public string YouTubeUrl => GameInfo.YouTubeUrl;
+    public string ContactMailUrl => $"mailto:{GameInfo.ContactEmail}";
+    public string ContactEmail => GameInfo.ContactEmail;
+
     [ObservableProperty]
     private string _usernameOrEmail = string.Empty;
 

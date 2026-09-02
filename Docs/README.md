@@ -46,10 +46,13 @@ Aetheria/
 └── Docs/                         Documentation (ce dossier)
 ```
 
-> **Planifié (hors solution .NET) :** `Sites/` — site web public permettant de télécharger le
-> launcher (`AetheriaInstaller.exe`). Ce sera un projet séparé (site statique ou ASP.NET),
-> non inclus dans `Aetheria.sln` car il ne partage pas de code avec le jeu. À construire une
-> fois le Launcher fonctionnel.
+> **Portail web :** `Web/` — `Aetheria.Web`, portail public ASP.NET Core (Razor Pages) : site
+> vitrine + boutons d'installation, connexion au compte (mêmes comptes/mots de passe/grades que
+> le jeu via `Aetheria.Database`), formulaire de candidature bêta-testeur (crée un salon Discord)
+> et page d'administration pour valider/refuser les candidatures. Déployé séparément du serveur
+> de jeu (Render + PostgreSQL Neon partagé) — voir `Docs/Deploiement-Web.md`. Ne référence
+> **jamais** `Aetheria.Server`. Les scripts de packaging Linux sont dans `Build/linux/`
+> (voir `Build/README.md`).
 
 ## Graphe de dépendances entre projets
 
@@ -98,7 +101,7 @@ de gameplay.
 4. ✅ Serveur — API HTTP de compte (`/api/account/register`, `/api/account/login`, hash BCrypt,
    jetons de session) + serveur de jeu TCP (`Server/Networking`) avec framing de packets
    (Ping/Pong, EnterWorld, PlayerMove) vérifié de bout en bout sur un vrai socket.
-   - ⬜ Monde partagé multi-joueurs (diffusion des positions, royaumes, instances de donjon) —
+   - ✅ Monde partagé multi-joueurs (diffusion des positions, royaumes, instances de donjon) —
      arrive avec les systèmes de jeu (étape 7).
 5. ✅ Launcher — WPF (`net10.0-windows`, MVVM via CommunityToolkit.Mvvm) : écran connexion/
    inscription branché sur l'API compte, sélection de personnage, bouton Jouer qui lance
@@ -513,17 +516,17 @@ de gameplay.
        classique), pas un vrai désinstallateur MSI. Vérifié par compilation et relecture de code
        uniquement (pas de test d'installation/désinstallation réelle sur cette machine partagée,
        pour ne pas modifier son registre Windows sans nécessité).
-   - ✅ Site de téléchargement (`Sites/index.html`, `Sites/conditions-generales.html`) — page
-     statique HTML/CSS pur, hors solution .NET. Bouton "Installer le Launcher" en lien
-     `download` direct vers `Sites/downloads/AetheriaSetup.zip` (un vrai paquet construit à
-     partir des builds Release réelles — `AetheriaInstaller.exe` + `Payload/` avec
-     Launcher+Client — pas une redirection GitHub Releases). Footer avec copyright et lien
-     vers une page CGU complète (compte, règles de conduite, propriété intellectuelle,
-     absence de garantie, données personnelles). Références à des jeux tiers retirées du
-     texte de présentation. Vérifié : structure HTML valide des deux pages, zip extrait et
-     `AetheriaInstaller.exe` relancé depuis l'extraction (le paquet fonctionne réellement).
-     Limite assumée : paquet reconstruit et commité manuellement, pas de CI de publication ;
-     build "framework-dependent" (nécessite le runtime .NET 10 Desktop sur la machine cible).
+   - ✅ Portail web (`Web/` — `Aetheria.Web`, ASP.NET Core Razor Pages) — remplace l'ancien site
+     statique `Sites/`. Site vitrine + boutons d'installation (liens stables GitHub Releases
+     `releases/latest/download/…`), connexion/inscription réutilisant la table `Users` (mêmes
+     comptes que le jeu), page CGU, formulaire de candidature bêta-testeur qui crée un salon
+     Discord privé par candidat (`Web/Services/DiscordTicketService.cs`), page d'administration
+     `/admin/candidatures` (accès `IsAdmin || Fondateur`) pour valider/refuser. Déployé sur Render
+     via `Web/Dockerfile` + `render.yaml`, base PostgreSQL Neon partagée avec le serveur de jeu
+     auto-hébergé — voir `Docs/Deploiement-Web.md`. Le serveur de jeu TCP ne peut pas tourner sur
+     Render (un seul port HTTP) : il reste chez l'utilisateur, les deux pointent vers la même base.
+     Les scripts de packaging Linux (`.deb`/AppImage/`.tar.gz`) sont dans `Build/linux/`
+     (`Build/README.md`).
    - ✅ Annonces Discord (`Server/Discord/DiscordAnnouncer.cs`) : poste un embed dans un ou
      plusieurs salons Discord fixes via l'API REST des bots (`Authorization: Bot <token>`) plutôt
      qu'une connexion gateway complète — pas besoin de recevoir d'évènements Discord pour de

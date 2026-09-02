@@ -1,0 +1,59 @@
+@using System.Security.Claims
+@{
+    var isAuth = User.Identity?.IsAuthenticated == true;
+    var isStaff = User.HasClaim("is_staff", "true");
+    var displayName = User.Identity?.Name;
+    var healthUrl = Environment.GetEnvironmentVariable("GAME_SERVER_HEALTH_URL") ?? "";
+}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@(ViewData["Title"] is null ? "Aetheria" : ViewData["Title"] + " — Aetheria")</title>
+    <meta name="description" content="Aetheria : MMORPG tactique sur grille, collection de créatures, donjons générés à l'infini, guildes et guerres de royaumes." />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body data-health-url="@healthUrl">
+<header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark">A</span>AETHERIA</a>
+    <nav class="site-nav">
+        <a href="/">Accueil</a>
+        <a href="/telecharger">Télécharger</a>
+        <a href="/beta">Bêta</a>
+        @if (isStaff)
+        {
+            <a href="/admin">Admin</a>
+        }
+        @if (isAuth)
+        {
+            <a href="/mon-compte">@displayName</a>
+            <form method="post" action="/deconnexion" class="inline-form">
+                <button type="submit" class="linklike">Déconnexion</button>
+            </form>
+        }
+        else
+        {
+            <a href="/connexion">Connexion</a>
+        }
+    </nav>
+</header>
+
+<main class="site-main">
+    @RenderBody()
+</main>
+
+<footer class="site-footer">
+    <div class="socials">
+        <a href="@GameInfo.DiscordInviteUrl" target="_blank" rel="noopener">Discord</a>
+        <a href="@GameInfo.TikTokUrl" target="_blank" rel="noopener">TikTok</a>
+        <a href="@GameInfo.YouTubeUrl" target="_blank" rel="noopener">YouTube</a>
+        <a href="mailto:@GameInfo.ContactEmail">@GameInfo.ContactEmail</a>
+    </div>
+    <p>&copy; @DateTime.UtcNow.Year Aetheria — projet personnel en développement, sans lien avec une société commerciale.</p>
+    <p><a href="/cgu">Conditions générales d'utilisation</a> &nbsp;·&nbsp; <a href="https://github.com/kikilikiki/Aetheria" target="_blank" rel="noopener">Code source</a></p>
+</footer>
+
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

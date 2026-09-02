@@ -51,6 +51,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<ChallengeProgressEntity> ChallengeProgress => Set<ChallengeProgressEntity>();
     public DbSet<DungeonLivesEntity> DungeonLives => Set<DungeonLivesEntity>();
     public DbSet<ReportEntity> Reports => Set<ReportEntity>();
+    public DbSet<BetaApplicationEntity> BetaApplications => Set<BetaApplicationEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -313,6 +314,18 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             progress.HasOne(p => p.Character)
                 .WithMany()
                 .HasForeignKey(p => p.CharacterId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BetaApplicationEntity>(application =>
+        {
+            application.Property(a => a.Status).HasConversion<string>();
+            application.HasIndex(a => a.UserId);
+            application.HasIndex(a => a.Status);
+
+            application.HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

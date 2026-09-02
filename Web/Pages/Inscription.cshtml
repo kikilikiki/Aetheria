@@ -1,0 +1,37 @@
+@page "/inscription"
+@model InscriptionModel
+@{
+    ViewData["Title"] = "Créer un compte";
+}
+
+<div class="container narrow">
+    <h1 class="section-title" style="text-align:left;">Créer un compte</h1>
+    <p style="color:var(--text-dim);">Ce compte fonctionne aussi dans le jeu.</p>
+
+    @if (!string.IsNullOrEmpty(Model.Error))
+    {
+        <div class="alert alert-error">@Model.Error</div>
+    }
+
+    <form method="post" class="form-panel">
+        <div class="field">
+            <label for="u">Pseudo</label>
+            <input id="u" name="Username" value="@Model.Username" minlength="3" maxlength="20" required />
+            <div class="hint">3 à 20 caractères. Visible en jeu.</div>
+        </div>
+        <div class="field">
+            <label for="e">Email</label>
+            <input id="e" name="Email" type="email" value="@Model.Email" autocomplete="email" required />
+        </div>
+        <div class="field">
+            <label for="p">Mot de passe</label>
+            <input id="p" name="Password" type="password" minlength="6" autocomplete="new-password" required />
+            <div class="hint">6 caractères minimum.</div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Créer le compte</button>
+    </form>
+
+    <p style="margin-top:16px;color:var(--text-dim);">
+        Déjà un compte ? <a href="/connexion">Se connecter</a>
+    </p>
+</div>
