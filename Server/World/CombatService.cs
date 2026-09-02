@@ -382,7 +382,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// l'arène classée (voir <see cref="ApplyArenaResultAsync"/>), qui généralise correctement au
     /// cas 1v1 (équipes d'un seul membre).
     /// </summary>
-    public async Task<CombatSessionState> StartFriendlyTeamDuelAsync(IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, CancellationToken ct = default)
+    public async Task<CombatSessionState> StartFriendlyTeamDuelAsync(IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, bool ranked = false, CancellationToken ct = default)
     {
         if (GlobalEventService.AreCombatsDisabled)
         {
@@ -390,7 +390,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         }
 
         var combatants = new List<Combatant>();
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, IsFriendlyDuel = true, Combatants = combatants };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, IsFriendlyDuel = !ranked, Combatants = combatants };
 
         async Task AddTeamAsync(IReadOnlyList<Guid> characterIds, int team)
         {

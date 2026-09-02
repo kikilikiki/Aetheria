@@ -112,7 +112,7 @@ public sealed class CombatApiClient : IDisposable
 
     /// <summary>Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres doivent accepter" : appelé par le client du défieur une fois <see cref="Aetheria.Shared.Network.Packets.TeamDuelReadyPacket"/> reçu (tous les membres de l'équipe ciblée ont accepté). Chaque personnage engage son équipe active — pas de sélection manuelle, voir <c>CombatService.StartFriendlyTeamDuelAsync</c>.</summary>
     public async Task<CombatResult> ChallengeTeamAsync(
-        string sessionToken, Guid characterId, IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, CancellationToken ct = default)
+        string sessionToken, Guid characterId, IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, bool ranked = false, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/api/pvp/team-challenge", new StartFriendlyTeamDuelRequest
         {
@@ -120,6 +120,7 @@ public sealed class CombatApiClient : IDisposable
             CharacterId = characterId,
             ChallengerTeamCharacterIds = challengerTeamCharacterIds,
             TargetTeamCharacterIds = targetTeamCharacterIds,
+            Ranked = ranked,
         }, JsonOptions, ct);
 
         return await ReadResultAsync(response, ct);

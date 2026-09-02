@@ -15,6 +15,9 @@ public sealed class TeamDuelReadyPacket : IPacket
     public required IReadOnlyList<Guid> ChallengerTeamCharacterIds { get; init; }
     public required IReadOnlyList<Guid> TargetTeamCharacterIds { get; init; }
 
+    /// <summary>Vrai pour un duel classé (l'ELO est ajusté à la fin) — voir demande utilisateur.</summary>
+    public bool Ranked { get; init; }
+
     public void Write(BinaryWriter writer)
     {
         writer.Write(ChallengerTeamCharacterIds.Count);
@@ -28,6 +31,8 @@ public sealed class TeamDuelReadyPacket : IPacket
         {
             writer.Write(id.ToString());
         }
+
+        writer.Write(Ranked);
     }
 
     public static IPacket Read(BinaryReader reader)
@@ -46,6 +51,11 @@ public sealed class TeamDuelReadyPacket : IPacket
             targetIds.Add(Guid.Parse(reader.ReadString()));
         }
 
-        return new TeamDuelReadyPacket { ChallengerTeamCharacterIds = challengerIds, TargetTeamCharacterIds = targetIds };
+        return new TeamDuelReadyPacket
+        {
+            ChallengerTeamCharacterIds = challengerIds,
+            TargetTeamCharacterIds = targetIds,
+            Ranked = reader.ReadBoolean(),
+        };
     }
 }

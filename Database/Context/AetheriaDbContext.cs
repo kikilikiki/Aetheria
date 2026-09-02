@@ -54,6 +54,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<BetaApplicationEntity> BetaApplications => Set<BetaApplicationEntity>();
     public DbSet<GiftCodeEntity> GiftCodes => Set<GiftCodeEntity>();
     public DbSet<GiftCodeRedemptionEntity> GiftCodeRedemptions => Set<GiftCodeRedemptionEntity>();
+    public DbSet<BlockEntity> Blocks => Set<BlockEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -352,6 +353,22 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
                 .WithMany()
                 .HasForeignKey(r => r.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BlockEntity>(block =>
+        {
+            block.HasIndex(b => new { b.BlockerCharacterId, b.BlockedCharacterId }).IsUnique();
+            block.HasIndex(b => b.BlockedCharacterId);
+
+            block.HasOne(b => b.BlockerCharacter)
+                .WithMany()
+                .HasForeignKey(b => b.BlockerCharacterId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            block.HasOne(b => b.BlockedCharacter)
+                .WithMany()
+                .HasForeignKey(b => b.BlockedCharacterId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

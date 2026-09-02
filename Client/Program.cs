@@ -923,9 +923,16 @@ Task<CombatSessionState?>? guildWarMatchStateTask = null;
 // affichée indéfiniment si la réponse s'est perdue.
 string? pendingDuelInviteFrom = null;
 var pendingDuelInviteTeamSize = 1;
+var pendingDuelInviteRanked = false;
 var duelInviteExpiresAtUtc = DateTime.MinValue;
 Task<CombatSessionState?>? duelMatchStateTask = null;
 var duelTextInput = string.Empty;
+
+// Voir demande utilisateur — menu d'interaction avec un joueur proche (touche L / clic sur lui).
+var interactTargetName = string.Empty;
+var interactReportReason = string.Empty;
+var interactAwaitingReportReason = false;
+var interactFeedback = string.Empty;
 
 // Sélection/création de personnage (voir GDD) : ne se fait plus dans le Launcher, mais en jeu,
 // avant la connexion TCP proprement dite. `--characterId` reste accepté pour compatibilité
@@ -1407,17 +1414,55 @@ host.Update += deltaTime =>
         positionBeforeInput = gridPosition;
     }
 
+    // Voir demande utilisateur — interagir avec un joueur proche : joueur distant le plus proche
+    // (dans un rayon de ~2,5 cases) de notre personnage, pour la touche L et le clic direct.
+    (Guid Id, string Name, Vector2 Position)? nearestRemotePlayer = null;
+    if (connection is not null && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
+    {
+        var bestDistSq = 2.5f * 2.5f;
+        lock (stateLock)
+        {
+            foreach (var (id, remote) in remotePlayers)
+            {
+                var distSq = Vector2.DistanceSquared(remote.Position, positionBeforeInput);
+                if (distSq <= bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    nearestRemotePlayer = (id, remote.Name, remote.Position);
+                }
+            }
+        }
+    }
+
+    // Voir demande utilisateur — touche L : ouvre le menu d'interaction avec le joueur proche
+    // (P est déjà pris par le panneau Groupe).
+    if (keyboard.WasJustPressed(Key.L) && activePanel == PanelKind.None && nearestRemotePlayer is { } lTarget)
+    {
+        interactTargetName = lTarget.Name;
+        OpenPanel(PanelKind.PlayerInteract);
+    }
+
     // Clic gauche : calcule la case visée (transformation isométrique inverse) et y trace un chemin
     // — sauf si le clic tombe sur un bouton du HUD en haut à droite (voir GDD/demande utilisateur
     // et IsPointOverOutdoorHudButtons), sans quoi ouvrir un panneau déplaçait aussi le personnage.
-    if (mouse.WasButtonJustPressed(MouseButton.Left) && !IsPointOverOutdoorHudButtons(mouse.Position, uiCamera.ViewportWidth))
+    if (mouse.WasButtonJustPressed(MouseButton.Left) && !IsPointOverOutdoorHudButtons(mouse.Position, uiCamera.ViewportWidth)
+        && activePanel == PanelKind.None)
     {
         var worldPoint = camera.ScreenToWorld(mouse.Position);
         var clickedGrid = IsoMath.IsoToGrid(worldPoint);
         var targetX = (int)MathF.Round(clickedGrid.X);
         var targetY = (int)MathF.Round(clickedGrid.Y);
 
-        if (worldMap.IsWithinBounds(targetX, targetY))
+        // Voir demande utilisateur — clic directement sur un joueur proche : ouvre le menu
+        // d'interaction plutôt que de s'y déplacer.
+        if (nearestRemotePlayer is { } clickedPlayer
+            && Math.Abs(targetX - clickedPlayer.Position.X) <= 0.6f
+            && Math.Abs(targetY - clickedPlayer.Position.Y) <= 0.6f)
+        {
+            interactTargetName = clickedPlayer.Name;
+            OpenPanel(PanelKind.PlayerInteract);
+        }
+        else if (worldMap.IsWithinBounds(targetX, targetY))
         {
             var from = ((int)MathF.Round(positionBeforeInput.X), (int)MathF.Round(positionBeforeInput.Y));
             moveQueue = BuildOrthogonalPath(from, (targetX, targetY));
@@ -1823,7 +1868,7 @@ host.Render += _ =>
     // Voir GDD/demande utilisateur — "ajouter les demandes en duel pour le pvp".
     if (pendingDuelInviteFrom is { } duelChallengerName && sceneMode is SceneMode.Outdoor or SceneMode.Interior)
     {
-        DrawDuelInvitePopup(uiCamera.ViewportWidth, uiCamera.ViewportHeight, duelChallengerName, pendingDuelInviteTeamSize);
+        DrawDuelInvitePopup(uiCamera.ViewportWidth, uiCamera.ViewportHeight, duelChallengerName, pendingDuelInviteTeamSize, pendingDuelInviteRanked);
     }
 
     if (isTeleportPanelOpen)
@@ -5985,6 +6030,7 @@ void ConnectAndEnterWorld(Guid characterId)
         {
             pendingDuelInviteFrom = packet.FromCharacterName;
             pendingDuelInviteTeamSize = packet.TargetTeamSize;
+            pendingDuelInviteRanked = packet.Ranked;
             duelInviteExpiresAtUtc = DateTime.UtcNow.AddSeconds(30);
         }
     };
@@ -5992,7 +6038,7 @@ void ConnectAndEnterWorld(Guid characterId)
     {
         lock (stateLock)
         {
-            duelMatchStateTask = ChallengeTeamDuelAsync(packet.ChallengerTeamCharacterIds, packet.TargetTeamCharacterIds);
+            duelMatchStateTask = ChallengeTeamDuelAsync(packet.ChallengerTeamCharacterIds, packet.TargetTeamCharacterIds, packet.Ranked);
         }
     };
     connection.DuelStartedReceived += packet =>
@@ -6986,6 +7032,11 @@ void OpenPanel(PanelKind kind)
             break;
         case PanelKind.Duel:
             duelTextInput = string.Empty;
+            break;
+        case PanelKind.PlayerInteract:
+            interactReportReason = string.Empty;
+            interactAwaitingReportReason = false;
+            interactFeedback = string.Empty;
             break;
         case PanelKind.GemShop:
             premiumMessage = null;
@@ -8126,7 +8177,7 @@ async Task<bool> QueueForArenaAsync(ArenaFormat format)
 /// ne sont envoyées : le serveur engage l'équipe active de chaque personnage lui-même (voir
 /// <c>CombatService.StartFriendlyTeamDuelAsync</c>).
 /// </summary>
-async Task<CombatSessionState?> ChallengeTeamDuelAsync(IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds)
+async Task<CombatSessionState?> ChallengeTeamDuelAsync(IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, bool ranked = false)
 {
     if (combatApi is null || chosenCharacterId is null || options.SessionToken is null)
     {
@@ -8135,7 +8186,7 @@ async Task<CombatSessionState?> ChallengeTeamDuelAsync(IReadOnlyList<Guid> chall
 
     try
     {
-        var result = await combatApi.ChallengeTeamAsync(options.SessionToken, chosenCharacterId.Value, challengerTeamCharacterIds, targetTeamCharacterIds);
+        var result = await combatApi.ChallengeTeamAsync(options.SessionToken, chosenCharacterId.Value, challengerTeamCharacterIds, targetTeamCharacterIds, ranked);
         return result.State;
     }
     catch (HttpRequestException)
@@ -8340,6 +8391,12 @@ void UpdatePanel(float deltaTime)
     if (activePanel == PanelKind.Duel)
     {
         UpdateDuelPanel();
+        return;
+    }
+
+    if (activePanel == PanelKind.PlayerInteract)
+    {
+        UpdatePlayerInteractPanel();
         return;
     }
 
@@ -9866,6 +9923,7 @@ void DrawOutdoorHud()
             case PanelKind.Leaderboard: DrawLeaderboardPanel(w, h); break;
             case PanelKind.QuestList: DrawQuestListPanel(w, h); break;
             case PanelKind.Duel: DrawDuelPanel(w, h); break;
+            case PanelKind.PlayerInteract: DrawPlayerInteractPanel(w, h); break;
             case PanelKind.GemShop: DrawGemShopPanel(w, h); break;
             case PanelKind.Kingdom: DrawKingdomPanel(w, h); break;
             case PanelKind.Professions: DrawProfessionsPanel(w, h); break;
@@ -11039,7 +11097,7 @@ void DrawStaffNotice(int w)
 }
 
 /// <summary>Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les membres doivent accepter" : popup accepter/refuser, envoyée via le bouton DUEL ou <c>/duel &lt;pseudo&gt;</c> dans le tchat (voir PlayerSession.HandleDuelCommand). Si <paramref name="teamSize"/> &gt; 1, précise que tout le groupe doit accepter pour que le combat démarre.</summary>
-void DrawDuelInvitePopup(int w, int h, string challengerName, int teamSize)
+void DrawDuelInvitePopup(int w, int h, string challengerName, int teamSize, bool ranked)
 {
     const float boxWidth = 460f;
     const float boxHeight = 150f;
@@ -11047,7 +11105,7 @@ void DrawDuelInvitePopup(int w, int h, string challengerName, int teamSize)
 
     DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.1f, 0.05f, 0.12f, 0.95f));
     DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.9f, 0.4f, 0.85f, 1f));
-    DrawTextCentered(spriteBatch, whiteTexture, $"{challengerName} VOUS DEFIE EN DUEL !", new Vector2(w / 2f, topLeft.Y + 34f), 2f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, $"{challengerName} VOUS DEFIE EN DUEL {(ranked ? "CLASSE" : "AMICAL")} !", new Vector2(w / 2f, topLeft.Y + 34f), 2f, new Vector4(0.95f, 0.7f, 0.9f, 1f));
     if (teamSize > 1)
     {
         DrawTextCentered(spriteBatch, whiteTexture, $"Votre groupe entier ({teamSize} joueurs) doit accepter.", new Vector2(w / 2f, topLeft.Y + 66f), 1.6f, new Vector4(0.85f, 0.75f, 0.9f, 1f));
@@ -11246,6 +11304,104 @@ void DrawDuelPanel(int w, int h)
     DrawText(spriteBatch, whiteTexture, "Si son groupe (ou le votre) compte plusieurs joueurs,", new Vector2(topLeft.X + 20f, topLeft.Y + 132f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     DrawText(spriteBatch, whiteTexture, "tous ses membres devront accepter pour lancer le combat.", new Vector2(topLeft.X + 20f, topLeft.Y + 148f), 1.3f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
     DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : DEFIER - ECHAP : ANNULER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.8f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+}
+
+/// <summary>
+/// Voir demande utilisateur — menu d'interaction avec un joueur proche (touche L / clic sur lui) :
+/// ajouter en ami, duel amical, duel classé, signaler, bloquer. Chaque action est envoyée comme
+/// une commande de tchat déjà gérée côté serveur (voir PlayerSession.TryHandlePublicCommand).
+/// </summary>
+void UpdatePlayerInteractPanel()
+{
+    if (interactAwaitingReportReason)
+    {
+        foreach (var typed in keyboard.DrainTypedChars())
+        {
+            if (interactReportReason.Length < 80 && !char.IsControl(typed))
+            {
+                interactReportReason += typed;
+            }
+        }
+
+        if (keyboard.WasJustPressed(Key.Backspace) && interactReportReason.Length > 0)
+        {
+            interactReportReason = interactReportReason[..^1];
+        }
+        else if (keyboard.WasJustPressed(Key.Enter) && interactReportReason.Trim().Length > 0)
+        {
+            connection?.SendChatMessage($"/report {interactTargetName} {interactReportReason.Trim()}", ChatChannel.Global);
+            activePanel = PanelKind.None;
+        }
+        else if (keyboard.WasJustPressed(Key.Escape))
+        {
+            interactAwaitingReportReason = false;
+            interactReportReason = string.Empty;
+        }
+
+        return;
+    }
+
+    if (keyboard.WasJustPressed(Key.Escape))
+    {
+        activePanel = PanelKind.None;
+    }
+}
+
+void DrawPlayerInteractPanel(int w, int h)
+{
+    const float boxWidth = 380f;
+    const float boxHeight = 300f;
+    var topLeft = new Vector2(w / 2f - boxWidth / 2f, h / 2f - boxHeight / 2f);
+
+    DrawPanel(topLeft, new Vector2(boxWidth, boxHeight), new Vector4(0.06f, 0.08f, 0.1f, 0.96f));
+    DrawPanel(topLeft, new Vector2(boxWidth, 4f), new Vector4(0.5f, 0.7f, 0.95f, 1f));
+    DrawTextCentered(spriteBatch, whiteTexture, interactTargetName.ToUpperInvariant(), new Vector2(w / 2f, topLeft.Y + 22f), 2.2f, new Vector4(0.8f, 0.88f, 1f, 1f));
+
+    if (interactAwaitingReportReason)
+    {
+        DrawText(spriteBatch, whiteTexture, "Raison du signalement :", new Vector2(topLeft.X + 20f, topLeft.Y + 74f), 1.5f, new Vector4(0.9f, 0.75f, 0.35f, 1f));
+        DrawText(spriteBatch, whiteTexture, interactReportReason + "_", new Vector2(topLeft.X + 20f, topLeft.Y + 104f), 1.7f, Vector4.One);
+        DrawTextCentered(spriteBatch, whiteTexture, "ENTREE : ENVOYER - ECHAP : RETOUR", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
+        return;
+    }
+
+    var y = topLeft.Y + 68f;
+
+    if (DrawClickableCentered("Ajouter en ami", new Vector2(w / 2f, y), 1.8f, new Vector4(0.6f, 0.9f, 0.6f, 1f)))
+    {
+        connection?.SendChatMessage($"/friend add {interactTargetName}", ChatChannel.Global);
+        activePanel = PanelKind.None;
+    }
+
+    y += 40f;
+    if (DrawClickableCentered("Duel amical", new Vector2(w / 2f, y), 1.8f, new Vector4(0.9f, 0.8f, 0.5f, 1f)))
+    {
+        connection?.SendChatMessage($"/duel {interactTargetName}", ChatChannel.Global);
+        activePanel = PanelKind.None;
+    }
+
+    y += 40f;
+    if (DrawClickableCentered("Duel classe", new Vector2(w / 2f, y), 1.8f, new Vector4(0.95f, 0.6f, 0.4f, 1f)))
+    {
+        connection?.SendChatMessage($"/rankedduel {interactTargetName}", ChatChannel.Global);
+        activePanel = PanelKind.None;
+    }
+
+    y += 40f;
+    if (DrawClickableCentered("Signaler", new Vector2(w / 2f, y), 1.8f, new Vector4(0.9f, 0.7f, 0.4f, 1f)))
+    {
+        interactAwaitingReportReason = true;
+        interactReportReason = string.Empty;
+    }
+
+    y += 40f;
+    if (DrawClickableCentered("Bloquer", new Vector2(w / 2f, y), 1.8f, new Vector4(0.95f, 0.45f, 0.45f, 1f)))
+    {
+        connection?.SendChatMessage($"/block {interactTargetName}", ChatChannel.Global);
+        activePanel = PanelKind.None;
+    }
+
+    DrawTextCentered(spriteBatch, whiteTexture, "ECHAP : FERMER", new Vector2(w / 2f, topLeft.Y + boxHeight - 20f), 1.6f, new Vector4(0.7f, 0.7f, 0.75f, 1f));
 }
 
 void DrawChatToasts(int w, int h)
@@ -13118,6 +13274,9 @@ enum PanelKind
     Duel,
     GemShop,
     Kingdom,
+
+    /// <summary>Voir demande utilisateur — menu d'interaction avec un joueur proche (touche L ou clic sur lui) : ami / duel / signalement / blocage.</summary>
+    PlayerInteract,
 
     /// <summary>Voir GDD/demande utilisateur — "un UI avec un bouton pour voir les métiers, les niveaux de chaque métier".</summary>
     Professions,

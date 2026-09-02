@@ -27,12 +27,16 @@ public static class ReferralService
     /// Génère et enregistre un code de parrainage unique pour le compte s'il y a droit et n'en a
     /// pas déjà un. Retourne le code (existant ou nouveau), ou <c>null</c> si le compte n'y a pas droit.
     /// N'appelle PAS <c>SaveChanges</c> — l'appelant le fait.
+    ///
+    /// <b>Le code est définitif</b> (voir demande utilisateur — « une fois choisi il ne peut plus
+    /// être changé ») : si <see cref="UserEntity.ReferralCode"/> est déjà renseigné, il est
+    /// renvoyé tel quel, jamais régénéré. Aucun autre code du dépôt ne modifie ce champ.
     /// </summary>
     public static async Task<string?> EnsureCodeAsync(AetheriaDbContext db, UserEntity user, CancellationToken ct = default)
     {
         if (!string.IsNullOrEmpty(user.ReferralCode))
         {
-            return user.ReferralCode;
+            return user.ReferralCode; // définitif : jamais réécrit
         }
 
         if (!IsEligible(user))

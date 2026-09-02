@@ -71,6 +71,25 @@ public sealed class PlayerSession(
     public void RecordIncomingWhisper(string fromCharacterName) => _lastWhisperFromCharacterName = fromCharacterName;
 
     /// <summary>
+    /// Identifiants des personnages avec qui CE joueur a une relation de blocage (dans un sens ou
+    /// l'autre) — voir demande utilisateur, menu d'interaction « bloquer ». Chargé à l'entrée dans
+    /// le monde, rafraîchi après <c>/block</c> / <c>/unblock</c>. Sert à ne pas lui transmettre les
+    /// messages de tchat des personnes bloquées.
+    /// </summary>
+    private readonly HashSet<Guid> _blockRelations = [];
+
+    private void RefreshBlockRelations(AetheriaDbContext db)
+    {
+        _blockRelations.Clear();
+        foreach (var id in db.Blocks
+                     .Where(b => b.BlockerCharacterId == CharacterId || b.BlockedCharacterId == CharacterId)
+                     .Select(b => b.BlockerCharacterId == CharacterId ? b.BlockedCharacterId : b.BlockerCharacterId))
+        {
+            _blockRelations.Add(id);
+        }
+    }
+
+    /// <summary>
     /// Voir GDD/demande utilisateur — "panel admin en jeu... kick" : ferme la connexion TCP, ce
     /// qui débloque <see cref="Run"/> (IOException/lecture nulle) et déclenche le nettoyage normal
     /// (désenregistrement, notification aux autres joueurs) dans son bloc <c>finally</c>.
@@ -200,6 +219,7 @@ public sealed class PlayerSession(
         var user = db.Users.FirstOrDefault(u => u.Id == userId);
         Rank = user?.Rank ?? UserRank.Joueur;
         IsAdmin = user?.IsAdmin ?? false;
+        RefreshBlockRelations(db);
 
         // Voir GDD/demande utilisateur — "restaurer la position du joueur en quittant/revenant" :
         // reprend la dernière position sauvegardée (voir Run, bloc finally). (0,0) n'est PAS la
@@ -465,14 +485,15 @@ public sealed class PlayerSession(
                 .Select(m => m.CharacterId)
                 .ToHashSet();
 
-            foreach (var session in registry.All().Where(s => guildMemberIds.Contains(s.CharacterId)))
+            // Voir demande utilisateur — blocage « complet » : un joueur bloqué ne voit plus mes messages (et réciproquement).
+            foreach (var session in registry.All().Where(s => guildMemberIds.Contains(s.CharacterId) && !_blockRelations.Contains(s.CharacterId)))
             {
                 session.SendPacket(outgoing);
             }
         }
         else
         {
-            foreach (var session in registry.All())
+            foreach (var session in registry.All().Where(s => !_blockRelations.Contains(s.CharacterId)))
             {
                 session.SendPacket(outgoing);
             }
@@ -487,14 +508,14 @@ public sealed class PlayerSession(
     /// <see cref="HandleDuelResponse"/>) — le groupe du défieur, lui, est engagé sans confirmation
     /// individuelle (le simple fait de lancer /duel vaut consentement de sa part).
     /// </summary>
-    private void HandleDuelCommand(AetheriaDbContext db, string command, ChatChannel replyChannel)
+    private void HandleDuelCommand(AetheriaDbContext db, string command, ChatChannel replyChannel, bool ranked = false)
     {
         void Reply(string message) => SendPacket(new ChatMessagePacket { SenderName = "Système", Message = message, Channel = replyChannel });
 
         var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 2)
         {
-            Reply("Usage : /duel <pseudo>");
+            Reply(ranked ? "Usage : /rankedduel <pseudo>" : "Usage : /duel <pseudo>");
             return;
         }
 
@@ -508,6 +529,12 @@ public sealed class PlayerSession(
         if (target.CharacterId == CharacterId)
         {
             Reply("Impossible de vous défier vous-même.");
+            return;
+        }
+
+        if (_blockRelations.Contains(target.CharacterId))
+        {
+            Reply("Duel impossible : l'un de vous a bloqué l'autre.");
             return;
         }
 
@@ -529,15 +556,15 @@ public sealed class PlayerSession(
             return;
         }
 
-        duelInvites.CreateInvite(CharacterId, CharacterName, challengerTeam, onlineTargetTeam);
+        duelInvites.CreateInvite(CharacterId, CharacterName, challengerTeam, onlineTargetTeam, ranked);
 
         foreach (var memberId in onlineTargetTeam)
         {
-            registry.FindByCharacterId(memberId)?.SendPacket(new DuelInvitePacket { FromCharacterName = CharacterName, TargetTeamSize = onlineTargetTeam.Count });
+            registry.FindByCharacterId(memberId)?.SendPacket(new DuelInvitePacket { FromCharacterName = CharacterName, TargetTeamSize = onlineTargetTeam.Count, Ranked = ranked });
         }
 
         var teamSuffix = onlineTargetTeam.Count > 1 ? " et son groupe" : "";
-        Reply($"Demande de duel envoyée à {target.CharacterName}{teamSuffix}.");
+        Reply($"Demande de duel {(ranked ? "classé" : "amical")} envoyée à {target.CharacterName}{teamSuffix}.");
     }
 
     /// <summary>Résout le groupe (voir <see cref="PartyEntity"/>) du personnage, lui inclus — juste lui-même s'il n'est dans aucun groupe.</summary>
@@ -590,6 +617,7 @@ public sealed class PlayerSession(
         {
             ChallengerTeamCharacterIds = invite.ChallengerTeamCharacterIds,
             TargetTeamCharacterIds = invite.TargetTeamCharacterIds,
+            Ranked = invite.Ranked,
         });
     }
 
@@ -608,7 +636,7 @@ public sealed class PlayerSession(
         switch (parts[0].ToLowerInvariant())
         {
             case "/help":
-                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /use /report /ping /version /discord" +
+                Reply("Commandes : /profile /stats /achievements /title /friend /whisper (/w) /reply (/r) /guild /party /kingdom /duel /rankedduel /block /unblock /use /report /ping /version /discord" +
                     (rank is UserRank.Moderateur or UserRank.Fondateur || IsAdmin ? " — modération : /ban /mute /unmute /nick /monster-lvl /setiv /give /givemoney /givexp /givemonster /givemount /setlevel /setmoney /setclass /setkingdom /clearinventory /deletemonster /resetlevel /invsee /unban /ipban /unbanip" : "") +
                     (rank == UserRank.Fondateur ? " — fondateur : /givegems /givepalier /globalboost /globalgive /dev" : ""));
                 break;
@@ -778,11 +806,56 @@ public sealed class PlayerSession(
                 ReportPlayer(db, parts[1], string.Join(' ', parts[2..]), Reply);
                 break;
 
+            // Voir demande utilisateur — menu d'interaction en jeu : bloquer / débloquer un joueur.
+            case "/block":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /block <pseudo>");
+                    break;
+                }
+
+                HandleBlockCommand(db, parts[1], block: true, Reply);
+                break;
+
+            case "/unblock":
+                if (parts.Length < 2)
+                {
+                    Reply("Usage : /unblock <pseudo>");
+                    break;
+                }
+
+                HandleBlockCommand(db, parts[1], block: false, Reply);
+                break;
+
+            // Voir demande utilisateur — "duel classé" 1v1 depuis le menu d'interaction : même flux
+            // d'invitation que /duel, mais l'ELO est ajusté à la fin (voir DuelInviteService.Ranked).
+            case "/rankedduel":
+                HandleDuelCommand(db, command, replyChannel, ranked: true);
+                break;
+
             default:
                 return false;
         }
 
         return true;
+    }
+
+    private void HandleBlockCommand(AetheriaDbContext db, string targetName, bool block, Action<string> reply)
+    {
+        var target = db.Characters.FirstOrDefault(c => c.Name == targetName);
+        if (target is null)
+        {
+            reply($"{targetName} est introuvable.");
+            return;
+        }
+
+        var service = new BlockService(db);
+        var message = block
+            ? service.BlockAsync(CharacterId, target.Id).GetAwaiter().GetResult()
+            : service.UnblockAsync(CharacterId, targetName).GetAwaiter().GetResult();
+
+        RefreshBlockRelations(db);
+        reply(message);
     }
 
     private void UseConsumable(AetheriaDbContext db, int itemId, Action<string> reply)
@@ -903,6 +976,12 @@ public sealed class PlayerSession(
                 if (addTarget.Id == CharacterId)
                 {
                     reply("Impossible de s'ajouter soi-même.");
+                    break;
+                }
+
+                if (_blockRelations.Contains(addTarget.Id))
+                {
+                    reply("Demande impossible : l'un de vous a bloqué l'autre.");
                     break;
                 }
 

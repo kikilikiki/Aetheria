@@ -25,13 +25,17 @@ public sealed class DuelInviteService
         public required IReadOnlyList<Guid> ChallengerTeamCharacterIds { get; init; }
         public required IReadOnlyList<Guid> TargetTeamCharacterIds { get; init; }
         public required DateTime ExpiresAtUtc { get; init; }
+
+        /// <summary>Vrai pour un duel classé (ELO ajusté à la fin) — voir demande utilisateur, "duel classé".</summary>
+        public bool Ranked { get; init; }
+
         public HashSet<Guid> AcceptedCharacterIds { get; } = [];
     }
 
     private readonly ConcurrentDictionary<Guid, PendingDuel> _invitesById = new();
     private readonly ConcurrentDictionary<Guid, Guid> _inviteIdByTargetCharacterId = new();
 
-    public PendingDuel CreateInvite(Guid challengerCharacterId, string challengerCharacterName, IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds)
+    public PendingDuel CreateInvite(Guid challengerCharacterId, string challengerCharacterName, IReadOnlyList<Guid> challengerTeamCharacterIds, IReadOnlyList<Guid> targetTeamCharacterIds, bool ranked = false)
     {
         var invite = new PendingDuel
         {
@@ -41,6 +45,7 @@ public sealed class DuelInviteService
             ChallengerTeamCharacterIds = challengerTeamCharacterIds,
             TargetTeamCharacterIds = targetTeamCharacterIds,
             ExpiresAtUtc = DateTime.UtcNow + InviteLifetime,
+            Ranked = ranked,
         };
 
         _invitesById[invite.InviteId] = invite;

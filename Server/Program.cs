@@ -2138,7 +2138,7 @@ app.MapPost("/api/pvp/team-challenge", async (StartFriendlyTeamDuelRequest reque
 
     try
     {
-        var state = await combatService.StartFriendlyTeamDuelAsync(request.ChallengerTeamCharacterIds, request.TargetTeamCharacterIds);
+        var state = await combatService.StartFriendlyTeamDuelAsync(request.ChallengerTeamCharacterIds, request.TargetTeamCharacterIds, ranked: request.Ranked);
 
         // Voir GDD/demande utilisateur — "propose un pvp, si la personne est en team tout les
         // membres doivent accepter" : notifie tous les autres participants (des deux équipes) que
@@ -2361,7 +2361,7 @@ app.MapPost("/api/kingdoms/wars/queue", async (QueueForWarRequest request) =>
     if (matched is not null)
     {
         var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
-        var state = await combatService.StartFriendlyTeamDuelAsync([matched[0].CharacterId], [matched[1].CharacterId]);
+        var state = await combatService.StartFriendlyTeamDuelAsync([matched[0].CharacterId], [matched[1].CharacterId], ranked: true);
         warQueue.RecordMatch(matched.Select(t => t.CharacterId), state.CombatId);
     }
 
@@ -2505,7 +2505,7 @@ app.MapPost("/api/guilds/wars/queue", async (QueueForWarRequest request) =>
     if (matched is not null)
     {
         var combatService = new CombatService(db, tokenStore, app.Services.GetRequiredService<CombatSessionStore>(), app.Services.GetRequiredService<LootSessionStore>());
-        var state = await combatService.StartFriendlyTeamDuelAsync([matched[0].CharacterId], [matched[1].CharacterId]);
+        var state = await combatService.StartFriendlyTeamDuelAsync([matched[0].CharacterId], [matched[1].CharacterId], ranked: true);
         warQueue.RecordMatch(matched.Select(t => t.CharacterId), state.CombatId);
     }
 

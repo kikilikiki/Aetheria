@@ -14,4 +14,7 @@ public sealed class StartFriendlyTeamDuelRequest
     public required Guid CharacterId { get; init; }
     public required IReadOnlyList<Guid> ChallengerTeamCharacterIds { get; init; }
     public required IReadOnlyList<Guid> TargetTeamCharacterIds { get; init; }
+
+    /// <summary>Vrai pour un duel classé (ajuste l'ELO) — voir demande utilisateur, "duel classé".</summary>
+    public bool Ranked { get; init; }
 }
