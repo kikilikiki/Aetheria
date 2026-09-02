@@ -31,8 +31,12 @@ public sealed class BetaTicketService
     private readonly string _categoryId;
     private readonly IReadOnlyList<string> _staffRoleIds;
     private readonly string? _testerRoleId;
+    private readonly IReadOnlyList<string> _decisionRoleIds;
 
     public string InviteUrl { get; }
+
+    /// <summary>Rôle(s) Discord autorisé(s) à cliquer les boutons Accepter / Refuser d'un ticket bêta.</summary>
+    public IReadOnlyList<string> DecisionRoleIds => _decisionRoleIds;
 
     public BetaTicketService(ILogger<BetaTicketService> logger)
     {
@@ -49,6 +53,10 @@ public sealed class BetaTicketService
 
         _testerRoleId = Env("DISCORD_ROLE_ID_TESTEUR")
             ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+
+        // Rôle(s) autorisé(s) à valider / refuser via les boutons du ticket (voir demande utilisateur).
+        _decisionRoleIds = (Env("DISCORD_BETA_DECISION_ROLE_IDS") ?? "1544758752287260713")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         InviteUrl = Env("DISCORD_INVITE_URL") ?? "https://discord.gg/8NqXPsg7gE";
     }
@@ -125,12 +133,18 @@ public sealed class BetaTicketService
 
     private static bool Eq(string? a, string b) => !string.IsNullOrEmpty(a) && a.ToLowerInvariant() == b;
 
-    /// <summary>Crée le salon du ticket et y poste le récapitulatif. Retourne l'ID du salon, ou <c>null</c>.</summary>
-    public async Task<string?> CreateTicketAsync(BetaApplicationEntity application, string applicantDiscordId, CancellationToken ct)
+    public sealed record TicketCreation(string? ChannelId, string? MessageId);
+
+    /// <summary>
+    /// Crée le salon du ticket et y poste le récapitulatif, avec les boutons Accepter / Refuser
+    /// (réservés à <see cref="DecisionRoleIds"/>). Retourne l'ID du salon et du message porteur des
+    /// boutons.
+    /// </summary>
+    public async Task<TicketCreation> CreateTicketAsync(BetaApplicationEntity application, string applicantDiscordId, CancellationToken ct)
     {
         if (!IsConfigured)
         {
-            return null;
+            return new TicketCreation(null, null);
         }
 
         var overwrites = new List<object>
@@ -155,18 +169,18 @@ public sealed class BetaTicketService
         {
             var body = create is null ? "(pas de réponse)" : await create.Content.ReadAsStringAsync(ct);
             _logger.LogWarning("Création ticket bêta échouée : {Status} {Body}", create?.StatusCode, body);
-            return null;
+            return new TicketCreation(null, null);
         }
 
         var channel = await create.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         var channelId = channel.GetProperty("id").GetString();
         if (channelId is null)
         {
-            return null;
+            return new TicketCreation(null, null);
         }
 
         var mentions = string.Join(' ', _staffRoleIds.Select(r => $"<@&{r}>"));
-        await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
+        var message = await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
         {
             content = $"<@{applicantDiscordId}> {mentions}".Trim(),
             embeds = new[]
@@ -188,10 +202,50 @@ public sealed class BetaTicketService
                     timestamp = application.CreatedAtUtc.ToString("o"),
                 },
             },
+            components = DecisionButtons(application.Id, disabled: false),
             allowed_mentions = new { users = new[] { applicantDiscordId }, roles = _staffRoleIds },
         }, ct);
 
-        return channelId;
+        string? messageId = null;
+        if (message is { IsSuccessStatusCode: true })
+        {
+            var posted = await message.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+            messageId = posted.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+        }
+        else
+        {
+            _logger.LogWarning("Message de ticket bêta échoué ({Status}).", message?.StatusCode);
+        }
+
+        return new TicketCreation(channelId, messageId);
+    }
+
+    /// <summary>Ligne de boutons Accepter / Refuser pour le message de ticket.</summary>
+    private static object[] DecisionButtons(Guid applicationId, bool disabled) =>
+    [
+        new
+        {
+            type = 1, // ACTION_ROW
+            components = new object[]
+            {
+                new { type = 2, style = 3, label = "Accepter", custom_id = $"beta_accept:{applicationId}", disabled },
+                new { type = 2, style = 4, label = "Refuser", custom_id = $"beta_reject:{applicationId}", disabled },
+            },
+        },
+    ];
+
+    /// <summary>Retire les boutons du message de ticket une fois la décision prise (best-effort).</summary>
+    public async Task DisableTicketButtonsAsync(string channelId, string messageId, Guid applicationId, CancellationToken ct)
+    {
+        if (!IsConfigured)
+        {
+            return;
+        }
+
+        await SendAsync(HttpMethod.Patch, $"channels/{channelId}/messages/{messageId}", new
+        {
+            components = DecisionButtons(applicationId, disabled: true),
+        }, ct);
     }
 
     public async Task PostToTicketAsync(string channelId, string message, CancellationToken ct)

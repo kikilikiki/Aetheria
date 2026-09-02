@@ -51,6 +51,12 @@ public sealed class BetaApplicationEntity
     public string? DiscordTicketChannelId { get; set; }
 
     /// <summary>
+    /// Identifiant du message de récapitulatif posté dans le ticket (celui qui porte les boutons
+    /// Accepter / Refuser) — sert à désactiver les boutons une fois la décision prise.
+    /// </summary>
+    public string? DiscordTicketMessageId { get; set; }
+
+    /// <summary>
     /// Renseigné par le serveur de jeu (voir <c>Server/Discord/BetaTicketProcessor</c>) une fois la
     /// candidature traitée : vérification de la présence Discord + création du salon, ou refus
     /// automatique si le pseudo Discord est introuvable. <c>null</c> = pas encore traitée.

@@ -100,17 +100,18 @@ public sealed class BetaTicketProcessor(
             }
 
             application.ResolvedDiscordUserId = resolution.DiscordUserId;
-            var channelId = await tickets.CreateTicketAsync(application, resolution.DiscordUserId, ct);
-            application.DiscordTicketChannelId = channelId;
+            var ticket = await tickets.CreateTicketAsync(application, resolution.DiscordUserId, ct);
+            application.DiscordTicketChannelId = ticket.ChannelId;
+            application.DiscordTicketMessageId = ticket.MessageId;
             application.ProcessedAtUtc = DateTime.UtcNow;
             application.SyncedStatus = BetaApplicationStatus.Pending;
             await db.SaveChangesAsync(ct);
 
             logger.LogInformation(
-                channelId is null
+                ticket.ChannelId is null
                     ? "Candidature {Id} traitée mais salon Discord non créé (voir warnings ci-dessus)."
                     : "Candidature {Id} : salon Discord créé ({Channel}).",
-                application.Id, channelId);
+                application.Id, ticket.ChannelId);
         }
 
         // 2. Décisions admin (validée / refusée sur le site) à répercuter dans le salon.
@@ -142,6 +143,13 @@ public sealed class BetaTicketProcessor(
                 var reason = string.IsNullOrWhiteSpace(application.AdminNote) ? "" : $" Raison : {application.AdminNote}";
                 await tickets.PostToTicketAsync(application.DiscordTicketChannelId!,
                     $"❌ Candidature **refusée** par {reviewer}.{reason}", ct);
+            }
+
+            // Retire les boutons du message de ticket (décision prise sur le site). Le ticket
+            // reste ouvert — c'est au staff de le fermer manuellement (voir demande utilisateur).
+            if (application.DiscordTicketMessageId is { Length: > 0 } messageId)
+            {
+                await tickets.DisableTicketButtonsAsync(application.DiscordTicketChannelId!, messageId, application.Id, ct);
             }
 
             application.SyncedStatus = application.Status;

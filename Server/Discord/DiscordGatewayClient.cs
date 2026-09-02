@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aetheria.Database.Context;
+using Aetheria.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,7 @@ namespace Aetheria.Server.Discord;
 public sealed class DiscordGatewayClient(
     IDbContextFactory<AetheriaDbContext> dbFactory,
     DiscordRoleSyncService roleSyncService,
+    BetaTicketService betaTickets,
     ILogger<DiscordGatewayClient> logger) : BackgroundService
 {
     private const string GatewayUrl = "wss://gateway.discord.gg/?v=10&encoding=json";
@@ -237,12 +239,7 @@ public sealed class DiscordGatewayClient(
         }
 
         var interaction = payload["d"]!;
-        if (interaction["type"]!.GetValue<int>() != 2) // APPLICATION_COMMAND
-        {
-            return;
-        }
-
-        var commandName = interaction["data"]?["name"]?.GetValue<string>();
+        var interactionType = interaction["type"]!.GetValue<int>();
         var interactionId = interaction["id"]!.GetValue<string>();
         var interactionToken = interaction["token"]!.GetValue<string>();
         var discordUserId = interaction["member"]?["user"]?["id"]?.GetValue<string>()
@@ -253,6 +250,20 @@ public sealed class DiscordGatewayClient(
             return;
         }
 
+        // Boutons Accepter / Refuser d'un ticket bêta (voir BetaTicketService.CreateTicketAsync).
+        if (interactionType == 3) // MESSAGE_COMPONENT
+        {
+            await HandleBetaDecisionAsync(interaction, interactionId, interactionToken, discordUserId, ct);
+            return;
+        }
+
+        if (interactionType != 2) // APPLICATION_COMMAND
+        {
+            return;
+        }
+
+        var commandName = interaction["data"]?["name"]?.GetValue<string>();
+
         switch (commandName)
         {
             case "link":
@@ -262,6 +273,93 @@ public sealed class DiscordGatewayClient(
                 await HandleUnlinkCommandAsync(interactionId, interactionToken, discordUserId, ct);
                 break;
         }
+    }
+
+    private async Task HandleBetaDecisionAsync(JsonNode interaction, string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
+    {
+        var customId = interaction["data"]?["custom_id"]?.GetValue<string>();
+        if (customId is null || (!customId.StartsWith("beta_accept:") && !customId.StartsWith("beta_reject:")))
+        {
+            return;
+        }
+
+        var accept = customId.StartsWith("beta_accept:");
+        if (!Guid.TryParse(customId.Split(':', 2)[1], out var applicationId))
+        {
+            return;
+        }
+
+        // Rôle(s) autorisé(s) à décider (voir demande utilisateur — réservé au staff).
+        var memberRoles = (interaction["member"]?["roles"]?.AsArray() ?? [])
+            .Select(r => r?.GetValue<string>())
+            .Where(r => r is not null)
+            .ToHashSet();
+        if (!betaTickets.DecisionRoleIds.Any(memberRoles.Contains))
+        {
+            await RespondAsync(interactionId, interactionToken, "⛔ Seul le staff peut valider ou refuser une candidature.", ct);
+            return;
+        }
+
+        var reviewer = interaction["member"]?["nick"]?.GetValue<string>()
+            ?? interaction["member"]?["user"]?["global_name"]?.GetValue<string>()
+            ?? interaction["member"]?["user"]?["username"]?.GetValue<string>()
+            ?? "le staff";
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var application = await db.BetaApplications.FirstOrDefaultAsync(a => a.Id == applicationId, ct);
+        if (application is null)
+        {
+            await RespondAsync(interactionId, interactionToken, "Candidature introuvable.", ct);
+            return;
+        }
+
+        if (application.Status != BetaApplicationStatus.Pending)
+        {
+            await RespondAsync(interactionId, interactionToken, $"Cette candidature a déjà été traitée ({application.Status}).", ct);
+            return;
+        }
+
+        application.Status = accept ? BetaApplicationStatus.Approved : BetaApplicationStatus.Rejected;
+        application.ReviewedByUsername = reviewer;
+        application.ReviewedAtUtc = DateTime.UtcNow;
+        application.SyncedStatus = application.Status; // décision déjà répercutée ici, le processor ne repostera pas
+        if (!accept)
+        {
+            application.AdminNote ??= "Refusée depuis le ticket Discord.";
+        }
+
+        if (accept)
+        {
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == application.UserId, ct);
+            if (user is not null && user.Rank == UserRank.Joueur)
+            {
+                user.Rank = UserRank.Testeur; // débloque le téléchargement du jeu sur le site
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var applicantMention = application.ResolvedDiscordUserId is { Length: > 0 } id ? $"<@{id}> " : "";
+        var publicMessage = accept
+            ? $"✅ Candidature **acceptée** par {reviewer}. {applicantMention}a maintenant le rôle Testeur et accès au téléchargement du jeu. Ce ticket peut être fermé par le staff."
+            : $"❌ Candidature **refusée** par {reviewer}. Ce ticket peut être fermé par le staff.";
+
+        await RespondAsync(interactionId, interactionToken, publicMessage, ct, ephemeral: false);
+
+        // Best-effort après la réponse : rôle Discord + désactivation des boutons.
+        if (accept && application.ResolvedDiscordUserId is { Length: > 0 } discordId)
+        {
+            await betaTickets.GrantTesterRoleAsync(discordId, ct);
+        }
+
+        if (application.DiscordTicketChannelId is { Length: > 0 } channelId
+            && application.DiscordTicketMessageId is { Length: > 0 } messageId)
+        {
+            await betaTickets.DisableTicketButtonsAsync(channelId, messageId, application.Id, ct);
+        }
+
+        logger.LogInformation("Candidature {Id} {Decision} depuis le ticket Discord par {Reviewer}.",
+            application.Id, accept ? "acceptée" : "refusée", reviewer);
     }
 
     private async Task HandleLinkCommandAsync(JsonNode interaction, string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
@@ -311,16 +409,22 @@ public sealed class DiscordGatewayClient(
         await RespondAsync(interactionId, interactionToken, $"Compte **{user.Username}** délié. Tes rôles liés à la vérification ont été retirés.", ct);
     }
 
-    private async Task RespondAsync(string interactionId, string interactionToken, string message, CancellationToken ct)
+    private async Task RespondAsync(string interactionId, string interactionToken, string message, CancellationToken ct, bool ephemeral = true)
     {
         try
         {
+            var data = new JsonObject { ["content"] = message };
+            if (ephemeral)
+            {
+                data["flags"] = 64; // EPHEMERAL — visible seulement par l'auteur de l'interaction
+            }
+
             using var request = new HttpRequestMessage(HttpMethod.Post, $"interactions/{interactionId}/{interactionToken}/callback")
             {
                 Content = JsonContent.Create(new
                 {
                     type = 4, // CHANNEL_MESSAGE_WITH_SOURCE
-                    data = new { content = message, flags = 64 }, // 64 = EPHEMERAL, visible seulement par l'auteur de la commande
+                    data,
                 }),
             };
 
@@ -328,12 +432,12 @@ public sealed class DiscordGatewayClient(
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(ct);
-                logger.LogWarning("Échec de réponse à l'interaction Discord /link : {Status} {Body}", response.StatusCode, body);
+                logger.LogWarning("Échec de réponse à une interaction Discord : {Status} {Body}", response.StatusCode, body);
             }
         }
         catch (HttpRequestException ex)
         {
-            logger.LogWarning(ex, "Impossible de répondre à l'interaction Discord /link.");
+            logger.LogWarning(ex, "Impossible de répondre à une interaction Discord.");
         }
     }
 
