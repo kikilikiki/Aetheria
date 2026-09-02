@@ -16,6 +16,9 @@ public sealed class CombatSession
     /// <summary>Vrai pour un match d'arène classée (2+ joueurs par équipe, voir <c>ArenaQueueService</c>) — change le calcul de fin de combat (ELO par équipe plutôt que le défi 1v1 direct).</summary>
     public bool IsArenaMatch { get; init; }
 
+    /// <summary>Vrai pour un duel <b>amical</b> (voir <c>StartFriendlyTeamDuelAsync</c>) : aucun changement d'ELO, juste journalisé comme match amical (voir demande utilisateur — salon de résultats de matchs).</summary>
+    public bool IsFriendlyDuel { get; init; }
+
     /// <summary>Vrai pour un combat déclenché dans un donjon (voir GDD/demande utilisateur — "on ne peut pas fuir un combat en donjon, on peut en dehors") : bloque <see cref="Aetheria.Shared.Enums.CombatActionType.Flee"/>.</summary>
     public bool IsDungeonCombat { get; init; }
 

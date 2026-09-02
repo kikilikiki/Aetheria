@@ -57,7 +57,12 @@
         </div>
     }
 
-    @if (!string.IsNullOrEmpty(Model.Account.ReferralCode))
+    @if (Model.ReferralPending)
+    {
+        <h2 style="margin-top:36px;">Parrainage</h2>
+        <p style="color:var(--text-dim);">Ton code de parrainage est en cours d'attribution — il apparaîtra ici d'ici quelques minutes.</p>
+    }
+    else if (!string.IsNullOrEmpty(Model.Account.ReferralCode))
     {
         <h2 style="margin-top:36px;">Parrainage</h2>
         <div class="form-panel">

@@ -1,4 +1,5 @@
 using Aetheria.Database.Context;
+using Aetheria.Database.Services;
 using Aetheria.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -62,6 +63,8 @@ public sealed class BetaTicketProcessor(
     private async Task ProcessOnceAsync(CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        await EnsureReferralCodesAsync(db, ct);
 
         // 1. Nouvelles candidatures : vérification Discord + création du salon (ou refus auto).
         var unprocessed = await db.BetaApplications
@@ -157,6 +160,34 @@ public sealed class BetaTicketProcessor(
             application.SyncedStatus = application.Status;
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Candidature {Id} : décision « {Status} » répercutée sur Discord.", application.Id, application.Status);
+        }
+    }
+
+    /// <summary>
+    /// Attribue un code de parrainage aux comptes qui y ont droit (grade Testeur ou plus) mais
+    /// n'en ont pas encore — et journalise chaque nouveau code dans le salon « inscriptions »
+    /// (voir demande utilisateur). Couvre les acceptations faites depuis le site (qui ne peut pas
+    /// parler à Discord) et les promotions de grade manuelles.
+    /// </summary>
+    private async Task EnsureReferralCodesAsync(AetheriaDbContext db, CancellationToken ct)
+    {
+        var eligibleRanks = new[] { UserRank.Testeur, UserRank.Ami, UserRank.Moderateur, UserRank.Fondateur };
+        var candidates = await db.Users
+            .Where(u => u.ReferralCode == null && !u.IsDeleted && (u.IsAdmin || eligibleRanks.Contains(u.Rank)))
+            .Take(20)
+            .ToListAsync(ct);
+
+        foreach (var user in candidates)
+        {
+            var code = await ReferralService.EnsureCodeAsync(db, user, ct);
+            if (code is null)
+            {
+                continue;
+            }
+
+            await db.SaveChangesAsync(ct);
+            DiscordEventLog.LogReferral(user.Username, user.Id, code);
+            logger.LogInformation("Code de parrainage attribué à {Username} : {Code}.", user.Username, code);
         }
     }
 }

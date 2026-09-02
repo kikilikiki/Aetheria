@@ -1,5 +1,6 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
+using Aetheria.Server.Discord;
 using Aetheria.Server.Persistence;
 using Aetheria.Server.World.Combat;
 using Aetheria.Shared.Enums;
@@ -389,7 +390,7 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         }
 
         var combatants = new List<Combatant>();
-        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, Combatants = combatants };
+        var session = new CombatSession { Id = Guid.NewGuid(), IsPvp = true, IsArenaMatch = true, IsFriendlyDuel = true, Combatants = combatants };
 
         async Task AddTeamAsync(IReadOnlyList<Guid> characterIds, int team)
         {
@@ -1229,10 +1230,14 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         await db.SaveChangesAsync(ct);
 
         var winnerCharacter = await db.Characters.FirstOrDefaultAsync(c => c.Id == winnerCharacterId, ct);
+        var loserCharacter = await db.Characters.FirstOrDefaultAsync(c => c.Id == loserCharacterId, ct);
         if (winnerCharacter is not null)
         {
             await new KingdomWarService(db).AwardWarPointsAsync(winnerCharacter.Kingdom, 10, ct);
         }
+
+        DiscordEventLog.LogMatch(
+            $"⚔️ **[{(session.IsFriendlyDuel ? "Amical" : "Classé")}]** {winnerCharacter?.Name ?? "?"} **vs** {loserCharacter?.Name ?? "?"} — victoire de **{winnerCharacter?.Name ?? "?"}**");
 
         // Voir GDD/demande utilisateur — "Guerres de guildes" : sans effet si le vainqueur n'a pas de guilde.
         await new GuildService(db, tokenStore).AwardWarPointsAsync(winnerCharacterId, 10, ct);
@@ -1271,6 +1276,8 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             .GroupBy(p => p.Team)
             .ToDictionary(g => g.Key, g => g.Average(p => statsByCharacter.TryGetValue(p.CharacterId, out var s) ? s.Pvp.CurrentRank : 1000));
 
+        var ratingDeltaByCharacter = new Dictionary<Guid, int>();
+
         foreach (var (team, characterId) in participants)
         {
             if (!statsByCharacter.TryGetValue(characterId, out var stats))
@@ -1279,11 +1286,20 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             }
 
             var won = team == winningTeam;
+
+            // Duel amical (voir demande utilisateur) : "rien de plus ni de moins" — aucun changement d'ELO ni de statistiques.
+            if (session.IsFriendlyDuel)
+            {
+                continue;
+            }
+
             var opponentTeam = team == 0 ? 1 : 0;
             var opponentAverageRating = teamAverageRatingBefore.GetValueOrDefault(opponentTeam, 1000);
 
-            stats.Pvp.CurrentRank = Math.Max(0, ComputeNewElo(stats.Pvp.CurrentRank, opponentAverageRating, won));
+            var before = stats.Pvp.CurrentRank;
+            stats.Pvp.CurrentRank = Math.Max(0, ComputeNewElo(before, opponentAverageRating, won));
             stats.Pvp.BestRank = Math.Max(stats.Pvp.BestRank, stats.Pvp.CurrentRank);
+            ratingDeltaByCharacter[characterId] = stats.Pvp.CurrentRank - before;
 
             if (won)
             {
@@ -1300,6 +1316,8 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
         }
 
         await db.SaveChangesAsync(ct);
+
+        await LogMatchToDiscordAsync(session, participants, winningTeam, ratingDeltaByCharacter, ct);
 
         var wildPvpReputationGranted = false;
         foreach (var (_, characterId) in participants.Where(p => p.Team == winningTeam))
@@ -1333,6 +1351,43 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
     /// faible), moins elle rapporte — et une défaite contre un adversaire nettement plus fort
     /// coûte peu. Voir GDD — "ligues ELO".
     /// </summary>
+    /// <summary>
+    /// Journalise le résultat d'un duel / match dans le salon Discord dédié (voir demande
+    /// utilisateur) : équipes par pseudo de personnage, gagnant, et — si classé — points ELO
+    /// gagnés/perdus. Best-effort.
+    /// </summary>
+    private async Task LogMatchToDiscordAsync(
+        CombatSession session,
+        IReadOnlyList<(int Team, Guid CharacterId)> participants,
+        int winningTeam,
+        IReadOnlyDictionary<Guid, int> ratingDeltaByCharacter,
+        CancellationToken ct)
+    {
+        try
+        {
+            var ids = participants.Select(p => p.CharacterId).Distinct().ToList();
+            var names = await db.Characters
+                .Where(c => ids.Contains(c.Id))
+                .ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+
+            string Side(int team) => string.Join(" + ", participants
+                .Where(p => p.Team == team)
+                .Select(p => names.GetValueOrDefault(p.CharacterId, "?")
+                    + (ratingDeltaByCharacter.TryGetValue(p.CharacterId, out var d) ? $" ({(d >= 0 ? "+" : "")}{d})" : "")));
+
+            var side0 = Side(0);
+            var side1 = Side(1);
+            var kind = session.IsFriendlyDuel ? "Amical" : session.IsWildPvpCombat ? "PvP sauvage" : "Classé";
+            var winnerSide = winningTeam == 0 ? side0 : side1;
+
+            DiscordEventLog.LogMatch($"⚔️ **[{kind}]** {side0} **vs** {side1} — victoire de **{winnerSide}**");
+        }
+        catch (Exception)
+        {
+            // journalisation best-effort, ne jamais interrompre la fin de combat
+        }
+    }
+
     private static int ComputeNewElo(int rating, double opponentRating, bool won)
     {
         const int k = 32;

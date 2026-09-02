@@ -390,6 +390,10 @@ public sealed class DiscordGatewayClient(
             application.AdminNote ??= "Refusée depuis le ticket Discord.";
         }
 
+        string? newReferralCode = null;
+        string? newReferralUsername = null;
+        Guid newReferralUserId = default;
+
         if (accept)
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == application.UserId, ct);
@@ -400,13 +404,25 @@ public sealed class DiscordGatewayClient(
                     user.Rank = UserRank.Testeur; // débloque le téléchargement du jeu sur le site
                 }
 
+                var hadCode = !string.IsNullOrEmpty(user.ReferralCode);
                 await Aetheria.Database.Services.ReferralService.EnsureCodeAsync(db, user, ct);
+                if (!hadCode && !string.IsNullOrEmpty(user.ReferralCode))
+                {
+                    newReferralCode = user.ReferralCode;
+                    newReferralUsername = user.Username;
+                    newReferralUserId = user.Id;
+                }
             }
 
             await Aetheria.Database.Services.ReferralService.ApplyOnApprovalAsync(db, application, ct);
         }
 
         await db.SaveChangesAsync(ct);
+
+        if (newReferralCode is not null)
+        {
+            DiscordEventLog.LogReferral(newReferralUsername!, newReferralUserId, newReferralCode);
+        }
 
         var applicantMention = application.ResolvedDiscordUserId is { Length: > 0 } id ? $"<@{id}> " : "";
         var publicMessage = accept
