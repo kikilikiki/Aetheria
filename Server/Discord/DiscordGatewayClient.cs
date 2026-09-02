@@ -261,10 +261,19 @@ public sealed class DiscordGatewayClient(
             return;
         }
 
-        // Boutons Accepter / Refuser d'un ticket bêta (voir BetaTicketService.CreateTicketAsync).
+        // Boutons d'un ticket bêta (voir BetaTicketService) : Accepter / Refuser / Fermer le ticket.
         if (interactionType == 3) // MESSAGE_COMPONENT
         {
-            await HandleBetaDecisionAsync(interaction, interactionId, interactionToken, discordUserId, ct);
+            var customId = interaction["data"]?["custom_id"]?.GetValue<string>();
+            if (customId == "beta_close")
+            {
+                await HandleBetaCloseAsync(interaction, interactionId, interactionToken, discordUserId, ct);
+            }
+            else if (customId is not null && (customId.StartsWith("beta_accept:") || customId.StartsWith("beta_reject:")))
+            {
+                await HandleBetaDecisionAsync(interaction, interactionId, interactionToken, discordUserId, ct);
+            }
+
             return;
         }
 
@@ -286,50 +295,77 @@ public sealed class DiscordGatewayClient(
         }
     }
 
-    private async Task HandleBetaDecisionAsync(JsonNode interaction, string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
+    /// <summary>
+    /// Vrai si l'auteur de l'interaction a le droit de décider / fermer un ticket bêta : un rôle
+    /// de <see cref="BetaTicketService.DecisionRoleIds"/> ou <see cref="BetaTicketService.StaffRoleIds"/>,
+    /// ou la permission Administrateur sur le serveur.
+    /// </summary>
+    private bool IsAuthorizedBetaStaff(JsonNode interaction, string discordUserId, string context, out string reviewer)
     {
-        var customId = interaction["data"]?["custom_id"]?.GetValue<string>();
-        if (customId is null || (!customId.StartsWith("beta_accept:") && !customId.StartsWith("beta_reject:")))
-        {
-            return;
-        }
-
-        var accept = customId.StartsWith("beta_accept:");
-        if (!Guid.TryParse(customId.Split(':', 2)[1], out var applicationId))
-        {
-            return;
-        }
+        reviewer = interaction["member"]?["nick"]?.GetValue<string>()
+            ?? interaction["member"]?["user"]?["global_name"]?.GetValue<string>()
+            ?? interaction["member"]?["user"]?["username"]?.GetValue<string>()
+            ?? "le staff";
 
         var memberRoles = (interaction["member"]?["roles"]?.AsArray() ?? [])
             .Select(r => r?.GetValue<string>())
             .Where(r => r is not null)
             .ToHashSet();
 
-        // Permissions calculées du membre dans le salon (bitfield en chaîne).
         var hasAdminPerms = ulong.TryParse(interaction["member"]?["permissions"]?.GetValue<string>(), out var perms)
             && (perms & 0x8UL) != 0; // ADMINISTRATOR
 
-        // Autorisé à décider : rôle de décision configuré, OU rôle staff (qui voit déjà le ticket),
-        // OU permission Administrateur sur le serveur.
         var allowedRoles = betaTickets.DecisionRoleIds.Concat(betaTickets.StaffRoleIds).ToHashSet();
         var authorized = hasAdminPerms || allowedRoles.Any(memberRoles.Contains);
 
         logger.LogInformation(
-            "Bouton bêta : action={Action}, user={User}, rolesMembre=[{Roles}], rolesAutorises=[{Allowed}], admin={Admin} -> {Result}",
-            accept ? "accept" : "reject", discordUserId, string.Join(",", memberRoles), string.Join(",", allowedRoles), hasAdminPerms,
+            "Bouton bêta ({Context}) : user={User}, rolesMembre=[{Roles}], rolesAutorises=[{Allowed}], admin={Admin} -> {Result}",
+            context, discordUserId, string.Join(",", memberRoles), string.Join(",", allowedRoles), hasAdminPerms,
             authorized ? "autorisé" : "refusé");
 
-        if (!authorized)
+        return authorized;
+    }
+
+    private string AllowedRolesMessage() =>
+        "⛔ Réservé au staff. Rôle(s) autorisé(s) : "
+        + string.Join(", ", betaTickets.DecisionRoleIds.Concat(betaTickets.StaffRoleIds).Distinct().Select(r => $"<@&{r}>"))
+        + ".";
+
+    private async Task HandleBetaCloseAsync(JsonNode interaction, string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
+    {
+        if (!IsAuthorizedBetaStaff(interaction, discordUserId, "fermer", out _))
         {
-            await RespondAsync(interactionId, interactionToken,
-                $"⛔ Réservé au staff. Rôle(s) autorisé(s) : {string.Join(", ", allowedRoles.Select(r => $"<@&{r}>"))}.", ct);
+            await RespondAsync(interactionId, interactionToken, AllowedRolesMessage(), ct);
             return;
         }
 
-        var reviewer = interaction["member"]?["nick"]?.GetValue<string>()
-            ?? interaction["member"]?["user"]?["global_name"]?.GetValue<string>()
-            ?? interaction["member"]?["user"]?["username"]?.GetValue<string>()
-            ?? "le staff";
+        var channelId = interaction["channel_id"]?.GetValue<string>()
+            ?? interaction["channel"]?["id"]?.GetValue<string>();
+        if (channelId is null)
+        {
+            return;
+        }
+
+        // Répondre AVANT de supprimer (le salon disparaît avec l'interaction).
+        await RespondAsync(interactionId, interactionToken, "🔒 Fermeture du ticket…", ct);
+        var ok = await betaTickets.DeleteChannelAsync(channelId, ct);
+        logger.LogInformation("Ticket bêta {ChannelId} fermé par {User} : {Result}.", channelId, discordUserId, ok ? "ok" : "échec");
+    }
+
+    private async Task HandleBetaDecisionAsync(JsonNode interaction, string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
+    {
+        var customId = interaction["data"]?["custom_id"]?.GetValue<string>()!;
+        var accept = customId.StartsWith("beta_accept:");
+        if (!Guid.TryParse(customId.Split(':', 2)[1], out var applicationId))
+        {
+            return;
+        }
+
+        if (!IsAuthorizedBetaStaff(interaction, discordUserId, accept ? "accepter" : "refuser", out var reviewer))
+        {
+            await RespondAsync(interactionId, interactionToken, AllowedRolesMessage(), ct);
+            return;
+        }
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var application = await db.BetaApplications.FirstOrDefaultAsync(a => a.Id == applicationId, ct);
@@ -374,21 +410,25 @@ public sealed class DiscordGatewayClient(
 
         var applicantMention = application.ResolvedDiscordUserId is { Length: > 0 } id ? $"<@{id}> " : "";
         var publicMessage = accept
-            ? $"✅ Candidature **acceptée** par {reviewer}. {applicantMention}a maintenant le rôle Testeur et accès au téléchargement du jeu. Ce ticket peut être fermé par le staff."
-            : $"❌ Candidature **refusée** par {reviewer}. Ce ticket peut être fermé par le staff.";
+            ? $"✅ Candidature **acceptée** par {reviewer}. {applicantMention}a maintenant le rôle Testeur et accès au téléchargement du jeu."
+            : $"❌ Candidature **refusée** par {reviewer}.";
 
         await RespondAsync(interactionId, interactionToken, publicMessage, ct, ephemeral: false);
 
-        // Best-effort après la réponse : rôle Discord + désactivation des boutons.
+        // Best-effort après la réponse : rôle Discord + désactivation des boutons + proposition de fermeture.
         if (accept && application.ResolvedDiscordUserId is { Length: > 0 } discordId)
         {
             await betaTickets.GrantTesterRoleAsync(discordId, ct);
         }
 
-        if (application.DiscordTicketChannelId is { Length: > 0 } channelId
-            && application.DiscordTicketMessageId is { Length: > 0 } messageId)
+        if (application.DiscordTicketChannelId is { Length: > 0 } channelId)
         {
-            await betaTickets.DisableTicketButtonsAsync(channelId, messageId, application.Id, ct);
+            if (application.DiscordTicketMessageId is { Length: > 0 } messageId)
+            {
+                await betaTickets.DisableTicketButtonsAsync(channelId, messageId, application.Id, ct);
+            }
+
+            await betaTickets.PostCloseProposalAsync(channelId, ct);
         }
 
         logger.LogInformation("Candidature {Id} {Decision} depuis le ticket Discord par {Reviewer}.",

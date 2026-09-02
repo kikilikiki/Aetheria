@@ -145,12 +145,14 @@ public sealed class BetaTicketProcessor(
                     $"❌ Candidature **refusée** par {reviewer}.{reason}", ct);
             }
 
-            // Retire les boutons du message de ticket (décision prise sur le site). Le ticket
-            // reste ouvert — c'est au staff de le fermer manuellement (voir demande utilisateur).
+            // Retire les boutons du message de ticket (décision prise sur le site) et propose une
+            // fermeture. Le ticket reste ouvert — c'est au staff de cliquer « Fermer le ticket ».
             if (application.DiscordTicketMessageId is { Length: > 0 } messageId)
             {
                 await tickets.DisableTicketButtonsAsync(application.DiscordTicketChannelId!, messageId, application.Id, ct);
             }
+
+            await tickets.PostCloseProposalAsync(application.DiscordTicketChannelId!, ct);
 
             application.SyncedStatus = application.Status;
             await db.SaveChangesAsync(ct);

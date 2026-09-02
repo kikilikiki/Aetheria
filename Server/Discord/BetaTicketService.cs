@@ -280,6 +280,55 @@ public sealed class BetaTicketService
         await SendAsync(HttpMethod.Put, $"guilds/{_guildId}/members/{discordUserId}/roles/{_testerRoleId}", null, ct);
     }
 
+    /// <summary>
+    /// Poste, une fois la candidature acceptée ou refusée, un embed proposant de fermer le ticket
+    /// avec un bouton « Fermer le ticket » (réservé au staff, voir <see cref="DecisionRoleIds"/> /
+    /// <see cref="StaffRoleIds"/>).
+    /// </summary>
+    public async Task PostCloseProposalAsync(string channelId, CancellationToken ct)
+    {
+        if (!IsConfigured)
+        {
+            return;
+        }
+
+        await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
+        {
+            embeds = new[]
+            {
+                new
+                {
+                    title = "Candidature traitée",
+                    description = "La décision a été enregistrée. Ce ticket peut maintenant être fermé.",
+                    color = 0x3A3D42,
+                },
+            },
+            components = new object[]
+            {
+                new
+                {
+                    type = 1,
+                    components = new object[]
+                    {
+                        new { type = 2, style = 2, label = "Fermer le ticket", custom_id = "beta_close", emoji = new { name = "🔒" } },
+                    },
+                },
+            },
+        }, ct);
+    }
+
+    /// <summary>Supprime le salon de ticket (fermeture manuelle par le staff).</summary>
+    public async Task<bool> DeleteChannelAsync(string channelId, CancellationToken ct)
+    {
+        if (!IsConfigured)
+        {
+            return false;
+        }
+
+        var response = await SendAsync(HttpMethod.Delete, $"channels/{channelId}", null, ct);
+        return response is { IsSuccessStatusCode: true };
+    }
+
     private async Task<HttpResponseMessage?> SendAsync(HttpMethod method, string path, object? jsonBody, CancellationToken ct)
     {
         HttpResponseMessage? response = null;
