@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
@@ -11,7 +12,8 @@ namespace Aetheria.Web.Services;
 /// REST minimal (<c>Authorization: Bot &lt;token&gt;</c>), même approche que
 /// <c>Server/Discord/DiscordAnnouncer.cs</c> — aucune connexion Gateway, seulement des appels
 /// sortants. Utilise le MÊME bot que le serveur de jeu (<c>DISCORD_BOT_TOKEN</c>) ; le bot doit
-/// avoir la permission « Gérer les salons » dans la guilde visée.
+/// avoir la permission « Gérer les salons » dans la guilde visée, et l'intent privilégié
+/// « Server Members » activé (nécessaire à la recherche de membre).
 /// </summary>
 public sealed class DiscordTicketService
 {
@@ -62,13 +64,6 @@ public sealed class DiscordTicketService
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
-    private HttpRequestMessage Request(HttpMethod method, string path)
-    {
-        var request = new HttpRequestMessage(method, path);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bot", _botToken);
-        return request;
-    }
-
     // --- Résolution du membre Discord --------------------------------------------------------
 
     public sealed record MemberResolution(bool Found, string? DiscordUserId, string? DisplayName, string? Error);
@@ -76,8 +71,7 @@ public sealed class DiscordTicketService
     /// <summary>
     /// Confirme que le candidat est bien membre du serveur Discord. Si son compte Aetheria est déjà
     /// lié (<see cref="UserEntity.DiscordUserId"/>), on vérifie directement l'appartenance ; sinon
-    /// on recherche le pseudo saisi parmi les membres de la guilde (recherche REST, aucun intent
-    /// privilégié requis).
+    /// on recherche le pseudo saisi parmi les membres de la guilde.
     /// </summary>
     public async Task<MemberResolution> ResolveMemberAsync(UserEntity user, string typedHandle, CancellationToken ct = default)
     {
@@ -89,11 +83,10 @@ public sealed class DiscordTicketService
         // 1. Compte déjà lié via /link en jeu → vérification fiable par identité Discord.
         if (!string.IsNullOrWhiteSpace(user.DiscordUserId))
         {
-            using var linkedRequest = Request(HttpMethod.Get, $"guilds/{_guildId}/members/{user.DiscordUserId}");
-            var linkedResponse = await SendAsync(linkedRequest, ct);
-            if (linkedResponse is { IsSuccessStatusCode: true })
+            var linked = await SendAsync(HttpMethod.Get, $"guilds/{_guildId}/members/{user.DiscordUserId}", null, ct);
+            if (linked is { IsSuccessStatusCode: true })
             {
-                var member = await linkedResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+                var member = await linked.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
                 return new MemberResolution(true, user.DiscordUserId, ExtractDisplayName(member), null);
             }
 
@@ -108,29 +101,26 @@ public sealed class DiscordTicketService
             return new MemberResolution(false, null, null, "Indique ton pseudo Discord.");
         }
 
-        using var searchRequest = Request(HttpMethod.Get, $"guilds/{_guildId}/members/search?query={Uri.EscapeDataString(handle)}&limit=10");
-        var searchResponse = await SendAsync(searchRequest, ct);
-        if (searchResponse is null || !searchResponse.IsSuccessStatusCode)
+        var search = await SendAsync(HttpMethod.Get, $"guilds/{_guildId}/members/search?query={Uri.EscapeDataString(handle)}&limit=10", null, ct);
+        if (search is null || !search.IsSuccessStatusCode)
         {
-            var status = searchResponse?.StatusCode;
-            var body = searchResponse is null ? "(pas de réponse)" : await searchResponse.Content.ReadAsStringAsync(ct);
-            _logger.LogWarning(
-                "Recherche de membre Discord échouée : status={Status}, guildId={GuildId}, body={Body}",
-                status, _guildId, body);
+            var status = search?.StatusCode;
+            var body = search is null ? "(pas de réponse)" : await search.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("Recherche de membre Discord échouée : status={Status}, guildId={GuildId}, body={Body}", status, _guildId, body);
 
-            var hint = status switch
+            var userMessage = status switch
             {
-                System.Net.HttpStatusCode.Unauthorized => "jeton de bot invalide (DISCORD_BOT_TOKEN)",
-                System.Net.HttpStatusCode.Forbidden => "le bot n'a pas accès à la liste des membres — active l'intent privilégié « SERVER MEMBERS INTENT » dans le portail développeur Discord",
-                System.Net.HttpStatusCode.NotFound => "identifiant de serveur Discord introuvable (DISCORD_BETA_GUILD_ID)",
-                _ => $"réponse Discord {status}",
+                HttpStatusCode.TooManyRequests => "Trop de vérifications en cours. Réessaie dans une minute.",
+                HttpStatusCode.Unauthorized => "Le jeton du bot Discord est invalide côté serveur. Contacte un administrateur.",
+                HttpStatusCode.Forbidden => "Le bot Discord n'a pas accès à la liste des membres (intent « Server Members » à activer). Contacte un administrateur.",
+                HttpStatusCode.NotFound => "Le serveur Discord configuré est introuvable. Contacte un administrateur.",
+                _ => $"Vérification Discord indisponible ({status}). Réessaie plus tard.",
             };
 
-            return new MemberResolution(false, null, null,
-                $"Impossible de vérifier ton pseudo Discord ({hint}). Contacte un administrateur.");
+            return new MemberResolution(false, null, null, userMessage);
         }
 
-        var results = await searchResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        var results = await search.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         var normalized = handle.ToLowerInvariant();
 
         foreach (var entry in results.EnumerateArray())
@@ -195,17 +185,16 @@ public sealed class DiscordTicketService
         };
         overwrites.AddRange(_staffRoleIds.Select(roleId => new { id = roleId, type = 0, allow = ViewSendHistory }));
 
-        using var createRequest = Request(HttpMethod.Post, $"guilds/{_guildId}/channels");
-        createRequest.Content = JsonContent.Create(new
+        var createBody = new
         {
             name = $"beta-test-{Slug(application.InGamePseudo.Length > 0 ? application.InGamePseudo : application.Username)}",
             type = 0,
             parent_id = _categoryId,
             topic = $"Candidature bêta de {application.Username} — {application.CreatedAtUtc:yyyy-MM-dd}",
             permission_overwrites = overwrites,
-        });
+        };
 
-        var createResponse = await SendAsync(createRequest, ct);
+        var createResponse = await SendAsync(HttpMethod.Post, $"guilds/{_guildId}/channels", createBody, ct);
         if (createResponse is null || !createResponse.IsSuccessStatusCode)
         {
             var body = createResponse is null ? "(pas de réponse)" : await createResponse.Content.ReadAsStringAsync(ct);
@@ -240,13 +229,31 @@ public sealed class DiscordTicketService
             timestamp = application.CreatedAtUtc.ToString("o"),
         };
 
-        await PostRawAsync(channelId, content, new[] { embed }, new { users = new[] { applicantDiscordId }, roles = _staffRoleIds }, ct);
+        await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
+        {
+            content,
+            embeds = new[] { embed },
+            allowed_mentions = new { users = new[] { applicantDiscordId }, roles = _staffRoleIds },
+        }, ct);
+
         return channelId;
     }
 
     /// <summary>Poste un message simple dans un ticket existant (validation / refus par le staff).</summary>
-    public async Task PostToTicketAsync(string channelId, string message, CancellationToken ct = default) =>
-        await PostRawAsync(channelId, message, embeds: null, allowedMentions: new { parse = Array.Empty<string>() }, ct);
+    public async Task PostToTicketAsync(string channelId, string message, CancellationToken ct = default)
+    {
+        var response = await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
+        {
+            content = message,
+            allowed_mentions = new { parse = Array.Empty<string>() },
+        }, ct);
+
+        if (response is not null && !response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("Message Discord échoué dans {ChannelId} ({Status}) : {Body}", channelId, response.StatusCode, body);
+        }
+    }
 
     /// <summary>Supprime (archive) le salon d'un ticket.</summary>
     public async Task<bool> ArchiveTicketAsync(string channelId, CancellationToken ct = default)
@@ -256,8 +263,7 @@ public sealed class DiscordTicketService
             return false;
         }
 
-        using var request = Request(HttpMethod.Delete, $"channels/{channelId}");
-        var response = await SendAsync(request, ct);
+        var response = await SendAsync(HttpMethod.Delete, $"channels/{channelId}", null, ct);
         return response is { IsSuccessStatusCode: true };
     }
 
@@ -269,41 +275,69 @@ public sealed class DiscordTicketService
             return;
         }
 
-        using var request = Request(HttpMethod.Put, $"guilds/{_guildId}/members/{discordUserId}/roles/{_testerRoleId}");
-        await SendAsync(request, ct);
+        await SendAsync(HttpMethod.Put, $"guilds/{_guildId}/members/{discordUserId}/roles/{_testerRoleId}", null, ct);
     }
 
     public string TicketUrl(string channelId) => $"https://discord.com/channels/{_guildId}/{channelId}";
 
-    private async Task PostRawAsync(string channelId, string? content, object? embeds, object allowedMentions, CancellationToken ct)
+    /// <summary>
+    /// Envoie une requête à l'API Discord avec le jeton du bot, en réessayant sur 429 (respecte
+    /// l'en-tête <c>Retry-After</c>, plafonné). La requête est reconstruite à chaque tentative.
+    /// Retourne <c>null</c> si l'appel réseau échoue.
+    /// </summary>
+    private async Task<HttpResponseMessage?> SendAsync(HttpMethod method, string path, object? jsonBody, CancellationToken ct)
     {
-        using var request = Request(HttpMethod.Post, $"channels/{channelId}/messages");
-        request.Content = JsonContent.Create(new
-        {
-            content = content ?? string.Empty,
-            embeds,
-            allowed_mentions = allowedMentions,
-        });
+        HttpResponseMessage? response = null;
 
-        var response = await SendAsync(request, ct);
-        if (response is not null && !response.IsSuccessStatusCode)
+        for (var attempt = 0; attempt < 4; attempt++)
         {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogWarning("Message Discord échoué dans {ChannelId} ({Status}) : {Body}", channelId, response.StatusCode, body);
-        }
-    }
+            using var request = new HttpRequestMessage(method, path);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bot", _botToken);
+            if (jsonBody is not null)
+            {
+                request.Content = JsonContent.Create(jsonBody);
+            }
 
-    private async Task<HttpResponseMessage?> SendAsync(HttpRequestMessage request, CancellationToken ct)
-    {
-        try
-        {
-            return await _http.SendAsync(request, ct);
+            try
+            {
+                response?.Dispose();
+                response = await _http.SendAsync(request, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex, "Appel Discord impossible ({Method} {Path}).", method, path);
+                return null;
+            }
+            catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning("Appel Discord expiré ({Method} {Path}).", method, path);
+                return null;
+            }
+
+            if (response.StatusCode != HttpStatusCode.TooManyRequests || attempt == 3)
+            {
+                return response;
+            }
+
+            var delay = response.Headers.RetryAfter?.Delta
+                ?? (double.TryParse(response.Headers.TryGetValues("Retry-After", out var v) ? v.FirstOrDefault() : null,
+                        System.Globalization.CultureInfo.InvariantCulture, out var seconds)
+                    ? TimeSpan.FromSeconds(seconds)
+                    : TimeSpan.FromSeconds(2));
+
+            var wait = delay > TimeSpan.FromSeconds(8) ? TimeSpan.FromSeconds(8) : delay;
+            _logger.LogInformation("Discord 429 sur {Path}, nouvelle tentative dans {Wait}.", path, wait);
+            try
+            {
+                await Task.Delay(wait, ct);
+            }
+            catch (TaskCanceledException)
+            {
+                return response;
+            }
         }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning(ex, "Appel Discord impossible ({Method} {Path}).", request.Method, request.RequestUri);
-            return null;
-        }
+
+        return response;
     }
 
     private static string Blank(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
