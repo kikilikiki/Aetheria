@@ -119,6 +119,7 @@ public sealed class BetaTicketProcessor(
                 && a.DiscordTicketChannelId != null
                 && a.Status != BetaApplicationStatus.Pending
                 && a.SyncedStatus != a.Status)
+            .OrderBy(a => a.ReviewedAtUtc)
             .Take(10)
             .ToListAsync(ct);
 
