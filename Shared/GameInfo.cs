@@ -10,6 +10,9 @@ public static class GameInfo
     /// <summary>Nom commercial du jeu.</summary>
     public const string Name = "Aetheria";
 
+    /// <summary>Slogan officiel — affiché notamment en pied de chaque devlog Discord, à côté de la version.</summary>
+    public const string Slogan = "🌟 AETHERIA — TON AVENTURE. TES MONSTRES. TA LÉGENDE. 🌟";
+
     /// <summary>Version courante du jeu (SemVer).</summary>
     public const string Version = "0.3.2";
 

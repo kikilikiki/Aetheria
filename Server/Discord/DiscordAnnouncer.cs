@@ -121,7 +121,7 @@ public sealed class DiscordAnnouncer
         {
             ["title"] = title,
             ["color"] = 0x8A5CF6,
-            ["footer"] = new { text = $"{GameInfo.Name} v{GameInfo.Version}" },
+            ["footer"] = new { text = $"{GameInfo.Name} v{GameInfo.Version}  ·  {GameInfo.Slogan}" },
             ["timestamp"] = DateTime.UtcNow.ToString("o"),
         };
 
