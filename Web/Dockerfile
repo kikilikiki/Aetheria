@@ -31,4 +31,10 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 ENV PORT=8080
 EXPOSE 8080
 
+# Sur l'offre gratuite Render la limite d'instances inotify est basse (128) : le watcher de
+# rechargement d'appsettings.json la sature au démarrage (crash "user limit on inotify instances").
+# On désactive le rechargement à chaud (inutile en prod) et on force le watcher en mode polling.
+ENV DOTNET_hostBuilder__reloadConfigOnChange=false
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1
+
 ENTRYPOINT ["dotnet", "Aetheria.Web.dll"]

@@ -1,5 +1,6 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
+using Aetheria.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Aetheria.Web.Services;
@@ -18,6 +19,19 @@ public static class WebAdminSeeder
 
     public static async Task SeedAsync(AetheriaDbContext db, ILogger? logger = null, CancellationToken ct = default)
     {
+        var bootstrapUsername = Environment.GetEnvironmentVariable("AETHERIA_ADMIN_BOOTSTRAP_USERNAME") ?? DefaultUsername;
+
+        // Le compte admin amorcé doit afficher le grade communautaire Fondateur (voir demande
+        // utilisateur), distinct du flag technique IsAdmin — corrige aussi un compte déjà créé
+        // par une version antérieure (ou par le serveur de jeu) resté au grade Joueur.
+        var seededAdmin = await db.Users.FirstOrDefaultAsync(u => u.IsAdmin && u.Username == bootstrapUsername, ct);
+        if (seededAdmin is { Rank: not UserRank.Fondateur })
+        {
+            seededAdmin.Rank = UserRank.Fondateur;
+            await db.SaveChangesAsync(ct);
+            logger?.LogInformation("Grade du compte {Username} corrigé en Fondateur.", bootstrapUsername);
+        }
+
         if (await db.Users.AnyAsync(u => u.IsAdmin, ct))
         {
             return;
@@ -35,10 +49,11 @@ public static class WebAdminSeeder
         db.Users.Add(new UserEntity
         {
             Id = Guid.NewGuid(),
-            Username = Environment.GetEnvironmentVariable("AETHERIA_ADMIN_BOOTSTRAP_USERNAME") ?? DefaultUsername,
+            Username = bootstrapUsername,
             Email = Environment.GetEnvironmentVariable("AETHERIA_ADMIN_BOOTSTRAP_EMAIL") ?? DefaultEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(password, 12),
             IsAdmin = true,
+            Rank = UserRank.Fondateur,
         });
 
         await db.SaveChangesAsync(ct);

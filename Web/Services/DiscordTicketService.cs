@@ -58,7 +58,7 @@ public sealed class DiscordTicketService
 
     private static string? Env(string name)
     {
-        var value = Environment.GetEnvironmentVariable(name);
+        var value = Environment.GetEnvironmentVariable(name)?.Trim();
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
@@ -112,9 +112,22 @@ public sealed class DiscordTicketService
         var searchResponse = await SendAsync(searchRequest, ct);
         if (searchResponse is null || !searchResponse.IsSuccessStatusCode)
         {
-            _logger.LogWarning("Recherche de membre Discord échouée ({Status}).", searchResponse?.StatusCode);
+            var status = searchResponse?.StatusCode;
+            var body = searchResponse is null ? "(pas de réponse)" : await searchResponse.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning(
+                "Recherche de membre Discord échouée : status={Status}, guildId={GuildId}, body={Body}",
+                status, _guildId, body);
+
+            var hint = status switch
+            {
+                System.Net.HttpStatusCode.Unauthorized => "jeton de bot invalide (DISCORD_BOT_TOKEN)",
+                System.Net.HttpStatusCode.Forbidden => "le bot n'a pas accès à la liste des membres — active l'intent privilégié « SERVER MEMBERS INTENT » dans le portail développeur Discord",
+                System.Net.HttpStatusCode.NotFound => "identifiant de serveur Discord introuvable (DISCORD_BETA_GUILD_ID)",
+                _ => $"réponse Discord {status}",
+            };
+
             return new MemberResolution(false, null, null,
-                "Impossible de vérifier ton pseudo Discord pour le moment. Réessaie plus tard ou contacte un administrateur.");
+                $"Impossible de vérifier ton pseudo Discord ({hint}). Contacte un administrateur.");
         }
 
         var results = await searchResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
