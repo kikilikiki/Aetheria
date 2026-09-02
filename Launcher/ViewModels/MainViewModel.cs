@@ -242,6 +242,34 @@ public sealed partial class MainViewModel : ObservableObject
         {
             new()
             {
+                Title = "Aetheria passe en bêta fermée",
+                ShortDescription = "Un site officiel, un compte partagé et une candidature bêta-testeur. L'accès au jeu est désormais réservé aux testeurs.",
+                FullContent = "Aetheria a maintenant un site officiel (https://aetheria-f7zo.onrender.com) : le compte y est " +
+                    "le même que dans le jeu et le Launcher. Depuis le site, tu peux déposer une candidature pour devenir " +
+                    "bêta-testeur — elle est examinée par l'équipe, et une fois acceptée tu reçois le rôle Testeur sur Discord, " +
+                    "l'accès au téléchargement du jeu et un code de parrainage personnel.\n\n" +
+                    "Pendant la bêta fermée, seuls les comptes bêta-testeurs (grades Testeur, Ami, Modérateur, Fondateur) " +
+                    "peuvent se connecter au serveur de jeu. Les autres comptes peuvent créer un compte sur le site et " +
+                    "candidater en attendant l'ouverture publique.\n\n" +
+                    "Le Launcher affiche aussi maintenant les liens officiels (Discord, TikTok, YouTube, contact) dans le " +
+                    "panneau « À propos », et un champ pour entrer un code cadeau.",
+                PublishedAtUtc = new DateTime(2026, 9, 2, 12, 0, 0, DateTimeKind.Utc),
+            },
+            new()
+            {
+                Title = "Interagis avec les autres joueurs",
+                ShortDescription = "Menu d'interaction en jeu, duels classés avec points ELO, système de blocage et de signalement.",
+                FullContent = "Approche-toi d'un autre joueur et appuie sur « L » (ou clique dessus) pour ouvrir un menu " +
+                    "d'interaction : l'ajouter en ami, lui proposer un duel amical ou un duel classé, le signaler, ou le bloquer.\n\n" +
+                    "Les duels classés ajustent désormais tes points de classement (ELO) : une victoire en rapporte, une " +
+                    "défaite en coûte. Les duels amicaux, eux, ne touchent ni au classement ni aux statistiques.\n\n" +
+                    "Le blocage est complet : un joueur bloqué ne voit plus tes messages dans le tchat, et aucun de vous deux " +
+                    "ne peut envoyer à l'autre une demande d'ami ou un défi. Bloquer quelqu'un annule aussi une amitié existante.\n\n" +
+                    "Enfin, les résultats de tous les duels et matchs sont journalisés sur le Discord officiel.",
+                PublishedAtUtc = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+            },
+            new()
+            {
                 Title = "Le Launcher arrive sur Linux",
                 ShortDescription = "Compte, connexion et mise à jour automatique désormais disponibles sur Linux (.deb/.tar.gz).",
                 FullContent = "Le Launcher (création de compte, connexion, mise à jour automatique) est désormais " +
