@@ -31,6 +31,7 @@ public sealed class BetaTicketService
     private readonly string _categoryId;
     private readonly IReadOnlyList<string> _staffRoleIds;
     private readonly string? _testerRoleId;
+    private readonly IReadOnlyList<string> _memberRoleIds;
     private readonly IReadOnlyList<string> _decisionRoleIds;
 
     public string InviteUrl { get; }
@@ -56,6 +57,17 @@ public sealed class BetaTicketService
 
         _testerRoleId = Env("DISCORD_ROLE_ID_TESTEUR")
             ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+
+        // Voir demande utilisateur — un compte accepté en bêta doit recevoir le même socle de
+        // rôles « membre vérifié » qu'un compte lié via /discord + /link (DiscordRoleSyncService
+        // accorde DISCORD_ROLE_ID_JOUEUR + DISCORD_VERIFIED_ROLE_ID comme socle commun jamais
+        // retiré). On les rejoue ici car un candidat bêta n'a en général pas encore lié son Discord.
+        _memberRoleIds = new[] { "DISCORD_ROLE_ID_JOUEUR", "DISCORD_VERIFIED_ROLE_ID" }
+            .Select(Env)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .SelectMany(v => v!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct()
+            .ToArray();
 
         // Rôle(s) autorisé(s) à valider / refuser via les boutons du ticket (voir demande utilisateur).
         _decisionRoleIds = (Env("DISCORD_BETA_DECISION_ROLE_IDS") ?? "1544758752287260713")
@@ -293,14 +305,28 @@ public sealed class BetaTicketService
         }
     }
 
+    /// <summary>
+    /// Attribue au membre Discord accepté en bêta le rôle Testeur (<c>DISCORD_ROLE_ID_TESTEUR</c>)
+    /// ainsi que le socle de rôles « membre vérifié » (<c>DISCORD_ROLE_ID_JOUEUR</c> +
+    /// <c>DISCORD_VERIFIED_ROLE_ID</c>) — voir demande utilisateur : mêmes rôles que pour un compte
+    /// lié via /discord + /link.
+    /// </summary>
     public async Task GrantTesterRoleAsync(string discordUserId, CancellationToken ct)
     {
-        if (!IsConfigured || string.IsNullOrWhiteSpace(_testerRoleId))
+        if (!IsConfigured)
         {
             return;
         }
 
-        await SendAsync(HttpMethod.Put, $"guilds/{_guildId}/members/{discordUserId}/roles/{_testerRoleId}", null, ct);
+        foreach (var roleId in _memberRoleIds)
+        {
+            await SendAsync(HttpMethod.Put, $"guilds/{_guildId}/members/{discordUserId}/roles/{roleId}", null, ct);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_testerRoleId))
+        {
+            await SendAsync(HttpMethod.Put, $"guilds/{_guildId}/members/{discordUserId}/roles/{_testerRoleId}", null, ct);
+        }
     }
 
     /// <summary>

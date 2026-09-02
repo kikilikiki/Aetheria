@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aetheria.Database.Context;
+using Aetheria.Database.Entities;
 using Aetheria.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -498,10 +499,12 @@ public sealed class DiscordGatewayClient(
         string? newReferralCode = null;
         string? newReferralUsername = null;
         Guid newReferralUserId = default;
+        UserEntity? approvedUser = null;
 
         if (accept)
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == application.UserId, ct);
+            approvedUser = user;
             if (user is not null)
             {
                 if (user.Rank == UserRank.Joueur)
@@ -540,6 +543,13 @@ public sealed class DiscordGatewayClient(
         if (accept && application.ResolvedDiscordUserId is { Length: > 0 } discordId)
         {
             await betaTickets.GrantTesterRoleAsync(discordId, ct);
+
+            // Si le compte est aussi lié via /discord + /link, synchronise proprement tous ses
+            // rôles de grade (gère l'exclusivité des rôles de grade supérieurs).
+            if (approvedUser?.DiscordUserId is { Length: > 0 })
+            {
+                await roleSyncService.SyncUserRoleAsync(approvedUser, ct);
+            }
         }
 
         if (application.DiscordTicketChannelId is { Length: > 0 } channelId)
