@@ -44,6 +44,18 @@ public sealed class DiscordGatewayClient(
     private string? _applicationId;
     private List<string> _guildIds = [];
 
+    /// <summary>
+    /// Passe à <c>false</c> à chaque envoi de heartbeat, revient à <c>true</c> quand Discord ACK
+    /// (op 11). Si un heartbeat part alors que le précédent n'a jamais été ACK, la connexion est
+    /// « zombie » (à moitié morte) : on la coupe et on reconnecte, plutôt que de rester bloqué
+    /// indéfiniment en réception sans jamais recevoir d'interaction (cause du bug « les boutons du
+    /// ticket ne répondent plus après un moment / un redémarrage »).
+    /// </summary>
+    private volatile bool _heartbeatAcked = true;
+
+    /// <summary>Reçu à op 11, sinon la connexion est considérée morte.</summary>
+    private DateTime _lastHeartbeatAckUtc = DateTime.UtcNow;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _botToken = Environment.GetEnvironmentVariable("DISCORD_BOT_TOKEN");
@@ -146,9 +158,12 @@ public sealed class DiscordGatewayClient(
         await socket.ConnectAsync(new Uri(GatewayUrl), ct);
         logger.LogInformation("Gateway Discord : WebSocket connecté, envoi de l'IDENTIFY.");
 
-        var buffer = new byte[16 * 1024];
+        var buffer = new byte[64 * 1024];
         var hello = await ReceiveJsonAsync(socket, buffer, ct) ?? throw new IOException("Gateway fermée avant HELLO.");
         var heartbeatIntervalMs = hello["d"]!["heartbeat_interval"]!.GetValue<int>();
+
+        _heartbeatAcked = true;
+        _lastHeartbeatAckUtc = DateTime.UtcNow;
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var lastSequence = (int?)null;
@@ -175,7 +190,8 @@ public sealed class DiscordGatewayClient(
                 var payload = await ReceiveJsonAsync(socket, buffer, ct);
                 if (payload is null)
                 {
-                    break;
+                    logger.LogInformation("Gateway Discord : connexion fermée par Discord ({Status} {Desc}), reconnexion.", socket.CloseStatus, socket.CloseStatusDescription);
+                    return;
                 }
 
                 var op = payload["op"]!.GetValue<int>();
@@ -192,7 +208,29 @@ public sealed class DiscordGatewayClient(
                             logger.LogInformation("Gateway Discord : READY — prêt à recevoir les interactions (boutons de ticket bêta inclus).");
                         }
 
-                        await HandleDispatchAsync(payload, ct);
+                        // Traité en tâche de fond : une requête base/Discord lente (ex. clic sur un
+                        // bouton de ticket) ne doit pas bloquer la boucle de réception ni la
+                        // détection de connexion morte.
+                        var dispatchPayload = payload;
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await HandleDispatchAsync(dispatchPayload, ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Gateway Discord : erreur en traitant un évènement (ignorée).");
+                            }
+                        }, ct);
+                        break;
+                    case 1: // Discord demande un heartbeat immédiat
+                        _heartbeatAcked = false;
+                        await SendJsonAsync(socket, new JsonObject { ["op"] = 1, ["d"] = lastSequence }, ct);
+                        break;
+                    case 11: // Heartbeat ACK
+                        _heartbeatAcked = true;
+                        _lastHeartbeatAckUtc = DateTime.UtcNow;
                         break;
                     case 7: // Reconnect requested by Discord
                     case 9: // Invalid session
@@ -226,7 +264,7 @@ public sealed class DiscordGatewayClient(
         }
     }
 
-    private static async Task RunHeartbeatLoopAsync(ClientWebSocket socket, int intervalMs, Func<int?> getSequence, CancellationToken ct)
+    private async Task RunHeartbeatLoopAsync(ClientWebSocket socket, int intervalMs, Func<int?> getSequence, CancellationToken ct)
     {
         // Premier battement après un délai aléatoire (jitter) conforme à la documentation Discord,
         // pour éviter que toutes les connexions envoient leur premier heartbeat au même instant.
@@ -236,6 +274,26 @@ public sealed class DiscordGatewayClient(
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(intervalMs));
         do
         {
+            // Discord n'a pas ACK le heartbeat précédent : connexion morte (voir doc Discord —
+            // « close the connection with a non-1000 close code, reconnect »). On coupe le socket,
+            // ce qui débloque ReceiveJsonAsync et déclenche la reconnexion.
+            if (!_heartbeatAcked)
+            {
+                logger.LogWarning("Gateway Discord : aucun ACK de heartbeat depuis {Age:g} — connexion morte, on la coupe et on reconnecte.", DateTime.UtcNow - _lastHeartbeatAckUtc);
+                try
+                {
+                    await socket.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, "no heartbeat ack", CancellationToken.None);
+                }
+                catch (Exception)
+                {
+                    // best-effort
+                }
+
+                socket.Abort();
+                return;
+            }
+
+            _heartbeatAcked = false;
             await SendJsonAsync(socket, new JsonObject { ["op"] = 1, ["d"] = getSequence() }, ct);
         }
         while (await timer.WaitForNextTickAsync(ct));
