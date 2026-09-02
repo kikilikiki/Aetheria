@@ -1,10 +1,8 @@
 @page
 @{
     ViewData["Title"] = "Télécharger";
-    var winUrl = "https://github.com/kikilikiki/Aetheria/releases/latest/download/AetheriaSetup.exe";
-    var debUrl = "https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-amd64.deb";
-    var tarUrl = "https://github.com/kikilikiki/Aetheria/releases/latest/download/aetheria-linux-x64.tar.gz";
-    var releasesUrl = "https://github.com/kikilikiki/Aetheria/releases";
+    var canDownload = User.HasClaim("can_download", "true");
+    var isAuth = User.Identity?.IsAuthenticated == true;
 }
 
 <div class="container narrow" style="text-align:center;">
@@ -13,29 +11,48 @@
         Le Launcher installe le jeu, gère les mises à jour et vous connecte à votre compte.
     </p>
 
-    <div class="os-tabs" role="tablist">
-        <button class="os-tab" data-os="windows" type="button" onclick="selectOs('windows')">Windows</button>
-        <button class="os-tab" data-os="linux" type="button" onclick="selectOs('linux')">Linux</button>
-    </div>
+    @if (!canDownload)
+    {
+        <div class="alert alert-info" style="text-align:left;">
+            Aetheria est en <strong>bêta fermée</strong>. Le téléchargement est réservé aux
+            bêta-testeurs acceptés (grade Testeur).
+        </div>
+        @if (isAuth)
+        {
+            <a class="btn btn-primary" href="/beta">Postuler pour la bêta</a>
+            <a class="btn btn-secondary" href="/mon-compte">Voir ma candidature</a>
+        }
+        else
+        {
+            <a class="btn btn-primary" href="/connexion">Se connecter</a>
+            <a class="btn btn-secondary" href="/inscription">Créer un compte</a>
+        }
+    }
+    else
+    {
+        <div class="os-tabs" role="tablist">
+            <button class="os-tab" data-os="windows" type="button" onclick="selectOs('windows')">Windows</button>
+            <button class="os-tab" data-os="linux" type="button" onclick="selectOs('linux')">Linux</button>
+        </div>
 
-    <div id="os-panel-windows" class="os-panel">
-        <a class="btn btn-primary" href="@winUrl">Installer le Launcher (.exe)</a>
-        <a class="btn btn-secondary" href="@releasesUrl">Toutes les versions</a>
-        <p class="section-lead" style="margin-top:16px;">
-            Un seul exécutable : lancez-le pour installer le Launcher, puis lancez le Launcher pour
-            jouer. Nécessite le
-            <a href="https://dotnet.microsoft.com/download/dotnet/10.0" target="_blank" rel="noopener">runtime .NET 10 Desktop</a>.
-        </p>
-    </div>
+        <div id="os-panel-windows" class="os-panel">
+            <a class="btn btn-primary" href="/telechargement?os=windows">Installer le Launcher (.exe)</a>
+            <p class="section-lead" style="margin-top:16px;">
+                Un seul exécutable : lancez-le pour installer le Launcher, puis lancez le Launcher
+                pour jouer. Nécessite le
+                <a href="https://dotnet.microsoft.com/download/dotnet/10.0" target="_blank" rel="noopener">runtime .NET 10 Desktop</a>.
+            </p>
+        </div>
 
-    <div id="os-panel-linux" class="os-panel">
-        <a class="btn btn-primary" href="@debUrl">Installer le Launcher (.deb)</a>
-        <a class="btn btn-secondary" href="@tarUrl">Archive .tar.gz</a>
-        <p class="section-lead" style="margin-top:16px;">
-            Le paquet installe le Launcher et le client : lancez <code>aetheria</code> pour jouer,
-            comme sous Windows.
-        </p>
-    </div>
+        <div id="os-panel-linux" class="os-panel">
+            <a class="btn btn-primary" href="/telechargement?os=deb">Installer le Launcher (.deb)</a>
+            <a class="btn btn-secondary" href="/telechargement?os=tar">Archive .tar.gz</a>
+            <p class="section-lead" style="margin-top:16px;">
+                Le paquet installe le Launcher et le client : lancez <code>aetheria</code> pour
+                jouer, comme sous Windows.
+            </p>
+        </div>
+    }
 </div>
 
 @section Scripts {

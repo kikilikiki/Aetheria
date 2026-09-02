@@ -1,6 +1,7 @@
 using System.Text;
 using Aetheria.Database.Context;
 using Aetheria.Web.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,7 @@ builder.Services.AddDbContext<AetheriaDbContext>(options =>
 });
 
 builder.Services.AddScoped<WebAccountService>();
+builder.Services.AddScoped<IClaimsTransformation, RankClaimsTransformation>();
 builder.Services.AddSingleton<DiscordTicketService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -50,7 +52,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     {
         options.LoginPath = "/connexion";
         options.LogoutPath = "/deconnexion";
-        options.AccessDeniedPath = "/connexion";
+        options.AccessDeniedPath = "/acces-refuse";
         options.ExpireTimeSpan = TimeSpan.FromDays(14);
         options.SlidingExpiration = true;
         options.Cookie.Name = "aetheria.auth";
@@ -63,6 +65,8 @@ builder.Services.AddAuthorization(options =>
 {
     // Même règle que Server/Persistence/AdminAuthService : compte IsAdmin ou grade Fondateur.
     options.AddPolicy("Staff", policy => policy.RequireClaim("is_staff", "true"));
+    // Téléchargement du jeu réservé aux bêta-testeurs (voir demande utilisateur).
+    options.AddPolicy("Testeur", policy => policy.RequireClaim("can_download", "true"));
 });
 
 builder.Services.AddRazorPages(options =>
@@ -70,6 +74,7 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Admin", "Staff");
     options.Conventions.AuthorizePage("/Beta");
     options.Conventions.AuthorizePage("/Compte");
+    options.Conventions.AuthorizePage("/Telechargement", "Testeur");
 });
 
 var app = builder.Build();

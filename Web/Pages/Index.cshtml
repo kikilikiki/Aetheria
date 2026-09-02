@@ -1,7 +1,8 @@
 @page
 @{
     ViewData["Title"] = "MMORPG tactique";
-    var winUrl = "https://github.com/kikilikiki/Aetheria/releases/latest/download/AetheriaSetup.exe";
+    var canDownload = User.HasClaim("can_download", "true");
+    var isAuth = User.Identity?.IsAuthenticated == true;
 }
 
 <section class="hero">
@@ -11,8 +12,22 @@
         l'infini et guerres de royaumes hebdomadaires. Développé entièrement en C#, moteur maison.
     </p>
     <div>
-        <a class="btn btn-primary" href="@winUrl">Installer le Launcher (Windows)</a>
-        <a class="btn btn-secondary" href="/telecharger">Autres plateformes</a>
+        @if (canDownload)
+        {
+            <a class="btn btn-primary" href="/telechargement?os=windows">Installer le Launcher (Windows)</a>
+            <a class="btn btn-secondary" href="/telecharger">Autres plateformes</a>
+        }
+        else if (isAuth)
+        {
+            <a class="btn btn-primary" href="/beta">Devenir bêta-testeur</a>
+            <span class="hint" style="display:block;margin-top:8px;">Le téléchargement s'ouvre une fois ta candidature acceptée.</span>
+        }
+        else
+        {
+            <a class="btn btn-primary" href="/connexion">Se connecter</a>
+            <a class="btn btn-secondary" href="/inscription">Créer un compte</a>
+            <span class="hint" style="display:block;margin-top:8px;">Le jeu est en bêta fermée : le téléchargement est réservé aux bêta-testeurs.</span>
+        }
     </div>
     <p style="margin-top:14px;color:var(--text-dim);font-size:.85rem;">
         <span class="status-dot" id="server-dot"></span><span id="server-status">Statut du serveur…</span>

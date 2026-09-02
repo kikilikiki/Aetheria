@@ -93,7 +93,13 @@ public sealed class WebAccountService(AetheriaDbContext db)
         return Result.Ok(user);
     }
 
-    /// <summary>Construit le principal (cookie d'authentification) à partir d'un compte vérifié.</summary>
+    /// <summary>Compte autorisé à télécharger le jeu (voir demande utilisateur — réservé aux
+    /// bêta-testeurs) : grade Testeur, ou membre du staff.</summary>
+    public static bool CanDownload(UserEntity user) =>
+        user.IsAdmin || user.Rank is UserRank.Testeur or UserRank.Moderateur or UserRank.Fondateur;
+
+    /// <summary>Construit le principal (cookie d'authentification) à partir d'un compte vérifié.
+    /// Les claims de grade sont rafraîchis à chaque requête par <see cref="RankClaimsTransformation"/>.</summary>
     public static ClaimsPrincipal BuildPrincipal(UserEntity user)
     {
         var isStaff = user.IsAdmin || user.Rank == UserRank.Fondateur;
@@ -106,6 +112,7 @@ public sealed class WebAccountService(AetheriaDbContext db)
             new(ClaimTypes.Role, user.Rank.ToString()),
             new("is_admin", user.IsAdmin ? "true" : "false"),
             new("is_staff", isStaff ? "true" : "false"),
+            new("can_download", CanDownload(user) ? "true" : "false"),
         };
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

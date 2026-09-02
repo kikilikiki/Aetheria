@@ -1,0 +1,22 @@
+@page "/acces-refuse"
+@{
+    ViewData["Title"] = "Accès réservé";
+    var isAuth = User.Identity?.IsAuthenticated == true;
+}
+
+<div class="container narrow" style="text-align:center;">
+    <h1 class="section-title">Accès réservé aux bêta-testeurs</h1>
+    <p class="section-lead">
+        Le téléchargement du jeu est réservé aux membres acceptés en bêta (grade Testeur).
+    </p>
+    @if (isAuth)
+    {
+        <a class="btn btn-primary" href="/beta">Postuler pour la bêta</a>
+        <a class="btn btn-secondary" href="/mon-compte">Voir ma candidature</a>
+    }
+    else
+    {
+        <a class="btn btn-primary" href="/connexion?ReturnUrl=%2Fbeta">Se connecter</a>
+        <a class="btn btn-secondary" href="@Aetheria.Shared.GameInfo.DiscordInviteUrl" target="_blank" rel="noopener">Rejoindre le Discord</a>
+    }
+</div>
