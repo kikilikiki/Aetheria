@@ -45,6 +45,12 @@ public sealed class BetaApplicationEntity
     /// <summary>« Comment as-tu découvert notre communauté ? »</summary>
     public string Discovery { get; set; } = string.Empty;
 
+    /// <summary>« Es-tu à l'aise pour écrire un rapport de bug détaillé ? »</summary>
+    public string BugReportComfort { get; set; } = string.Empty;
+
+    /// <summary>« Créateur de contenu ? (YouTube / Twitch / TikTok + lien) » — facultatif.</summary>
+    public string? ContentCreator { get; set; }
+
     /// <summary>Remarques libres (facultatif).</summary>
     public string? Notes { get; set; }
 

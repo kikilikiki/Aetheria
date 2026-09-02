@@ -58,9 +58,14 @@
                         </td>
                         <td>@a.Platform</td>
                         <td style="max-width:200px;white-space:pre-wrap;">@a.HardwareSpecs</td>
-                        <td style="max-width:280px;">
+                        <td style="max-width:300px;">
                             <strong>Motivation :</strong> <span style="white-space:pre-wrap;">@a.Motivation</span><br />
-                            <strong>Découverte :</strong> <span style="white-space:pre-wrap;">@a.Discovery</span>
+                            <strong>Découverte :</strong> <span style="white-space:pre-wrap;">@a.Discovery</span><br />
+                            <strong>Rapport de bug :</strong> @a.BugReportComfort
+                            @if (!string.IsNullOrWhiteSpace(a.ContentCreator))
+                            {
+                                <br /><strong>Créateur :</strong> <span style="white-space:pre-wrap;">@a.ContentCreator</span>
+                            }
                             @if (!string.IsNullOrWhiteSpace(a.Notes))
                             {
                                 <br /><strong>Remarques :</strong> <span style="white-space:pre-wrap;">@a.Notes</span>

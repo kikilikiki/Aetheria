@@ -23,6 +23,8 @@ public sealed class BetaModel(AetheriaDbContext db) : PageModel
     [BindProperty] public string HardwareSpecs { get; set; } = string.Empty;
     [BindProperty] public string Motivation { get; set; } = string.Empty;
     [BindProperty] public string Discovery { get; set; } = string.Empty;
+    [BindProperty] public string BugReportComfort { get; set; } = string.Empty;
+    [BindProperty] public string? ContentCreator { get; set; }
     [BindProperty] public string? Notes { get; set; }
 
     [BindProperty(SupportsGet = true, Name = "ref")]
@@ -82,7 +84,8 @@ public sealed class BetaModel(AetheriaDbContext db) : PageModel
         }
 
         if (string.IsNullOrWhiteSpace(InGamePseudo) || string.IsNullOrWhiteSpace(HardwareSpecs)
-            || string.IsNullOrWhiteSpace(Motivation) || string.IsNullOrWhiteSpace(Discovery))
+            || string.IsNullOrWhiteSpace(Motivation) || string.IsNullOrWhiteSpace(Discovery)
+            || string.IsNullOrWhiteSpace(BugReportComfort))
         {
             Error = "Merci de répondre à toutes les questions obligatoires.";
             return Page();
@@ -100,6 +103,8 @@ public sealed class BetaModel(AetheriaDbContext db) : PageModel
             HardwareSpecs = HardwareSpecs.Trim(),
             Motivation = Motivation.Trim(),
             Discovery = Discovery.Trim(),
+            BugReportComfort = BugReportComfort.Trim(),
+            ContentCreator = string.IsNullOrWhiteSpace(ContentCreator) ? null : ContentCreator.Trim(),
             Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),
             ReferralCodeUsed = NormalizeReferral(ReferralCode),
             ResolvedDiscordUserId = DiscordLinked ? Account.DiscordUserId : null,

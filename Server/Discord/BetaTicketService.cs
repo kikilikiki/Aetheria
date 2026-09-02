@@ -200,6 +200,8 @@ public sealed class BetaTicketService
                         new { name = "Configuration PC", value = Truncate(Blank(application.HardwareSpecs), 1024) },
                         new { name = "Pourquoi devenir bêta-testeur ?", value = Truncate(Blank(application.Motivation), 1024) },
                         new { name = "Comment as-tu découvert la communauté ?", value = Truncate(Blank(application.Discovery), 1024) },
+                        new { name = "À l'aise avec un rapport de bug ?", value = Blank(application.BugReportComfort), inline = true },
+                        new { name = "Créateur de contenu", value = Truncate(Blank(application.ContentCreator), 1024), inline = true },
                         new { name = "Remarques", value = Truncate(Blank(application.Notes), 1024) },
                     },
                     timestamp = application.CreatedAtUtc.ToString("o"),

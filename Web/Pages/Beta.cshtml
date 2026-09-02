@@ -89,6 +89,19 @@
                 <textarea id="disc" name="Discovery" required>@Model.Discovery</textarea>
             </div>
             <div class="field">
+                <label for="bug">Es-tu à l'aise pour écrire un rapport de bug détaillé ?</label>
+                <select id="bug" name="BugReportComfort" required>
+                    <option value="" disabled selected="@(string.IsNullOrEmpty(Model.BugReportComfort))">— choisir —</option>
+                    <option value="Oui" selected="@(Model.BugReportComfort == "Oui")">Oui, sans problème</option>
+                    <option value="Avec un modèle" selected="@(Model.BugReportComfort == "Avec un modèle")">Oui, avec un modèle à suivre</option>
+                    <option value="Pas trop" selected="@(Model.BugReportComfort == "Pas trop")">Pas vraiment</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="cc">Créateur de contenu ? (YouTube / Twitch / TikTok + lien — facultatif)</label>
+                <input id="cc" name="ContentCreator" value="@Model.ContentCreator" maxlength="300" placeholder="https://…" />
+            </div>
+            <div class="field">
                 <label for="refc">Code de parrainage (facultatif)</label>
                 <input id="refc" name="ref" value="@Model.ReferralCode" placeholder="ex. AB12CD" maxlength="16" />
                 <div class="hint">Si un testeur t'a partagé son lien, le code est déjà rempli.</div>
