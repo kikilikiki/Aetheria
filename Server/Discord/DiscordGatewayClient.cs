@@ -552,6 +552,12 @@ public sealed class DiscordGatewayClient(
             await betaTickets.PostCloseProposalAsync(channelId, ct);
         }
 
+        if (accept)
+        {
+            // Voir demande utilisateur — récap dans le salon des acceptés (mêmes infos, sans boutons).
+            await betaTickets.PostAcceptedApplicationAsync(application, reviewer, ct);
+        }
+
         logger.LogInformation("Candidature {Id} {Decision} depuis le ticket Discord par {Reviewer}.",
             application.Id, accept ? "acceptée" : "refusée", reviewer);
     }

@@ -186,30 +186,7 @@ public sealed class BetaTicketService
         var message = await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
         {
             content = $"<@{applicantDiscordId}> {mentions}".Trim(),
-            embeds = new[]
-            {
-                new
-                {
-                    title = "Nouvelle candidature bêta",
-                    color = 0xA8353A,
-                    fields = new object[]
-                    {
-                        new { name = "Compte Aetheria", value = application.Username, inline = true },
-                        new { name = "Pseudo en jeu", value = Blank(application.InGamePseudo), inline = true },
-                        new { name = "Plateforme", value = Blank(application.Platform), inline = true },
-                        new { name = "Discord", value = Blank(application.DiscordHandle), inline = true },
-                        new { name = "Email", value = Blank(application.ContactEmail), inline = true },
-                        new { name = "Parrainage", value = Blank(application.ReferralCodeUsed), inline = true },
-                        new { name = "Configuration PC", value = Truncate(Blank(application.HardwareSpecs), 1024) },
-                        new { name = "Pourquoi devenir bêta-testeur ?", value = Truncate(Blank(application.Motivation), 1024) },
-                        new { name = "Comment as-tu découvert la communauté ?", value = Truncate(Blank(application.Discovery), 1024) },
-                        new { name = "À l'aise avec un rapport de bug ?", value = Blank(application.BugReportComfort), inline = true },
-                        new { name = "Créateur de contenu", value = Truncate(Blank(application.ContentCreator), 1024), inline = true },
-                        new { name = "Remarques", value = Truncate(Blank(application.Notes), 1024) },
-                    },
-                    timestamp = application.CreatedAtUtc.ToString("o"),
-                },
-            },
+            embeds = new[] { BuildApplicationEmbed(application, "Nouvelle candidature bêta") },
             components = DecisionButtons(application.Id, disabled: false),
             allowed_mentions = new { users = new[] { applicantDiscordId }, roles = _staffRoleIds },
         }, ct);
@@ -226,6 +203,52 @@ public sealed class BetaTicketService
         }
 
         return new TicketCreation(channelId, messageId);
+    }
+
+    /// <summary>Embed récapitulatif d'une candidature (mêmes champs partout — ticket + salon des acceptés).</summary>
+    private static object BuildApplicationEmbed(BetaApplicationEntity application, string title) => new
+    {
+        title,
+        color = 0xA8353A,
+        fields = new object[]
+        {
+            new { name = "Compte Aetheria", value = application.Username, inline = true },
+            new { name = "Pseudo en jeu", value = Blank(application.InGamePseudo), inline = true },
+            new { name = "Plateforme", value = Blank(application.Platform), inline = true },
+            new { name = "Discord", value = Blank(application.DiscordHandle), inline = true },
+            new { name = "Email", value = Blank(application.ContactEmail), inline = true },
+            new { name = "Parrainage", value = Blank(application.ReferralCodeUsed), inline = true },
+            new { name = "Configuration PC", value = Truncate(Blank(application.HardwareSpecs), 1024) },
+            new { name = "Pourquoi devenir bêta-testeur ?", value = Truncate(Blank(application.Motivation), 1024) },
+            new { name = "Comment as-tu découvert la communauté ?", value = Truncate(Blank(application.Discovery), 1024) },
+            new { name = "À l'aise avec un rapport de bug ?", value = Blank(application.BugReportComfort), inline = true },
+            new { name = "Créateur de contenu", value = Truncate(Blank(application.ContentCreator), 1024), inline = true },
+            new { name = "Remarques", value = Truncate(Blank(application.Notes), 1024) },
+        },
+        timestamp = application.CreatedAtUtc.ToString("o"),
+    };
+
+    /// <summary>
+    /// Poste le récapitulatif d'une candidature <b>acceptée</b> dans le salon dédié (voir demande
+    /// utilisateur — <c>DISCORD_BETA_ACCEPTED_LOG_CHANNEL_ID</c>, défaut <c>1544788948147240960</c>) :
+    /// mêmes infos, même embed, <b>sans les boutons</b>, pour que la modération ait toutes les infos
+    /// des joueurs acceptés au même endroit.
+    /// </summary>
+    public async Task PostAcceptedApplicationAsync(BetaApplicationEntity application, string reviewer, CancellationToken ct)
+    {
+        if (!IsConfigured)
+        {
+            return;
+        }
+
+        var channelId = Env("DISCORD_BETA_ACCEPTED_LOG_CHANNEL_ID") ?? "1544788948147240960";
+        await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
+        {
+            content = $"✅ Candidature acceptée par {reviewer}"
+                + (application.ResolvedDiscordUserId is { Length: > 0 } id ? $" — <@{id}>" : ""),
+            embeds = new[] { BuildApplicationEmbed(application, "Bêta-testeur accepté") },
+            allowed_mentions = new { parse = Array.Empty<string>() },
+        }, ct);
     }
 
     /// <summary>Ligne de boutons Accepter / Refuser pour le message de ticket.</summary>

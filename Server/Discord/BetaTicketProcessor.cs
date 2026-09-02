@@ -140,6 +140,9 @@ public sealed class BetaTicketProcessor(
                 {
                     await tickets.GrantTesterRoleAsync(discordId, ct);
                 }
+
+                // Voir demande utilisateur — récap dans le salon des acceptés (mêmes infos, sans boutons).
+                await tickets.PostAcceptedApplicationAsync(application, reviewer, ct);
             }
             else if (application.Status == BetaApplicationStatus.Rejected)
             {
