@@ -38,6 +38,9 @@ public sealed class BetaTicketService
     /// <summary>Rôle(s) Discord autorisé(s) à cliquer les boutons Accepter / Refuser d'un ticket bêta.</summary>
     public IReadOnlyList<string> DecisionRoleIds => _decisionRoleIds;
 
+    /// <summary>Rôle(s) staff qui voient les salons de ticket (peuvent donc aussi décider).</summary>
+    public IReadOnlyList<string> StaffRoleIds => _staffRoleIds;
+
     public BetaTicketService(ILogger<BetaTicketService> logger)
     {
         _logger = logger;

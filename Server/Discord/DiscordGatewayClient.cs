@@ -239,11 +239,14 @@ public sealed class DiscordGatewayClient(
         }
 
         var interaction = payload["d"]!;
-        var interactionType = interaction["type"]!.GetValue<int>();
+        var interactionType = interaction["type"]?.GetValue<int>() ?? 0;
         var interactionId = interaction["id"]!.GetValue<string>();
         var interactionToken = interaction["token"]!.GetValue<string>();
         var discordUserId = interaction["member"]?["user"]?["id"]?.GetValue<string>()
             ?? interaction["user"]?["id"]?.GetValue<string>();
+
+        logger.LogInformation("Interaction Discord reçue : type={Type}, user={User}, customId={CustomId}",
+            interactionType, discordUserId, interaction["data"]?["custom_id"]?.GetValue<string>());
 
         if (discordUserId is null)
         {
@@ -289,14 +292,29 @@ public sealed class DiscordGatewayClient(
             return;
         }
 
-        // Rôle(s) autorisé(s) à décider (voir demande utilisateur — réservé au staff).
         var memberRoles = (interaction["member"]?["roles"]?.AsArray() ?? [])
             .Select(r => r?.GetValue<string>())
             .Where(r => r is not null)
             .ToHashSet();
-        if (!betaTickets.DecisionRoleIds.Any(memberRoles.Contains))
+
+        // Permissions calculées du membre dans le salon (bitfield en chaîne).
+        var hasAdminPerms = ulong.TryParse(interaction["member"]?["permissions"]?.GetValue<string>(), out var perms)
+            && (perms & 0x8UL) != 0; // ADMINISTRATOR
+
+        // Autorisé à décider : rôle de décision configuré, OU rôle staff (qui voit déjà le ticket),
+        // OU permission Administrateur sur le serveur.
+        var allowedRoles = betaTickets.DecisionRoleIds.Concat(betaTickets.StaffRoleIds).ToHashSet();
+        var authorized = hasAdminPerms || allowedRoles.Any(memberRoles.Contains);
+
+        logger.LogInformation(
+            "Bouton bêta : action={Action}, user={User}, rolesMembre=[{Roles}], rolesAutorises=[{Allowed}], admin={Admin} -> {Result}",
+            accept ? "accept" : "reject", discordUserId, string.Join(",", memberRoles), string.Join(",", allowedRoles), hasAdminPerms,
+            authorized ? "autorisé" : "refusé");
+
+        if (!authorized)
         {
-            await RespondAsync(interactionId, interactionToken, "⛔ Seul le staff peut valider ou refuser une candidature.", ct);
+            await RespondAsync(interactionId, interactionToken,
+                $"⛔ Réservé au staff. Rôle(s) autorisé(s) : {string.Join(", ", allowedRoles.Select(r => $"<@&{r}>"))}.", ct);
             return;
         }
 
