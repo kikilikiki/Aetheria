@@ -1,0 +1,57 @@
+@page "/admin/codes"
+@model Aetheria.Web.Pages.Admin.CodesModel
+@{
+    ViewData["Title"] = "Codes cadeaux";
+}
+
+<div class="container">
+    <h1 class="section-title" style="text-align:left;">Codes cadeaux</h1>
+
+    @if (!string.IsNullOrEmpty(Model.Flash))
+    {
+        <div class="alert alert-ok">@Model.Flash</div>
+    }
+
+    <p class="hint" style="text-transform:none;">
+        Les récompenses ne sont pas encore distribuées : la rédemption est enregistrée et la
+        description est affichée au joueur. À brancher plus tard sur un vrai système de récompenses.
+    </p>
+
+    <form method="post" asp-page-handler="Create" class="form-panel" style="margin-bottom:24px;">
+        <div class="field"><label for="c">Code</label><input id="c" name="NewCode" required maxlength="32" placeholder="AETHERIA2026" /></div>
+        <div class="field"><label for="d">Description (ce que gagne le joueur)</label><input id="d" name="NewDescription" maxlength="200" /></div>
+        <div class="field"><label for="m">Limite d'utilisations (vide = illimité)</label><input id="m" name="NewMaxRedemptions" type="number" min="1" /></div>
+        <div class="field"><label for="e">Expiration (vide = jamais)</label><input id="e" name="NewExpiresAtUtc" type="datetime-local" /></div>
+        <button type="submit" class="btn btn-primary">Créer le code</button>
+    </form>
+
+    @if (Model.Codes.Count == 0)
+    {
+        <p style="color:var(--text-dim);">Aucun code pour l'instant.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr><th>Code</th><th>Description</th><th>Utilisations</th><th>Expire</th><th>Actif</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var c in Model.Codes)
+                {
+                    <tr>
+                        <td><strong>@c.Code</strong></td>
+                        <td>@c.Description</td>
+                        <td>@c.RedemptionCount@(c.MaxRedemptions is { } max ? $" / {max}" : "")</td>
+                        <td>@(c.ExpiresAtUtc?.ToString("dd/MM/yyyy") ?? "—")</td>
+                        <td>@(c.IsActive ? "oui" : "non")</td>
+                        <td>
+                            <form method="post" asp-page-handler="Toggle" asp-route-id="@c.Id">
+                                <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">@(c.IsActive ? "Désactiver" : "Réactiver")</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

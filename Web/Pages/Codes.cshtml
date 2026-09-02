@@ -1,0 +1,39 @@
+@page "/codes"
+@model CodesModel
+@{
+    ViewData["Title"] = "Codes cadeaux";
+}
+
+<div class="container narrow">
+    <h1 class="section-title" style="text-align:left;">Codes cadeaux</h1>
+    <p style="color:var(--text-dim);">Entre un code obtenu lors d'un évènement, d'une vidéo ou d'un partenariat.</p>
+
+    @if (!string.IsNullOrEmpty(Model.Message))
+    {
+        <div class="alert @(Model.Success ? "alert-ok" : "alert-error")">@Model.Message</div>
+    }
+
+    <form method="post" class="form-panel">
+        <div class="field">
+            <label for="c">Code</label>
+            <input id="c" name="Code" value="@Model.Code" placeholder="AETHERIA2026" maxlength="32" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Valider le code</button>
+    </form>
+
+    @if (Model.History.Count > 0)
+    {
+        <h2 style="margin-top:32px;">Codes déjà utilisés</h2>
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr><th>Code</th><th>Date</th></tr></thead>
+                <tbody>
+                @foreach (var h in Model.History)
+                {
+                    <tr><td>@h.Code</td><td>@h.When.ToString("dd/MM/yyyy")</td></tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

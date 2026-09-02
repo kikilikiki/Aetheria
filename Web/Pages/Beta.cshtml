@@ -81,6 +81,19 @@
                 <textarea id="hw" name="HardwareSpecs" required>@Model.HardwareSpecs</textarea>
             </div>
             <div class="field">
+                <label for="mot">Pourquoi souhaites-tu devenir bêta-testeur ?</label>
+                <textarea id="mot" name="Motivation" required>@Model.Motivation</textarea>
+            </div>
+            <div class="field">
+                <label for="disc">Comment as-tu découvert notre communauté ?</label>
+                <textarea id="disc" name="Discovery" required>@Model.Discovery</textarea>
+            </div>
+            <div class="field">
+                <label for="refc">Code de parrainage (facultatif)</label>
+                <input id="refc" name="ref" value="@Model.ReferralCode" placeholder="ex. AB12CD" maxlength="16" />
+                <div class="hint">Si un testeur t'a partagé son lien, le code est déjà rempli.</div>
+            </div>
+            <div class="field">
                 <label for="n">Autre / remarques (facultatif)</label>
                 <textarea id="n" name="Notes">@Model.Notes</textarea>
             </div>

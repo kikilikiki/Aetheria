@@ -21,7 +21,12 @@ public sealed class BetaModel(AetheriaDbContext db) : PageModel
     [BindProperty] public string InGamePseudo { get; set; } = string.Empty;
     [BindProperty] public string Platform { get; set; } = "Windows";
     [BindProperty] public string HardwareSpecs { get; set; } = string.Empty;
+    [BindProperty] public string Motivation { get; set; } = string.Empty;
+    [BindProperty] public string Discovery { get; set; } = string.Empty;
     [BindProperty] public string? Notes { get; set; }
+
+    [BindProperty(SupportsGet = true, Name = "ref")]
+    public string? ReferralCode { get; set; }
 
     public UserEntity Account { get; private set; } = null!;
     public BetaApplicationEntity? Existing { get; private set; }
@@ -76,9 +81,10 @@ public sealed class BetaModel(AetheriaDbContext db) : PageModel
             return Page();
         }
 
-        if (string.IsNullOrWhiteSpace(InGamePseudo) || string.IsNullOrWhiteSpace(HardwareSpecs))
+        if (string.IsNullOrWhiteSpace(InGamePseudo) || string.IsNullOrWhiteSpace(HardwareSpecs)
+            || string.IsNullOrWhiteSpace(Motivation) || string.IsNullOrWhiteSpace(Discovery))
         {
-            Error = "Merci de remplir le pseudo en jeu et la configuration de ton PC.";
+            Error = "Merci de répondre à toutes les questions obligatoires.";
             return Page();
         }
 
@@ -92,7 +98,10 @@ public sealed class BetaModel(AetheriaDbContext db) : PageModel
             InGamePseudo = InGamePseudo.Trim(),
             Platform = Platform == "Linux" ? "Linux" : "Windows",
             HardwareSpecs = HardwareSpecs.Trim(),
+            Motivation = Motivation.Trim(),
+            Discovery = Discovery.Trim(),
             Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),
+            ReferralCodeUsed = NormalizeReferral(ReferralCode),
             ResolvedDiscordUserId = DiscordLinked ? Account.DiscordUserId : null,
             Status = BetaApplicationStatus.Pending,
             // ProcessedAtUtc = null → le serveur de jeu vérifie Discord et crée le salon.
@@ -104,5 +113,17 @@ public sealed class BetaModel(AetheriaDbContext db) : PageModel
         Submitted = true;
         Existing = application;
         return Page();
+    }
+
+    /// <summary>Code de parrainage : majuscules, alphanumérique, borné — <c>null</c> si vide/invalide.</summary>
+    internal static string? NormalizeReferral(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var cleaned = new string(raw.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        return cleaned.Length is >= 4 and <= 16 ? cleaned : null;
     }
 }

@@ -52,17 +52,23 @@ public sealed class CandidaturesModel(AetheriaDbContext db) : PageModel
         application.Status = BetaApplicationStatus.Approved;
         application.ReviewedByUsername = reviewer;
         application.ReviewedAtUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync();
 
         if (grantTester)
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == application.UserId);
-            if (user is not null && user.Rank == UserRank.Joueur)
+            if (user is not null)
             {
-                user.Rank = UserRank.Testeur;
-                await db.SaveChangesAsync();
+                if (user.Rank == UserRank.Joueur)
+                {
+                    user.Rank = UserRank.Testeur;
+                }
+
+                await Aetheria.Database.Services.ReferralService.EnsureCodeAsync(db, user);
             }
         }
+
+        await Aetheria.Database.Services.ReferralService.ApplyOnApprovalAsync(db, application);
+        await db.SaveChangesAsync();
 
         TempData["Flash"] = $"Candidature de {application.Username} acceptée. Le serveur de jeu poste la confirmation dans le salon Discord.";
         return RedirectToPage(new { Filter });

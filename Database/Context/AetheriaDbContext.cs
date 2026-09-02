@@ -52,6 +52,8 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
     public DbSet<DungeonLivesEntity> DungeonLives => Set<DungeonLivesEntity>();
     public DbSet<ReportEntity> Reports => Set<ReportEntity>();
     public DbSet<BetaApplicationEntity> BetaApplications => Set<BetaApplicationEntity>();
+    public DbSet<GiftCodeEntity> GiftCodes => Set<GiftCodeEntity>();
+    public DbSet<GiftCodeRedemptionEntity> GiftCodeRedemptions => Set<GiftCodeRedemptionEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +61,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
         {
             user.HasIndex(u => u.Username).IsUnique();
             user.HasIndex(u => u.Email).IsUnique();
+            user.HasIndex(u => u.ReferralCode).IsUnique();
             user.Property(u => u.Rank).HasConversion<string>();
         });
 
@@ -328,6 +331,26 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
             application.HasOne(a => a.User)
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GiftCodeEntity>(code =>
+        {
+            code.HasIndex(c => c.Code).IsUnique();
+        });
+
+        modelBuilder.Entity<GiftCodeRedemptionEntity>(redemption =>
+        {
+            redemption.HasIndex(r => new { r.GiftCodeId, r.UserId }).IsUnique();
+
+            redemption.HasOne(r => r.GiftCode)
+                .WithMany()
+                .HasForeignKey(r => r.GiftCodeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            redemption.HasOne(r => r.User)
+                .WithMany()
+                .HasForeignKey(r => r.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

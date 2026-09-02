@@ -27,8 +27,10 @@
         }
         @if (isAuth)
         {
+            <a href="/codes">Codes</a>
             <a href="/mon-compte">@displayName</a>
             <form method="post" action="/deconnexion" class="inline-form">
+                @Html.AntiForgeryToken()
                 <button type="submit" class="linklike">Déconnexion</button>
             </form>
         }

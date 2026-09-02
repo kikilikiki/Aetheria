@@ -91,6 +91,7 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/Admin", "Staff");
     options.Conventions.AuthorizePage("/Beta");
     options.Conventions.AuthorizePage("/Compte");
+    options.Conventions.AuthorizePage("/Codes");
     options.Conventions.AuthorizePage("/Telechargement", "Testeur");
 });
 

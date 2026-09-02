@@ -274,6 +274,21 @@ app.MapGet("/api/account/session", async (string sessionToken) =>
     return Results.Ok(new SessionInfoResponse { UserId = userId, IsAdmin = user.IsAdmin, Rank = user.Rank, AvatarUrl = user.AvatarUrl });
 });
 
+// Voir demande utilisateur — "des codes cadeaux à rentrer sur le launcher et sur le site". Même
+// logique que le site (voir Web/Pages/Codes) : Aetheria.Database.Services.GiftCodeRedeemer, partagé.
+// Aucune récompense n'est encore distribuée (voir "n'en mets pas encore").
+app.MapPost("/api/giftcodes/redeem", async (RedeemGiftCodeRequest request) =>
+{
+    if (!app.Services.GetRequiredService<SessionTokenStore>().TryValidate(request.SessionToken, out var userId))
+    {
+        return Results.Json(new ApiError { Message = "Session invalide ou expirée." }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var result = await Aetheria.Database.Services.GiftCodeRedeemer.RedeemAsync(db, userId, request.Code, "launcher");
+    return Results.Ok(new RedeemGiftCodeResponse { Success = result.Success, Message = result.Message });
+});
+
 // Voir Docs/Idees.md — vraie image de profil : upload simple (multipart/form-data), stocké sur
 // disque (voir avatarsDirectory ci-dessus), taille/format limités. Remplace la pastille
 // couleur+initiale générée côté Launcher (voir AvatarConverters.cs) une fois AvatarUrl renseigné.

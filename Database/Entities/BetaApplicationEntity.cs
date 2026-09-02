@@ -39,8 +39,21 @@ public sealed class BetaApplicationEntity
     /// <summary>Configuration matérielle décrite par le candidat (processeur, carte graphique, RAM…).</summary>
     public string HardwareSpecs { get; set; } = string.Empty;
 
+    /// <summary>« Pourquoi souhaites-tu devenir bêta-testeur ? »</summary>
+    public string Motivation { get; set; } = string.Empty;
+
+    /// <summary>« Comment as-tu découvert notre communauté ? »</summary>
+    public string Discovery { get; set; } = string.Empty;
+
     /// <summary>Remarques libres (facultatif).</summary>
     public string? Notes { get; set; }
+
+    /// <summary>
+    /// Code de parrainage saisi par le candidat (ou capté via <c>/beta?ref=CODE</c>). Si la
+    /// candidature est acceptée et que le code correspond au <see cref="UserEntity.ReferralCode"/>
+    /// d'un testeur, le lien de parrainage est enregistré (voir <see cref="UserEntity.ReferredByUserId"/>).
+    /// </summary>
+    public string? ReferralCodeUsed { get; set; }
 
     // --- Résolution Discord ---
 

@@ -38,7 +38,7 @@
                 <thead>
                     <tr>
                         <th>Date</th><th>Compte</th><th>Discord</th><th>Plateforme</th>
-                        <th>Config PC</th><th>Remarques</th><th>Traitement</th><th>Statut</th><th>Actions</th>
+                        <th>Config PC</th><th>Réponses</th><th>Parrainage</th><th>Traitement</th><th>Statut</th><th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -57,8 +57,16 @@
                             }
                         </td>
                         <td>@a.Platform</td>
-                        <td style="max-width:220px;white-space:pre-wrap;">@a.HardwareSpecs</td>
-                        <td style="max-width:200px;white-space:pre-wrap;">@a.Notes</td>
+                        <td style="max-width:200px;white-space:pre-wrap;">@a.HardwareSpecs</td>
+                        <td style="max-width:280px;">
+                            <strong>Motivation :</strong> <span style="white-space:pre-wrap;">@a.Motivation</span><br />
+                            <strong>Découverte :</strong> <span style="white-space:pre-wrap;">@a.Discovery</span>
+                            @if (!string.IsNullOrWhiteSpace(a.Notes))
+                            {
+                                <br /><strong>Remarques :</strong> <span style="white-space:pre-wrap;">@a.Notes</span>
+                            }
+                        </td>
+                        <td>@(string.IsNullOrWhiteSpace(a.ReferralCodeUsed) ? "—" : a.ReferralCodeUsed)</td>
                         <td>
                             @if (a.ProcessedAtUtc is null)
                             {

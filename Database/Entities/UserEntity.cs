@@ -74,5 +74,15 @@ public sealed class UserEntity
     /// <summary>Voir Docs/Idees.md — vraie image de profil : URL relative servie en statique par le serveur (voir <c>/api/account/avatar</c>), <c>null</c> tant qu'aucune image n'a été envoyée (fallback pastille/initiale côté Launcher).</summary>
     public string? AvatarUrl { get; set; }
 
+    /// <summary>
+    /// Code de parrainage personnel (voir demande utilisateur — « tous les testeurs ont un code
+    /// avec un lien »). Généré quand le compte devient testeur. Un lien de parrainage est
+    /// <c>&lt;site&gt;/beta?ref=&lt;ReferralCode&gt;</c>.
+    /// </summary>
+    public string? ReferralCode { get; set; }
+
+    /// <summary>Compte qui a parrainé celui-ci (renseigné à l'acceptation d'une candidature bêta portant un code de parrainage valide). Les récompenses de parrainage ne sont pas encore distribuées.</summary>
+    public Guid? ReferredByUserId { get; set; }
+
     public List<CharacterEntity> Characters { get; set; } = new();
 }

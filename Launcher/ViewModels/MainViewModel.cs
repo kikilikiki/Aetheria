@@ -341,6 +341,45 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ToggleAbout() => IsAboutOpen = !IsAboutOpen;
 
+    // Voir demande utilisateur — "des codes cadeaux à rentrer sur le launcher [...] pour obtenir
+    // des récompenses". Redirige vers /api/giftcodes/redeem (même logique que le site).
+    [ObservableProperty]
+    private string _giftCode = string.Empty;
+
+    [ObservableProperty]
+    private string _giftCodeMessage = string.Empty;
+
+    [RelayCommand]
+    private async Task RedeemGiftCodeAsync()
+    {
+        if (SessionToken is null)
+        {
+            GiftCodeMessage = Tr("Connecte-toi d'abord.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(GiftCode))
+        {
+            GiftCodeMessage = Tr("Saisis un code.");
+            return;
+        }
+
+        GiftCodeMessage = Tr("Validation…");
+        var result = await _accountApi.RedeemGiftCodeAsync(SessionToken, GiftCode.Trim());
+        if (result.IsSuccess && result.Value is not null)
+        {
+            GiftCodeMessage = result.Value.Message;
+            if (result.Value.Success)
+            {
+                GiftCode = string.Empty;
+            }
+        }
+        else
+        {
+            GiftCodeMessage = result.Error ?? Tr("Échec de la validation du code.");
+        }
+    }
+
     [RelayCommand]
     private void OpenTermsOfService()
     {

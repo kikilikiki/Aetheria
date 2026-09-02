@@ -56,4 +56,24 @@
             }
         </div>
     }
+
+    @if (!string.IsNullOrEmpty(Model.Account.ReferralCode))
+    {
+        <h2 style="margin-top:36px;">Parrainage</h2>
+        <div class="form-panel">
+            <div class="field">
+                <label>Ton code</label>
+                <div style="font-size:1.2rem;font-weight:700;letter-spacing:.1em;">@Model.Account.ReferralCode</div>
+            </div>
+            <div class="field">
+                <label>Ton lien de parrainage</label>
+                <input type="text" readonly value="@Model.ReferralLink" onclick="this.select()" />
+                <div class="hint">Partage-le : quand quelqu'un devient bêta-testeur avec ce lien, vous serez tous les deux récompensés.</div>
+            </div>
+            <p style="color:var(--text-dim);">Personnes parrainées jusqu'ici : <strong>@Model.ReferralCount</strong>.</p>
+        </div>
+    }
+
+    <h2 style="margin-top:36px;">Codes cadeaux</h2>
+    <p style="color:var(--text-dim);">Tu as un code ? <a href="/codes">Utilise-le ici</a>.</p>
 </div>

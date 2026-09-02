@@ -331,10 +331,17 @@ public sealed class DiscordGatewayClient(
         if (accept)
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == application.UserId, ct);
-            if (user is not null && user.Rank == UserRank.Joueur)
+            if (user is not null)
             {
-                user.Rank = UserRank.Testeur; // débloque le téléchargement du jeu sur le site
+                if (user.Rank == UserRank.Joueur)
+                {
+                    user.Rank = UserRank.Testeur; // débloque le téléchargement du jeu sur le site
+                }
+
+                await Aetheria.Database.Services.ReferralService.EnsureCodeAsync(db, user, ct);
             }
+
+            await Aetheria.Database.Services.ReferralService.ApplyOnApprovalAsync(db, application, ct);
         }
 
         await db.SaveChangesAsync(ct);

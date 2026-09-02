@@ -161,6 +161,29 @@ public sealed class AccountApiClient : IDisposable
         }
     }
 
+    /// <summary>Voir demande utilisateur — "des codes cadeaux à rentrer sur le launcher".</summary>
+    public async Task<ApiResult<Aetheria.Shared.Models.RedeemGiftCodeResponse>> RedeemGiftCodeAsync(string sessionToken, string code)
+    {
+        try
+        {
+            var response = await _http.PostAsJsonAsync("/api/giftcodes/redeem",
+                new Aetheria.Shared.Models.RedeemGiftCodeRequest { SessionToken = sessionToken, Code = code });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions);
+                return ApiResult<Aetheria.Shared.Models.RedeemGiftCodeResponse>.Failure(error?.Message ?? $"Erreur serveur ({(int)response.StatusCode}).");
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<Aetheria.Shared.Models.RedeemGiftCodeResponse>(JsonOptions);
+            return ApiResult<Aetheria.Shared.Models.RedeemGiftCodeResponse>.Success(body!);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ApiResult<Aetheria.Shared.Models.RedeemGiftCodeResponse>.Failure($"Impossible de contacter le serveur : {ex.Message}");
+        }
+    }
+
     public void Dispose() => _http.Dispose();
 
     private sealed class RegisterOkBody
