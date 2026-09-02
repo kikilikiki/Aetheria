@@ -219,6 +219,15 @@ public sealed class PlayerSession(
         var user = db.Users.FirstOrDefault(u => u.Id == userId);
         Rank = user?.Rank ?? UserRank.Joueur;
         IsAdmin = user?.IsAdmin ?? false;
+
+        // Voir demande utilisateur — bêta fermée : filet si un jeton émis avant l'activation est
+        // encore valide (la connexion elle-même est déjà filtrée dans AccountService.LoginAsync).
+        if (!BetaAccessPolicy.CanConnect(IsAdmin, Rank))
+        {
+            SendPacket(new EnterWorldRejectedPacket { Reason = BetaAccessPolicy.DeniedMessage });
+            return;
+        }
+
         RefreshBlockRelations(db);
 
         // Voir GDD/demande utilisateur — "restaurer la position du joueur en quittant/revenant" :

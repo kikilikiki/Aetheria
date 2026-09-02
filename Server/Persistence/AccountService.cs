@@ -75,6 +75,13 @@ public sealed class AccountService(AetheriaDbContext db, SessionTokenStore token
             throw new AccountOperationException($"Compte banni : {user.BanReason ?? "aucune raison fournie"}.");
         }
 
+        // Voir demande utilisateur — bêta fermée : les grades Joueur / VIP ne peuvent pas se
+        // connecter, seuls Testeur / Ami / Modérateur / Fondateur et les comptes admin le peuvent.
+        if (!BetaAccessPolicy.CanConnect(user.IsAdmin, user.Rank))
+        {
+            throw new AccountOperationException(BetaAccessPolicy.DeniedMessage);
+        }
+
         // Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le
         // serveur de dev mais seul moi peut accéder au serveur de dev et les autres accès à la
         // prod" : quand cette variable d'environnement est activée (mise en place seulement sur
