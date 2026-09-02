@@ -31,10 +31,10 @@ public static class GameInfo
     /// (<c>Aetheria.Web</c>, déployé sur Render) — voir <c>Docs/Deploiement-Web.md</c> ;
     /// remplacer le sous-domaine si l'URL Render définitive diffère.
     /// </summary>
-    public const string TermsOfServiceUrl = "https://aetheria-web.onrender.com/cgu";
+    public const string TermsOfServiceUrl = "https://aetheria-f7zo.onrender.com/cgu";
 
     /// <summary>Adresse du portail web (site vitrine + comptes + candidatures bêta).</summary>
-    public const string WebsiteUrl = "https://aetheria-web.onrender.com";
+    public const string WebsiteUrl = "https://aetheria-f7zo.onrender.com";
 
     // Réseaux officiels — partagés par le site (Aetheria.Web) et le Launcher (panneau « À propos »).
     public const string DiscordInviteUrl = "https://discord.gg/8NqXPsg7gE";

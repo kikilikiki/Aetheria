@@ -17,6 +17,13 @@ RUN dotnet publish Web/Aetheria.Web.csproj -c Release -o /app -p:UseAppHost=fals
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
+
+# libgssapi-krb5-2 : évite l'avertissement Npgsql « Cannot load library libgssapi_krb5.so.2 »
+# au démarrage (probe d'authentification intégrée ; Neon utilise SCRAM/mot de passe).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app ./
 
 ENV ASPNETCORE_ENVIRONMENT=Production

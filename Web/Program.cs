@@ -2,6 +2,7 @@ using System.Text;
 using Aetheria.Database.Context;
 using Aetheria.Web.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -82,6 +83,16 @@ await using (var scope = app.Services.CreateAsyncScope())
     await db.Database.MigrateAsync();
     await WebAdminSeeder.SeedAsync(db, logger);
 }
+
+// Derrière le proxy Render (TLS terminé au bord) : rétablit le schéma https réel pour que les
+// redirections d'authentification et le cookie Secure fonctionnent correctement.
+var forwardedOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+};
+forwardedOptions.KnownNetworks.Clear();
+forwardedOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedOptions);
 
 if (!app.Environment.IsDevelopment())
 {
