@@ -13,6 +13,12 @@
         <div class="alert alert-ok">@Model.Flash</div>
     }
 
+    <p class="hint" style="text-transform:none;">
+        La vérification Discord et la création du salon sont faites par le serveur de jeu (quelques
+        secondes après la soumission). Valider / refuser ici met à jour le statut ; le serveur de
+        jeu poste la décision dans le salon et attribue le rôle « Testeur ».
+    </p>
+
     <p>
         Filtre :
         <a href="?filter=pending">En attente</a> ·
@@ -32,7 +38,7 @@
                 <thead>
                     <tr>
                         <th>Date</th><th>Compte</th><th>Discord</th><th>Plateforme</th>
-                        <th>Config PC</th><th>Remarques</th><th>Statut</th><th>Actions</th>
+                        <th>Config PC</th><th>Remarques</th><th>Traitement</th><th>Statut</th><th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -45,19 +51,37 @@
                         <td>@a.Username<br /><span style="color:var(--text-dim);font-size:.8rem;">@a.ContactEmail</span></td>
                         <td>
                             @a.DiscordHandle
-                            @if (!string.IsNullOrEmpty(a.DiscordTicketChannelId) && Model.Discord.GuildId is not null)
+                            @if (!string.IsNullOrEmpty(a.DiscordTicketChannelId) && !string.IsNullOrEmpty(Model.DiscordGuildId))
                             {
-                                <br /><a href="@Model.Discord.TicketUrl(a.DiscordTicketChannelId)" target="_blank" rel="noopener" style="font-size:.8rem;">salon</a>
+                                <br /><a href="https://discord.com/channels/@Model.DiscordGuildId/@a.DiscordTicketChannelId" target="_blank" rel="noopener" style="font-size:.8rem;">salon</a>
                             }
                         </td>
                         <td>@a.Platform</td>
                         <td style="max-width:220px;white-space:pre-wrap;">@a.HardwareSpecs</td>
                         <td style="max-width:200px;white-space:pre-wrap;">@a.Notes</td>
                         <td>
+                            @if (a.ProcessedAtUtc is null)
+                            {
+                                <span style="color:var(--warn);">en attente</span>
+                            }
+                            else if (!string.IsNullOrEmpty(a.DiscordTicketChannelId))
+                            {
+                                <span style="color:var(--ok);">salon créé</span>
+                            }
+                            else
+                            {
+                                <span style="color:var(--text-dim);">traitée, sans salon</span>
+                            }
+                        </td>
+                        <td>
                             <span class="badge @cls">@a.Status</span>
                             @if (!string.IsNullOrWhiteSpace(a.ReviewedByUsername))
                             {
-                                <br /><span style="color:var(--text-dim);font-size:.75rem;">par @a.ReviewedByUsername</span>
+                                <br /><span style="color:var(--text-dim);font-size:.75rem;">@a.ReviewedByUsername</span>
+                            }
+                            @if (a.Status == BetaApplicationStatus.Rejected && !string.IsNullOrWhiteSpace(a.AdminNote))
+                            {
+                                <br /><span style="color:var(--text-dim);font-size:.75rem;">@a.AdminNote</span>
                             }
                         </td>
                         <td>
@@ -65,7 +89,7 @@
                                 @if (a.Status != BetaApplicationStatus.Approved)
                                 {
                                     <form method="post" asp-page-handler="Approve" asp-route-id="@a.Id" asp-route-filter="@Model.Filter">
-                                        <label style="font-size:.75rem;color:var(--text-dim);"><input type="checkbox" name="grantTester" value="true" /> grade Testeur</label>
+                                        <label style="font-size:.75rem;color:var(--text-dim);"><input type="checkbox" name="grantTester" value="true" checked /> grade Testeur</label>
                                         <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">Valider</button>
                                     </form>
                                 }
@@ -74,13 +98,6 @@
                                     <form method="post" asp-page-handler="Reject" asp-route-id="@a.Id" asp-route-filter="@Model.Filter">
                                         <input type="text" name="note" class="mini-input" placeholder="raison (option.)" />
                                         <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">Refuser</button>
-                                    </form>
-                                }
-                                @if (!string.IsNullOrEmpty(a.DiscordTicketChannelId))
-                                {
-                                    <form method="post" asp-page-handler="Archive" asp-route-id="@a.Id" asp-route-filter="@Model.Filter"
-                                          onsubmit="return confirm('Supprimer le salon Discord de cette candidature ?');">
-                                        <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">Archiver salon</button>
                                     </form>
                                 }
                             </div>

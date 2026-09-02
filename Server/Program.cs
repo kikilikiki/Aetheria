@@ -95,6 +95,11 @@ builder.Services.AddSingleton<DiscordAnnouncer>();
 // deux — pas de distinction de code entre prod et dev ici.
 builder.Services.AddSingleton<DiscordRoleSyncService>();
 builder.Services.AddHostedService<DiscordGatewayClient>();
+// Traite les candidatures bêta soumises sur le portail web (Aetheria.Web) : le site écrit la
+// candidature en base, c'est ce serveur (qui héberge déjà le bot, sur une IP non rate-limitée par
+// Discord) qui crée le salon Discord et répercute les décisions du staff. Voir BetaTicketProcessor.
+builder.Services.AddSingleton<BetaTicketService>();
+builder.Services.AddSingleton<BetaTicketProcessor>();
 // Voir GDD/demande utilisateur — "laisse allumé le serveur de prod et allume aussi le serveur de
 // dev" : les deux ne peuvent pas partager les mêmes ports sur la même machine, d'où ces
 // surcharges optionnelles (non définies = ports par défaut habituels, utilisés par la prod/le
@@ -4046,7 +4051,10 @@ var combatTimeoutTask = combatTimeoutScheduler.RunAsync(shutdownCts.Token);
 var kingdomWarScheduler = new KingdomWarScheduler(dbFactory, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<KingdomWarScheduler>(), app.Services.GetRequiredService<SessionTokenStore>());
 var kingdomWarTask = kingdomWarScheduler.RunAsync(shutdownCts.Token);
 
-await Task.WhenAll(tcpTask, httpTask, dailyDigestTask, combatTimeoutTask, kingdomWarTask);
+// Candidatures bêta du portail web (voir BetaTicketProcessor) — tourne en tâche de fond.
+var betaTicketTask = app.Services.GetRequiredService<BetaTicketProcessor>().RunAsync(shutdownCts.Token);
+
+await Task.WhenAll(tcpTask, httpTask, dailyDigestTask, combatTimeoutTask, kingdomWarTask, betaTicketTask);
 
 return;
 

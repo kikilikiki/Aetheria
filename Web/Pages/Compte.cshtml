@@ -39,13 +39,20 @@
             : a.Status == Aetheria.Shared.Enums.BetaApplicationStatus.Rejected ? "rejected" : "pending";
         <div class="form-panel">
             <p>Statut : <span class="badge @cls">@a.Status</span> &nbsp; <span style="color:var(--text-dim);">soumise le @a.CreatedAtUtc.ToString("dd/MM/yyyy")</span></p>
+            @if (a.Status == Aetheria.Shared.Enums.BetaApplicationStatus.Pending)
+            {
+                if (a.ProcessedAtUtc is null)
+                {
+                    <p style="color:var(--text-dim);">Vérification de ton pseudo Discord en cours (quelques minutes)…</p>
+                }
+                else if (!string.IsNullOrEmpty(a.DiscordTicketChannelId))
+                {
+                    <p style="color:var(--text-dim);">Ton salon privé est ouvert sur le Discord — le staff va y répondre.</p>
+                }
+            }
             @if (!string.IsNullOrWhiteSpace(a.AdminNote))
             {
                 <p><strong>Message du staff :</strong> @a.AdminNote</p>
-            }
-            @if (a.Status == Aetheria.Shared.Enums.BetaApplicationStatus.Pending)
-            {
-                <p style="color:var(--text-dim);">Le suivi se fait dans ton salon privé sur le Discord.</p>
             }
         </div>
     }

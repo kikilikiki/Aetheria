@@ -24,6 +24,10 @@
     <!-- Base fichier zéro-installation pour le développement local (AETHERIA_DB_CONNECTION absent) ;
          en production c'est PostgreSQL (Neon) via Npgsql, déjà fourni par Aetheria.Database. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.4" />
+    <!-- Persiste les clés Data Protection en base (voir Web/Data/KeysDbContext) : sur Render sans
+         disque persistant, elles seraient sinon régénérées à chaque redéploiement et invalideraient
+         tous les cookies d'authentification et jetons antiforgery. -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.4" />
   </ItemGroup>
 
 </Project>

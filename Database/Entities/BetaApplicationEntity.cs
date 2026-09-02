@@ -50,6 +50,21 @@ public sealed class BetaApplicationEntity
     /// <summary>Identifiant du salon Discord (« ticket ») créé pour cette candidature, si la création a réussi.</summary>
     public string? DiscordTicketChannelId { get; set; }
 
+    /// <summary>
+    /// Renseigné par le serveur de jeu (voir <c>Server/Discord/BetaTicketProcessor</c>) une fois la
+    /// candidature traitée : vérification de la présence Discord + création du salon, ou refus
+    /// automatique si le pseudo Discord est introuvable. <c>null</c> = pas encore traitée.
+    /// (Le portail web ne parle jamais à Discord — l'IP partagée de Render est rate-limitée.)
+    /// </summary>
+    public DateTime? ProcessedAtUtc { get; set; }
+
+    /// <summary>
+    /// Dernier <see cref="Status"/> déjà répercuté sur le salon Discord par le serveur de jeu.
+    /// Quand il diffère de <see cref="Status"/>, le serveur de jeu poste la mise à jour (accepté /
+    /// refusé) dans le ticket puis réaligne cette valeur.
+    /// </summary>
+    public BetaApplicationStatus? SyncedStatus { get; set; }
+
     // --- Modération ---
 
     public BetaApplicationStatus Status { get; set; } = BetaApplicationStatus.Pending;

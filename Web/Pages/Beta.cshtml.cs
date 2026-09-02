@@ -2,14 +2,19 @@ using System.Security.Claims;
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Shared.Enums;
-using Aetheria.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 
 namespace Aetheria.Web.Pages;
 
-public sealed class BetaModel(AetheriaDbContext db, DiscordTicketService discord, ILogger<BetaModel> logger) : PageModel
+/// <summary>
+/// Formulaire de candidature bêta. Le portail ne contacte JAMAIS Discord (l'IP partagée de Render
+/// est rate-limitée) : il enregistre la candidature en base, et le serveur de jeu
+/// (<c>Server/Discord/BetaTicketProcessor</c>) vérifie la présence Discord et crée le salon
+/// « ticket » quelques secondes plus tard.
+/// </summary>
+public sealed class BetaModel(AetheriaDbContext db) : PageModel
 {
     [BindProperty] public string DiscordHandle { get; set; } = string.Empty;
     [BindProperty] public string ContactEmail { get; set; } = string.Empty;
@@ -23,7 +28,6 @@ public sealed class BetaModel(AetheriaDbContext db, DiscordTicketService discord
     public bool DiscordLinked => !string.IsNullOrEmpty(Account.DiscordUserId);
     public string? Error { get; private set; }
     public bool Submitted { get; private set; }
-    public bool TicketCreated { get; private set; }
 
     private async Task<bool> LoadAsync(Guid userId)
     {
@@ -66,9 +70,7 @@ public sealed class BetaModel(AetheriaDbContext db, DiscordTicketService discord
             return Page();
         }
 
-        var handle = DiscordLinked ? Account.DiscordUserId! : DiscordHandle.Trim();
-
-        if (!DiscordLinked && handle.Length < 2)
+        if (!DiscordLinked && DiscordHandle.Trim().TrimStart('@').Length < 2)
         {
             Error = "Indique ton pseudo Discord.";
             return Page();
@@ -80,39 +82,21 @@ public sealed class BetaModel(AetheriaDbContext db, DiscordTicketService discord
             return Page();
         }
 
-        // Vérification Discord AVANT toute écriture (voir demande utilisateur).
-        var resolution = await discord.ResolveMemberAsync(Account, DiscordHandle);
-        if (!resolution.Found)
-        {
-            Error = resolution.Error;
-            return Page();
-        }
-
         var application = new BetaApplicationEntity
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             Username = Account.Username,
-            DiscordHandle = DiscordLinked ? (resolution.DisplayName ?? "compte lié") : DiscordHandle.Trim(),
+            DiscordHandle = DiscordLinked ? "(compte Discord lié)" : DiscordHandle.Trim().TrimStart('@'),
             ContactEmail = ContactEmail.Trim(),
             InGamePseudo = InGamePseudo.Trim(),
             Platform = Platform == "Linux" ? "Linux" : "Windows",
             HardwareSpecs = HardwareSpecs.Trim(),
             Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),
-            ResolvedDiscordUserId = resolution.DiscordUserId,
+            ResolvedDiscordUserId = DiscordLinked ? Account.DiscordUserId : null,
             Status = BetaApplicationStatus.Pending,
+            // ProcessedAtUtc = null → le serveur de jeu vérifie Discord et crée le salon.
         };
-
-        try
-        {
-            var channelId = await discord.CreateTicketAsync(application, resolution.DiscordUserId!);
-            application.DiscordTicketChannelId = channelId;
-            TicketCreated = channelId is not null;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Création du ticket Discord en échec pour la candidature de {User}.", Account.Username);
-        }
 
         db.BetaApplications.Add(application);
         await db.SaveChangesAsync();

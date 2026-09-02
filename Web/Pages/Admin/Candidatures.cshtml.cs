@@ -2,25 +2,32 @@ using System.Security.Claims;
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Shared.Enums;
-using Aetheria.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 
 namespace Aetheria.Web.Pages.Admin;
 
-public sealed class CandidaturesModel(AetheriaDbContext db, DiscordTicketService discord) : PageModel
+/// <summary>
+/// Traitement des candidatures bêta. Les actions ne touchent que la base : le serveur de jeu
+/// (<c>Server/Discord/BetaTicketProcessor</c>) répercute ensuite la décision dans le salon Discord
+/// et attribue le rôle « Testeur » — le portail ne parle jamais à Discord.
+/// </summary>
+public sealed class CandidaturesModel(AetheriaDbContext db) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public string Filter { get; set; } = "pending";
 
     public IReadOnlyList<BetaApplicationEntity> Applications { get; private set; } = [];
-    public DiscordTicketService Discord => discord;
     public string? Flash { get; private set; }
+    public string? DiscordGuildId { get; private set; }
 
     public async Task OnGetAsync()
     {
         Flash = TempData["Flash"] as string;
+        DiscordGuildId = Environment.GetEnvironmentVariable("DISCORD_BETA_GUILD_ID")?.Trim()
+            ?? Environment.GetEnvironmentVariable("DISCORD_GUILD_IDS")?.Split(',').FirstOrDefault()?.Trim();
+
         var query = db.BetaApplications.AsNoTracking().OrderByDescending(a => a.CreatedAtUtc).AsQueryable();
 
         query = Filter switch
@@ -47,11 +54,6 @@ public sealed class CandidaturesModel(AetheriaDbContext db, DiscordTicketService
         application.ReviewedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
-        if (application.DiscordTicketChannelId is { Length: > 0 } channelId)
-        {
-            await discord.PostToTicketAsync(channelId, $"✅ Candidature **acceptée** par {reviewer}. Bienvenue en bêta !");
-        }
-
         if (grantTester)
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == application.UserId);
@@ -60,14 +62,9 @@ public sealed class CandidaturesModel(AetheriaDbContext db, DiscordTicketService
                 user.Rank = UserRank.Testeur;
                 await db.SaveChangesAsync();
             }
-
-            if (application.ResolvedDiscordUserId is { Length: > 0 } discordId)
-            {
-                await discord.GrantTesterRoleAsync(discordId);
-            }
         }
 
-        TempData["Flash"] = $"Candidature de {application.Username} acceptée.";
+        TempData["Flash"] = $"Candidature de {application.Username} acceptée. Le serveur de jeu poste la confirmation dans le salon Discord.";
         return RedirectToPage(new { Filter });
     }
 
@@ -85,31 +82,7 @@ public sealed class CandidaturesModel(AetheriaDbContext db, DiscordTicketService
         application.ReviewedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
-        if (application.DiscordTicketChannelId is { Length: > 0 } channelId)
-        {
-            var reason = string.IsNullOrWhiteSpace(note) ? "" : $" Raison : {note.Trim()}";
-            await discord.PostToTicketAsync(channelId, $"❌ Candidature **refusée** par {reviewer}.{reason}");
-        }
-
         TempData["Flash"] = $"Candidature de {application.Username} refusée.";
-        return RedirectToPage(new { Filter });
-    }
-
-    public async Task<IActionResult> OnPostArchiveAsync(Guid id)
-    {
-        var (application, _) = await FindAsync(id);
-        if (application?.DiscordTicketChannelId is { Length: > 0 } channelId)
-        {
-            var ok = await discord.ArchiveTicketAsync(channelId);
-            if (ok)
-            {
-                application.DiscordTicketChannelId = null;
-                await db.SaveChangesAsync();
-            }
-
-            TempData["Flash"] = ok ? "Salon Discord archivé." : "Impossible d'archiver le salon.";
-        }
-
         return RedirectToPage(new { Filter });
     }
 

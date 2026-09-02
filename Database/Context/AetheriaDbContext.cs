@@ -320,8 +320,10 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
         modelBuilder.Entity<BetaApplicationEntity>(application =>
         {
             application.Property(a => a.Status).HasConversion<string>();
+            application.Property(a => a.SyncedStatus).HasConversion<string>();
             application.HasIndex(a => a.UserId);
             application.HasIndex(a => a.Status);
+            application.HasIndex(a => a.ProcessedAtUtc);
 
             application.HasOne(a => a.User)
                 .WithMany()

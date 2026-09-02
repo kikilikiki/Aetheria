@@ -1,5 +1,6 @@
 @page "/beta"
 @model BetaModel
+@using Aetheria.Shared.Enums
 @{
     ViewData["Title"] = "Candidature bêta";
 }
@@ -10,30 +11,25 @@
     @if (Model.Submitted)
     {
         <div class="alert alert-ok">
-            Candidature enregistrée !
-            @if (Model.TicketCreated)
-            {
-                <text>Un salon privé <strong>beta-test-@(Aetheria.Web.Services.DiscordTicketService.Slug(Model.Existing!.InGamePseudo))</strong> vient d'être créé sur le Discord : le staff t'y répondra.</text>
-            }
-            else
-            {
-                <text>Le salon Discord n'a pas pu être créé automatiquement — un membre du staff s'en chargera.</text>
-            }
+            Candidature envoyée ! Le staff vérifie ta présence sur le Discord et t'ouvre un salon
+            privé <strong>beta-test-…</strong> d'ici quelques minutes. Si ton pseudo Discord est
+            introuvable, la candidature sera refusée automatiquement — tu verras la raison sur
+            <a href="/mon-compte">ton compte</a>.
         </div>
         <a class="btn btn-secondary" href="/mon-compte">Voir le statut</a>
     }
-    else if (Model.Existing is { Status: Aetheria.Shared.Enums.BetaApplicationStatus.Pending })
+    else if (Model.Existing is { Status: BetaApplicationStatus.Pending })
     {
-        <div class="alert alert-info">Ta candidature est déjà en attente de traitement. Suis-la dans ton salon Discord privé.</div>
+        <div class="alert alert-info">Ta candidature est déjà en cours de traitement. Suis-la sur <a href="/mon-compte">ton compte</a> et dans ton salon Discord.</div>
         <a class="btn btn-secondary" href="/mon-compte">Voir le statut</a>
     }
-    else if (Model.Existing is { Status: Aetheria.Shared.Enums.BetaApplicationStatus.Approved })
+    else if (Model.Existing is { Status: BetaApplicationStatus.Approved })
     {
         <div class="alert alert-ok">Tu es déjà accepté·e en bêta. Bienvenue !</div>
     }
     else
     {
-        if (Model.Existing is { Status: Aetheria.Shared.Enums.BetaApplicationStatus.Rejected })
+        if (Model.Existing is { Status: BetaApplicationStatus.Rejected })
         {
             <div class="alert alert-info">
                 Ta candidature précédente a été refusée@(string.IsNullOrWhiteSpace(Model.Existing.AdminNote) ? "." : $" : {Model.Existing.AdminNote}") Tu peux en soumettre une nouvelle.
@@ -43,7 +39,7 @@
         <p style="color:var(--text-dim);">
             La candidature crée un salon privé sur le
             <a href="@Aetheria.Shared.GameInfo.DiscordInviteUrl" target="_blank" rel="noopener">Discord</a>
-            avec le staff. Tu dois donc avoir rejoint le serveur Discord.
+            avec le staff. Tu dois donc avoir rejoint le serveur Discord avec le pseudo indiqué.
         </p>
 
         @if (!string.IsNullOrEmpty(Model.Error))

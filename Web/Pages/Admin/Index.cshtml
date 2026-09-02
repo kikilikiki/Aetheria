@@ -18,19 +18,19 @@
 
     <div class="form-panel" style="margin-top:24px;">
         <h3 style="margin-top:0;">Intégration Discord</h3>
-        @if (Model.DiscordConfigured)
+        <p class="hint" style="text-transform:none;">
+            Les salons de ticket sont créés par le <strong>serveur de jeu</strong> (pas par ce site —
+            l'IP de l'hébergeur est rate-limitée par Discord). Il doit tourner avec
+            <code>DISCORD_BOT_TOKEN</code> + <code>DISCORD_GUILD_IDS</code>, le bot ayant la permission
+            « Gérer les salons » et l'intent « Server Members ».
+        </p>
+        @if (Model.AwaitingProcessing > 0)
         {
-            <p style="color:var(--ok);">Configurée — serveur <code>@Model.DiscordGuildId</code>.</p>
-            <p class="hint" style="text-transform:none;">
-                Si la vérification échoue : le bot doit être sur ce serveur, avoir la permission
-                « Gérer les salons », et l'intent privilégié « SERVER MEMBERS INTENT » doit être
-                activé dans le portail développeur Discord. Les erreurs détaillées sont dans les
-                logs Render.
-            </p>
+            <p style="color:var(--warn);">@Model.AwaitingProcessing candidature(s) en attente de traitement par le serveur de jeu.</p>
         }
         else
         {
-            <p style="color:var(--err);">Non configurée — définis <code>DISCORD_BOT_TOKEN</code> et <code>DISCORD_BETA_GUILD_ID</code> sur Render.</p>
+            <p style="color:var(--ok);">Aucune candidature en attente de traitement.</p>
         }
     </div>
 </div>
