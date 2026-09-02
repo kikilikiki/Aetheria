@@ -55,10 +55,11 @@ public sealed class DiscordGatewayClient(
 
         if (_botToken is not { Length: > 0 } || _applicationId is not { Length: > 0 } || _guildIds.Count == 0)
         {
-            logger.LogInformation("DISCORD_BOT_TOKEN/DISCORD_APPLICATION_ID/DISCORD_GUILD_IDS absent(s) : commande Discord /link désactivée.");
+            logger.LogWarning("DISCORD_BOT_TOKEN/DISCORD_APPLICATION_ID/DISCORD_GUILD_IDS absent(s) : Gateway Discord (commande /link + boutons de ticket bêta) DÉSACTIVÉE.");
             return;
         }
 
+        logger.LogInformation("Gateway Discord : démarrage (application {AppId}, guildes {Guilds}).", _applicationId, string.Join(",", _guildIds));
         await RegisterSlashCommandAsync(stoppingToken);
 
         // Boucle de reconnexion : toute déconnexion (perte réseau, redémarrage côté Discord,
@@ -143,6 +144,7 @@ public sealed class DiscordGatewayClient(
     {
         using var socket = new ClientWebSocket();
         await socket.ConnectAsync(new Uri(GatewayUrl), ct);
+        logger.LogInformation("Gateway Discord : WebSocket connecté, envoi de l'IDENTIFY.");
 
         var buffer = new byte[16 * 1024];
         var hello = await ReceiveJsonAsync(socket, buffer, ct) ?? throw new IOException("Gateway fermée avant HELLO.");
@@ -182,10 +184,16 @@ public sealed class DiscordGatewayClient(
                 switch (op)
                 {
                     case 0: // Dispatch
+                        if (payload["t"]?.GetValue<string>() == "READY")
+                        {
+                            logger.LogInformation("Gateway Discord : READY — prêt à recevoir les interactions (boutons de ticket bêta inclus).");
+                        }
+
                         await HandleDispatchAsync(payload, ct);
                         break;
                     case 7: // Reconnect requested by Discord
                     case 9: // Invalid session
+                        logger.LogInformation("Gateway Discord : op {Op} reçu, reconnexion.", op);
                         return;
                 }
             }
