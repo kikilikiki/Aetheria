@@ -1,0 +1,104 @@
+name: Release Linux (deb + tar.gz + AppImage)
+
+# Les paquets Linux (Debian, archive portable, AppImage) sont construits ici sur un runner
+# Ubuntu : la machine de dev du projet est sous Windows, sans WSL/Docker, et l'AppImage exige
+# mksquashfs/appimagetool (Linux uniquement). Le reste de la release (AetheriaSetup.exe Windows,
+# Payload.zip d'auto-mise-a-jour) reste produit a la main — voir Build/README.md.
+#
+# Se declenche a chaque tag "v*" pousse, ou manuellement (Actions -> Release Linux -> Run
+# workflow) en donnant un tag existant. Les fichiers sont attaches a la release de ce tag.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag existant a (re)construire, ex: v0.3.3'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resoudre le tag
+        id: tag
+        run: |
+          TAG='${{ github.event.inputs.tag || github.ref_name }}'
+          echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}"   >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publier Launcher + Client (linux-x64, self-contained)
+        run: |
+          dotnet publish Launcher/Aetheria.Launcher.csproj -c Release -r linux-x64 --self-contained true -o out/launcher --nologo
+          dotnet publish Client/Aetheria.Client.csproj    -c Release -r linux-x64 --self-contained true -o out/client   --nologo
+
+      - name: Assembler l'arborescence commune (payload/)
+        run: |
+          set -eux
+          mkdir -p payload
+          cp -a out/launcher/. payload/
+          # Le Client et sa lib native propre par-dessus (le Launcher fournit deja Skia/HarfBuzz/CoreCLR).
+          cp out/client/Aetheria.Client payload/
+          [ -f out/client/libglfw.so.3 ] && cp out/client/libglfw.so.3 payload/ || true
+          for f in out/client/*.dll; do b=$(basename "$f"); [ -e "payload/$b" ] || cp "$f" "payload/"; done
+          # Pas de Music/ : NAudio est Windows-only, le Client Linux tourne sans musique (voir MusicService).
+          chmod +x payload/Aetheria.Launcher payload/Aetheria.Client
+          # README d'aide au demarrage manuel (deja versionne dans les deux arbos).
+          cp Build/linux/aetheria-client-deb/opt/aetheria/README-linux.txt payload/ || true
+
+      - name: Construire le .deb
+        run: |
+          set -eux
+          DEST=Build/linux/aetheria-client-deb/opt/aetheria
+          find "$DEST" -mindepth 1 ! -name README-linux.txt -delete
+          cp -a payload/. "$DEST/"
+          sed -i "s/^Version:.*/Version: ${{ steps.tag.outputs.version }}/" Build/linux/aetheria-client-deb/DEBIAN/control
+          python3 Build/linux/build-deb.py "${{ steps.tag.outputs.version }}"
+          cp "Build/linux/aetheria_${{ steps.tag.outputs.version }}_amd64.deb" aetheria-amd64.deb
+
+      - name: Construire l'archive portable .tar.gz
+        run: tar -C payload --owner=0 --group=0 -czf aetheria-linux-x64.tar.gz .
+
+      - name: Construire l'AppImage
+        run: |
+          set -eux
+          APPDIR=Build/linux/Aetheria.AppDir
+          rm -rf "$APPDIR/usr/bin"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -a payload/. "$APPDIR/usr/bin/"
+          chmod +x "$APPDIR/AppRun" "$APPDIR/usr/bin/Aetheria.Launcher" "$APPDIR/usr/bin/Aetheria.Client"
+          # Icone : le PNG stdlib versionne, sinon on le (re)genere.
+          [ -f "$APPDIR/aetheria.png" ] || python3 Build/linux/make-icon.py
+          cp "$APPDIR/aetheria.png" "$APPDIR/.DirIcon"
+          curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run --no-appstream "$APPDIR" Aetheria-x86_64.AppImage
+
+      - name: Verifier les artefacts
+        run: |
+          set -eux
+          ls -lah aetheria-amd64.deb aetheria-linux-x64.tar.gz Aetheria-x86_64.AppImage
+          file Aetheria-x86_64.AppImage
+          sha256sum aetheria-amd64.deb aetheria-linux-x64.tar.gz Aetheria-x86_64.AppImage
+
+      - name: Publier sur la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" \
+            aetheria-amd64.deb \
+            aetheria-linux-x64.tar.gz \
+            Aetheria-x86_64.AppImage \
+            --clobber

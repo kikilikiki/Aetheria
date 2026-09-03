@@ -36,6 +36,10 @@ Build/linux/*.deb
 Build/linux/*.AppImage
 Build/linux/*.tar.gz
 
+# Scaffolding AppImage commité (icône générée + générateur) — voir .github/workflows/release-linux.yml
+!Build/linux/make-icon.py
+!Build/linux/Aetheria.AppDir/aetheria.png
+
 # La règle globale "bin/" ci-dessus attrape aussi le usr/bin/ du paquet Linux (FHS) : on garde
 # le petit script wrapper (le vrai binaire reste ignoré via les règles explicites ci-dessus).
 !Build/linux/aetheria-client-deb/usr/bin/
