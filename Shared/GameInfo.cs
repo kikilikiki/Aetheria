@@ -14,7 +14,7 @@ public static class GameInfo
     public const string Slogan = "🌟 AETHERIA — TON AVENTURE. TES MONSTRES. TA LÉGENDE. 🌟";
 
     /// <summary>Version courante du jeu (SemVer).</summary>
-    public const string Version = "0.3.3";
+    public const string Version = "0.3.4";
 
     /// <summary>Port TCP par défaut utilisé par le serveur de jeu.</summary>
     public const int DefaultGamePort = 7777;
