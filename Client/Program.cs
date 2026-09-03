@@ -1993,7 +1993,13 @@ bool IsBuildingBlocking(int gridX, int gridY) => !TownLayout.IsWalkable(gridX, g
 
 NearbyInteraction? ComputeNearbyInteraction(Vector2 position)
 {
-    const float threshold = 1.6f;
+    // Voir retour utilisateur — "avec l'anti-collision on ne peut plus aller dans les bâtiments" :
+    // l'emprise au sol (TownLayout.IsBuildingBlocking, rayon 1) rend inaccessibles la case du
+    // bâtiment ET ses 4 voisines orthogonales ; avec l'ancien seuil de 1,6 case il ne restait que
+    // les 4 diagonales (distance ≈ 1,41) pour interagir, souvent impossibles à atteindre en
+    // pathfinding orthogonal. 2,4 permet d'entrer depuis une case marchable à 2 cases (distance 2,0)
+    // sans jamais chevaucher la zone d'un bâtiment voisin (les plus proches sont à ≥ 5 cases).
+    const float threshold = 2.4f;
     NearbyInteraction? best = null;
     var bestDistance = threshold;
 
@@ -8043,6 +8049,25 @@ static List<Guid> SelectActiveTeamIds(List<MonsterInstanceData> monsters)
     return active.Count > 0 ? active : monsters.Select(m => m.Id).Take(4).ToList();
 }
 
+// Voir retour utilisateur — "en 1v1 quand c'est le tour de l'adversaire c'est le tour de
+// l'adversaire des 2 côtés" : l'affichage supposait toujours que "mon équipe" = 0, ce qui est
+// vrai en PvE mais faux pour le joueur qui a reçu l'invitation en duel (il est en équipe 1).
+// Les combattants du joueur portent l'Id de leur instance de créature (voir
+// CombatService.BuildTeamCombatantsAsync : Id = monster.Id), donc on retrouve mon équipe en
+// croisant les combattants avec mes créatures possédées. Défaut 0 si rien ne matche (PvE, ou
+// ownedMonsters pas encore chargé).
+int ComputeCombatMyTeam()
+{
+    if (combatState is null || ownedMonsters.Count == 0)
+    {
+        return 0;
+    }
+
+    var ownedIds = ownedMonsters.Select(m => m.Id).ToHashSet();
+    var mine = combatState.Combatants.FirstOrDefault(c => ownedIds.Contains(c.Id));
+    return mine?.Team ?? 0;
+}
+
 async Task<MonsterInstanceData?> LevelUpAndRefreshAsync(Guid monsterId)
 {
     var result = await gameDataApi!.LevelUpMonsterAsync(options.SessionToken!, monsterId, 5);
@@ -9291,7 +9316,7 @@ void UpdateCombat(float deltaTime)
         // Voir GDD/demande utilisateur — quête 2 "Faire ses preuves" : déclenché une seule fois
         // par combat (combatVictoryQuestFired réinitialisé à chaque nouveau combat démarré) pour
         // ne pas spammer l'appel serveur tant que l'écran de résultat reste affiché.
-        if (combatState.WinningTeam == 0 && !combatVictoryQuestFired)
+        if (combatState.WinningTeam == ComputeCombatMyTeam() && !combatVictoryQuestFired)
         {
             combatVictoryQuestFired = true;
             _ = CompleteStoryQuestAsync("Faire ses preuves");
@@ -9311,8 +9336,10 @@ void UpdateCombat(float deltaTime)
         combatPollTask = combatApi.GetStateAsync(combatState.CombatId);
     }
 
+    var updateMyTeam = ComputeCombatMyTeam();
     var myTurn = combatState.CurrentTurnCombatantId is { } currentId
-        && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { Team: 0 };
+        && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { } turnActor
+        && turnActor.Team == updateMyTeam;
 
     if (!myTurn)
     {
@@ -9464,7 +9491,7 @@ void UpdateLoot(float deltaTime)
             // Voir GDD/demande utilisateur — donjon façon Isaac : la salle se "déverrouille"
             // (marquée résolue) uniquement sur victoire (team 0) ; une défaite laisse le joueur
             // retenter la même salle en y restant.
-            if (combatReturnScene == SceneMode.Interior && interiorIsDungeon && combatState?.WinningTeam == 0)
+            if (combatReturnScene == SceneMode.Interior && interiorIsDungeon && combatState?.WinningTeam == ComputeCombatMyTeam())
             {
                 dungeonClearedRooms.Add(dungeonRoomIndex);
                 dungeonEncounterPreview = null;
@@ -12363,7 +12390,8 @@ void DrawCombatEnemyPanel(float screenWidth)
         return;
     }
 
-    var enemies = combatState.Combatants.Where(c => c.Team != 0 && c.IsAlive).ToList();
+    var enemyPanelMyTeam = ComputeCombatMyTeam();
+    var enemies = combatState.Combatants.Where(c => c.Team != enemyPanelMyTeam && c.IsAlive).ToList();
     if (enemies.Count == 0)
     {
         return;
@@ -12411,6 +12439,10 @@ void DrawCombat()
         DrawTextCentered(spriteBatch, whiteTexture, "CHARGEMENT DU COMBAT...", new Vector2(w / 2f, h / 2f), 3f, Vector4.One);
         return;
     }
+
+    // Voir retour utilisateur — "en 1v1 le tour affiché est le même des 2 côtés" : mon équipe
+    // n'est pas forcément 0 (le joueur invité en duel est en équipe 1).
+    var myTeam = ComputeCombatMyTeam();
 
     var (originX, originY, cellSize) = CombatGridGeometry();
 
@@ -12507,10 +12539,10 @@ void DrawCombat()
         // n'ayant pas de paramètre de contour propre (réutilisé tel quel ailleurs, ex. sélection
         // du starter, où aucun contour n'est voulu).
         var typeColor = CombatTypeColor(combatant.Type);
-        var outlineColor = combatant.Team == 0 ? new Vector4(0.3f, 0.55f, 0.95f, 1f) : new Vector4(0.95f, 0.25f, 0.25f, 1f);
+        var outlineColor = combatant.Team == myTeam ? new Vector4(0.3f, 0.55f, 0.95f, 1f) : new Vector4(0.95f, 0.25f, 0.25f, 1f);
         // Voir retour utilisateur — "reduire les ennemis (beaucoup)" : portrait nettement plus
         // petit côté ennemi (0.32 -> 0.20), la taille des alliés reste inchangée.
-        var portraitScale = combatant.Team == 0 ? 0.32f : 0.20f;
+        var portraitScale = combatant.Team == myTeam ? 0.32f : 0.20f;
         DrawStarterPortrait(center, cellSize * portraitScale + 4f, outlineColor);
         DrawStarterPortrait(center, cellSize * portraitScale, typeColor);
 
@@ -12586,8 +12618,8 @@ void DrawCombat()
         // Voir GDD/demande utilisateur — "un petit texte pour dire à qui est le tour".
         if (combatState.Combatants.FirstOrDefault(c => c.Id == combatState.CurrentTurnCombatantId) is { } turnOwner)
         {
-            var turnLabel = turnOwner.Team == 0 ? $"Tour de {turnOwner.Name} (vous)" : $"Tour de {turnOwner.Name}";
-            var turnColor = turnOwner.Team == 0 ? new Vector4(0.55f, 0.85f, 0.6f, 1f) : new Vector4(0.9f, 0.6f, 0.55f, 1f);
+            var turnLabel = turnOwner.Team == myTeam ? $"Tour de {turnOwner.Name} (vous)" : $"Tour de {turnOwner.Name}";
+            var turnColor = turnOwner.Team == myTeam ? new Vector4(0.55f, 0.85f, 0.6f, 1f) : new Vector4(0.9f, 0.6f, 0.55f, 1f);
             DrawTextCentered(spriteBatch, whiteTexture, turnLabel, new Vector2(w / 2f, h - 195f), 1.8f, turnColor);
         }
 
@@ -12600,7 +12632,8 @@ void DrawCombat()
         DrawTextCentered(spriteBatch, whiteTexture, $"{turnSecondsLeft:0}s", new Vector2(w / 2f, h - 175f), 2.2f, timerColor);
 
         var myTurn = combatState.CurrentTurnCombatantId is { } currentId
-            && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { Team: 0 };
+            && combatState.Combatants.FirstOrDefault(c => c.Id == currentId) is { } drawTurnActor
+            && drawTurnActor.Team == myTeam;
 
         if (myTurn)
         {

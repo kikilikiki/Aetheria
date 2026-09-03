@@ -204,13 +204,19 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
 
         var species = candidates[Random.Shared.Next(candidates.Count)];
 
+        // Voir retour utilisateur — "la majorité des monstres dans la nature se font one shot ...
+        // ils doivent être au même niveau voire un peu meilleur que celui du joueur" : les
+        // rencontres sauvages étaient toujours de niveau 1 (seule la rareté suivait le niveau).
+        // On les cale désormais sur le niveau de référence (chef de groupe) + 1.
+        var wildLevel = Math.Clamp(scalingReference.Level + 1, 1, MonsterProgressionService.MaxLevel);
+
         return await StartAsync(new StartCombatRequest
         {
             SessionToken = request.SessionToken,
             CharacterId = request.CharacterId,
             MonsterIds = request.MonsterIds,
             WildSpeciesId = species.Id,
-        }, ct);
+        }, ct, wildLevel: wildLevel);
     }
 
     /// <summary>
@@ -568,7 +574,14 @@ public sealed class CombatService(AetheriaDbContext db, SessionTokenStore tokenS
             await db.SaveChangesAsync(ct);
         }
 
-        var wildLevel = DungeonMonsterLevel.ForFloor(dungeon, floorNumber);
+        // Voir retour utilisateur — "pareil dans les donjons [monstres one shot], ils doivent être
+        // au même niveau voire un peu meilleur que celui du joueur" : on garde la progression par
+        // étage (DungeonMonsterLevel) mais on la plancherise au niveau de référence + 1 pour qu'un
+        // joueur surdimensionné ne balaye plus les premiers étages.
+        var dungeonScalingReference = await new PartyService(db, tokenStore).ResolveScalingReferenceAsync(request.CharacterId, ct);
+        var wildLevel = Math.Clamp(
+            Math.Max(DungeonMonsterLevel.ForFloor(dungeon, floorNumber), dungeonScalingReference.Level + 1),
+            1, MonsterProgressionService.MaxLevel);
 
         var state = await StartAsync(new StartCombatRequest
         {
