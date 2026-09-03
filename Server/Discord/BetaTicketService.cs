@@ -306,6 +306,33 @@ public sealed class BetaTicketService
     }
 
     /// <summary>
+    /// Annonce publique dans le salon de bienvenue (<c>DISCORD_WELCOME_CHANNEL_ID</c>, défaut
+    /// <c>1531571662514950286</c>) au moment où une candidature est <b>acceptée</b> — voir demande
+    /// utilisateur : le message ne part plus quand la personne rejoint le serveur Discord, mais
+    /// quand elle devient bêta-testeuse.
+    /// </summary>
+    public async Task PostWelcomeAsync(string discordUserId, CancellationToken ct)
+    {
+        if (!IsConfigured)
+        {
+            return;
+        }
+
+        var channelId = Env("DISCORD_WELCOME_CHANNEL_ID") ?? "1531571662514950286";
+        var response = await SendAsync(HttpMethod.Post, $"channels/{channelId}/messages", new
+        {
+            content = $"🎉 <@{discordUserId}> est devenu **bêta-testeur d'Aetheria** — souhaitez-lui la bienvenue ! "
+                + Aetheria.Shared.GameInfo.Slogan,
+            allowed_mentions = new { users = new[] { discordUserId } },
+        }, ct);
+
+        if (response is not null && !response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Message de bienvenue bêta échoué ({Status}).", response.StatusCode);
+        }
+    }
+
+    /// <summary>
     /// Attribue au membre Discord accepté en bêta le rôle Testeur (<c>DISCORD_ROLE_ID_TESTEUR</c>)
     /// ainsi que le socle de rôles « membre vérifié » (<c>DISCORD_ROLE_ID_JOUEUR</c> +
     /// <c>DISCORD_VERIFIED_ROLE_ID</c>) — voir demande utilisateur : mêmes rôles que pour un compte

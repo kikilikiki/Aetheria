@@ -139,6 +139,9 @@ public sealed class BetaTicketProcessor(
                 if (application.ResolvedDiscordUserId is { Length: > 0 } discordId)
                 {
                     await tickets.GrantTesterRoleAsync(discordId, ct);
+                    // Voir demande utilisateur — annonce publique de bienvenue à l'acceptation
+                    // (le message ne part plus à l'arrivée sur le serveur Discord).
+                    await tickets.PostWelcomeAsync(discordId, ct);
                 }
 
                 // Voir demande utilisateur — récap dans le salon des acceptés (mêmes infos, sans boutons).

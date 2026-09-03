@@ -178,10 +178,11 @@ public sealed class DiscordGatewayClient(
                 ["d"] = new JsonObject
                 {
                     ["token"] = _botToken,
-                    // GUILD_MEMBERS (1 << 1) : nécessaire pour recevoir GUILD_MEMBER_ADD (message de
-                    // bienvenue, voir demande utilisateur). Nécessite l'intent privilégié « Server
-                    // Members Intent » activé dans le portail développeur Discord.
-                    ["intents"] = 1 << 1,
+                    // Aucun intent : les interactions (boutons de ticket, commandes /link) sont
+                    // toujours livrées, indépendamment des intents. Le message de bienvenue part
+                    // désormais à l'acceptation d'une candidature (BetaTicketService.PostWelcomeAsync),
+                    // plus à l'arrivée sur le serveur Discord — GUILD_MEMBERS n'est plus nécessaire.
+                    ["intents"] = 0,
                     ["properties"] = new JsonObject { ["os"] = "windows", ["browser"] = "aetheria", ["device"] = "aetheria" },
                 },
             }, ct);
@@ -304,13 +305,6 @@ public sealed class DiscordGatewayClient(
     {
         var eventType = payload["t"]?.GetValue<string>();
 
-        // Voir demande utilisateur — message de bienvenue quand une personne rejoint le serveur Discord.
-        if (eventType == "GUILD_MEMBER_ADD")
-        {
-            await HandleGuildMemberAddAsync(payload["d"]!, ct);
-            return;
-        }
-
         if (eventType != "INTERACTION_CREATE")
         {
             return;
@@ -422,42 +416,6 @@ public sealed class DiscordGatewayClient(
         logger.LogInformation("Ticket bêta {ChannelId} fermé par {User} : {Result}.", channelId, discordUserId, ok ? "ok" : "échec");
     }
 
-    private async Task HandleGuildMemberAddAsync(JsonNode member, CancellationToken ct)
-    {
-        var channelId = Environment.GetEnvironmentVariable("DISCORD_WELCOME_CHANNEL_ID")?.Trim();
-        if (string.IsNullOrEmpty(channelId))
-        {
-            channelId = "1531571662514950286";
-        }
-
-        var userId = member["user"]?["id"]?.GetValue<string>();
-        if (userId is null)
-        {
-            return;
-        }
-
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"channels/{channelId}/messages");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bot", _botToken);
-            request.Content = JsonContent.Create(new
-            {
-                content = $"🎉 Bienvenue à <@{userId}> sur **Aetheria** ! {Aetheria.Shared.GameInfo.Slogan}",
-                allowed_mentions = new { users = new[] { userId } },
-            });
-
-            var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Message de bienvenue Discord échoué ({Status}).", response.StatusCode);
-            }
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogWarning(ex, "Impossible de poster le message de bienvenue Discord.");
-        }
-    }
-
     private async Task HandleBetaDecisionAsync(JsonNode interaction, string interactionId, string interactionToken, string discordUserId, CancellationToken ct)
     {
         var customId = interaction["data"]?["custom_id"]?.GetValue<string>()!;
@@ -550,6 +508,9 @@ public sealed class DiscordGatewayClient(
             {
                 await roleSyncService.SyncUserRoleAsync(approvedUser, ct);
             }
+
+            // Voir demande utilisateur — annonce publique de bienvenue à l'acceptation.
+            await betaTickets.PostWelcomeAsync(discordId, ct);
         }
 
         if (application.DiscordTicketChannelId is { Length: > 0 } channelId)
