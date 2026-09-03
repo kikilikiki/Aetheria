@@ -338,6 +338,7 @@ public sealed class AetheriaDbContext(DbContextOptions<AetheriaDbContext> option
         modelBuilder.Entity<GiftCodeEntity>(code =>
         {
             code.HasIndex(c => c.Code).IsUnique();
+            code.Property(c => c.RewardMonsterVariant).HasConversion<string>();
         });
 
         modelBuilder.Entity<GiftCodeRedemptionEntity>(redemption =>

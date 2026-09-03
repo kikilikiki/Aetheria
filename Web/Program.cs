@@ -84,11 +84,14 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Staff", policy => policy.RequireClaim("is_staff", "true"));
     // Téléchargement du jeu réservé aux bêta-testeurs (voir demande utilisateur).
     options.AddPolicy("Testeur", policy => policy.RequireClaim("can_download", "true"));
+    // Création / gestion des codes cadeaux réservée au grade Fondateur (voir demande utilisateur).
+    options.AddPolicy("Fondateur", policy => policy.RequireClaim("is_founder", "true"));
 });
 
 builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AuthorizeFolder("/Admin", "Staff");
+    options.Conventions.AuthorizePage("/Admin/Codes", "Fondateur");
     options.Conventions.AuthorizePage("/Beta");
     options.Conventions.AuthorizePage("/Compte");
     options.Conventions.AuthorizePage("/Codes");

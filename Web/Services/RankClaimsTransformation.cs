@@ -30,7 +30,7 @@ public sealed class RankClaimsTransformation(AetheriaDbContext db) : IClaimsTran
             return principal;
         }
 
-        foreach (var type in new[] { ClaimTypes.Role, "is_admin", "is_staff", "can_download", FreshMarker })
+        foreach (var type in new[] { ClaimTypes.Role, "is_admin", "is_staff", "is_founder", "can_download", FreshMarker })
         {
             foreach (var claim in identity.FindAll(type).ToList())
             {
@@ -56,6 +56,9 @@ public sealed class RankClaimsTransformation(AetheriaDbContext db) : IClaimsTran
         identity.AddClaim(new Claim(ClaimTypes.Role, user.Rank.ToString()));
         identity.AddClaim(new Claim("is_admin", user.IsAdmin ? "true" : "false"));
         identity.AddClaim(new Claim("is_staff", isStaff ? "true" : "false"));
+        // Voir demande utilisateur — création des codes cadeaux "réservée au Fondateur" (grade,
+        // pas simplement IsAdmin).
+        identity.AddClaim(new Claim("is_founder", user.Rank == UserRank.Fondateur ? "true" : "false"));
         identity.AddClaim(new Claim("can_download", WebAccountService.CanDownload(user) ? "true" : "false"));
 
         return principal;

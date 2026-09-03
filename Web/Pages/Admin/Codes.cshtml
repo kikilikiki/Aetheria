@@ -13,13 +13,36 @@
     }
 
     <p class="hint" style="text-transform:none;">
-        Les récompenses ne sont pas encore distribuées : la rédemption est enregistrée et la
-        description est affichée au joueur. À brancher plus tard sur un vrai système de récompenses.
+        Réservé au Fondateur. Choisis ce que donne le code : gemmes (compte), or et/ou créature
+        (crédités au personnage qui saisit le code — depuis le Launcher, ou le premier personnage
+        du compte). Le champ « description » sert de récompense « autre » en texte libre.
     </p>
 
     <form method="post" asp-page-handler="Create" class="form-panel" style="margin-bottom:24px;">
         <div class="field"><label for="c">Code</label><input id="c" name="NewCode" required maxlength="32" placeholder="AETHERIA2026" /></div>
-        <div class="field"><label for="d">Description (ce que gagne le joueur)</label><input id="d" name="NewDescription" maxlength="200" /></div>
+        <div class="field"><label for="d">Description / récompense « autre » (texte libre affiché au joueur)</label><input id="d" name="NewDescription" maxlength="200" /></div>
+        <div class="field"><label for="g">Gemmes</label><input id="g" name="NewGems" type="number" min="0" value="0" /></div>
+        <div class="field"><label for="o">Or</label><input id="o" name="NewGold" type="number" min="0" value="0" /></div>
+        <div class="field">
+            <label for="sp">Créature offerte (facultatif)</label>
+            <select id="sp" name="NewMonsterSpeciesId">
+                <option value="">— aucune —</option>
+                @foreach (var s in Model.Species)
+                {
+                    <option value="@s.Id">#@s.Id — @s.Name</option>
+                }
+            </select>
+        </div>
+        <div class="field"><label for="ml">Niveau de la créature</label><input id="ml" name="NewMonsterLevel" type="number" min="1" max="150" value="1" /></div>
+        <div class="field">
+            <label for="mv">Variante de la créature</label>
+            <select id="mv" name="NewMonsterVariant">
+                @foreach (var v in Enum.GetNames<Aetheria.Shared.Enums.MonsterVariant>())
+                {
+                    <option value="@v">@v</option>
+                }
+            </select>
+        </div>
         <div class="field"><label for="m">Limite d'utilisations (vide = illimité)</label><input id="m" name="NewMaxRedemptions" type="number" min="1" /></div>
         <div class="field"><label for="e">Expiration (vide = jamais)</label><input id="e" name="NewExpiresAtUtc" type="datetime-local" /></div>
         <button type="submit" class="btn btn-primary">Créer le code</button>
@@ -33,13 +56,26 @@
     {
         <div class="table-wrap">
             <table class="data">
-                <thead><tr><th>Code</th><th>Description</th><th>Utilisations</th><th>Expire</th><th>Actif</th><th></th></tr></thead>
+                <thead><tr><th>Code</th><th>Récompense</th><th>Utilisations</th><th>Expire</th><th>Actif</th><th></th></tr></thead>
                 <tbody>
                 @foreach (var c in Model.Codes)
                 {
                     <tr>
                         <td><strong>@c.Code</strong></td>
-                        <td>@c.Description</td>
+                        <td>
+                            @{
+                                var bits = new List<string>();
+                                if (c.RewardGems != 0) { bits.Add($"{c.RewardGems} gemme(s)"); }
+                                if (c.RewardGold != 0) { bits.Add($"{c.RewardGold} or"); }
+                                if (c.RewardMonsterSpeciesId is { } rsid)
+                                {
+                                    var nm = Model.Species.FirstOrDefault(s => s.Id == rsid).Name ?? $"#{rsid}";
+                                    bits.Add($"{nm} niv.{c.RewardMonsterLevel}" + (c.RewardMonsterVariant != Aetheria.Shared.Enums.MonsterVariant.Normal ? $" ({c.RewardMonsterVariant})" : ""));
+                                }
+                                if (!string.IsNullOrWhiteSpace(c.Description)) { bits.Add(c.Description); }
+                            }
+                            @(bits.Count > 0 ? string.Join(" — ", bits) : "—")
+                        </td>
                         <td>@c.RedemptionCount@(c.MaxRedemptions is { } max ? $" / {max}" : "")</td>
                         <td>@(c.ExpiresAtUtc?.ToString("dd/MM/yyyy") ?? "—")</td>
                         <td>@(c.IsActive ? "oui" : "non")</td>

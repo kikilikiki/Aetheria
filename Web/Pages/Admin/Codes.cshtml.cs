@@ -15,11 +15,23 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
     [BindProperty] public int? NewMaxRedemptions { get; set; }
     [BindProperty] public DateTime? NewExpiresAtUtc { get; set; }
 
+    // Voir demande utilisateur — le Fondateur choisit ce que donne le code : gemmes, or, créature, et/ou texte libre.
+    [BindProperty] public long NewGems { get; set; }
+    [BindProperty] public long NewGold { get; set; }
+    [BindProperty] public int? NewMonsterSpeciesId { get; set; }
+    [BindProperty] public int NewMonsterLevel { get; set; } = 1;
+    [BindProperty] public Aetheria.Shared.Enums.MonsterVariant NewMonsterVariant { get; set; } = Aetheria.Shared.Enums.MonsterVariant.Normal;
+
+    public IReadOnlyList<(int Id, string Name)> Species { get; private set; } = [];
     public IReadOnlyList<GiftCodeEntity> Codes { get; private set; } = [];
     public string? Flash { get; private set; }
 
-    private async Task LoadAsync() =>
+    private async Task LoadAsync()
+    {
         Codes = await db.GiftCodes.AsNoTracking().OrderByDescending(c => c.CreatedAtUtc).ToListAsync();
+        Species = await db.MonsterSpecies.AsNoTracking().OrderBy(s => s.Id)
+            .Select(s => new ValueTuple<int, string>(s.Id, s.Name)).ToListAsync();
+    }
 
     public async Task OnGetAsync()
     {
@@ -42,6 +54,12 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             return RedirectToPage();
         }
 
+        if (NewMonsterSpeciesId is { } sid && !await db.MonsterSpecies.AnyAsync(s => s.Id == sid))
+        {
+            TempData["Flash"] = "Espèce de créature inconnue.";
+            return RedirectToPage();
+        }
+
         db.GiftCodes.Add(new GiftCodeEntity
         {
             Id = Guid.NewGuid(),
@@ -50,6 +68,11 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             MaxRedemptions = NewMaxRedemptions is > 0 ? NewMaxRedemptions : null,
             ExpiresAtUtc = NewExpiresAtUtc,
             IsActive = true,
+            RewardGems = Math.Max(0, NewGems),
+            RewardGold = Math.Max(0, NewGold),
+            RewardMonsterSpeciesId = NewMonsterSpeciesId is > 0 ? NewMonsterSpeciesId : null,
+            RewardMonsterLevel = Math.Clamp(NewMonsterLevel, 1, 150),
+            RewardMonsterVariant = NewMonsterVariant,
         });
         await db.SaveChangesAsync();
 

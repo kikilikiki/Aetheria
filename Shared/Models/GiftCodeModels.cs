@@ -5,6 +5,9 @@ public sealed class RedeemGiftCodeRequest
 {
     public required string SessionToken { get; init; }
     public required string Code { get; init; }
+
+    /// <summary>Personnage qui reçoit l'or / la créature éventuels du code (le Launcher passe le personnage actif).</summary>
+    public Guid? CharacterId { get; init; }
 }
 
 /// <summary>Réponse de <c>POST /api/giftcodes/redeem</c>.</summary>

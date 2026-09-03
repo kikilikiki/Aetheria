@@ -285,7 +285,7 @@ app.MapPost("/api/giftcodes/redeem", async (RedeemGiftCodeRequest request) =>
     }
 
     await using var db = await dbFactory.CreateDbContextAsync();
-    var result = await Aetheria.Database.Services.GiftCodeRedeemer.RedeemAsync(db, userId, request.Code, "launcher");
+    var result = await Aetheria.Database.Services.GiftCodeRedeemer.RedeemAsync(db, userId, request.Code, "launcher", request.CharacterId);
     return Results.Ok(new RedeemGiftCodeResponse { Success = result.Success, Message = result.Message });
 });
 
