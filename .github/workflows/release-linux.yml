@@ -31,9 +31,12 @@ jobs:
           echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}"   >> "$GITHUB_OUTPUT"
 
+      # En lancement manuel : on construit depuis le HEAD de la branche par defaut (donc avec la
+      # derniere version du workflow et du scaffolding) et on publie sur la release du tag donne.
+      # En declenchement par push de tag : on construit ce tag precisement.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.tag }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -79,8 +82,17 @@ jobs:
           mkdir -p "$APPDIR/usr/bin"
           cp -a payload/. "$APPDIR/usr/bin/"
           chmod +x "$APPDIR/AppRun" "$APPDIR/usr/bin/Aetheria.Launcher" "$APPDIR/usr/bin/Aetheria.Client"
-          # Icone : le PNG stdlib versionne, sinon on le (re)genere.
-          [ -f "$APPDIR/aetheria.png" ] || python3 Build/linux/make-icon.py
+          # Icone : le PNG stdlib versionne (Build/linux/Aetheria.AppDir/aetheria.png) en priorite ;
+          # sinon on le regenere avec make-icon.py s'il est present, sinon avec ImageMagick.
+          if [ ! -f "$APPDIR/aetheria.png" ]; then
+            if [ -f Build/linux/make-icon.py ]; then
+              python3 Build/linux/make-icon.py
+            else
+              sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+              convert -size 256x256 canvas:'#1a1412' -fill '#a8353a' -gravity center \
+                -font DejaVu-Sans-Bold -pointsize 200 -annotate +0+12 A "$APPDIR/aetheria.png"
+            fi
+          fi
           cp "$APPDIR/aetheria.png" "$APPDIR/.DirIcon"
           curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
