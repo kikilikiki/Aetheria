@@ -20,6 +20,15 @@ Notes en vrac, à trier plus tard.
 > `MonsterVariantCatalog.TryParse`). Les idées marquées **(2026-08-31)** en découlent ou comblent
 > un manque repéré à cette occasion.
 
+> Complété le 2026-09-03 après une grosse passe d'infrastructure et de correctifs : portail web
+> `Aetheria.Web` sur Render + base Neon partagée (`H148`), candidatures bêta → tickets Discord
+> gérés par le serveur de jeu (`H153`+), boutons Accepter/Refuser/Fermer robustes après la
+> correction du zombie Gateway (`H165`), parrainage + codes cadeaux (`H157`, récompenses branchées
+> en `H176`), interactions joueur en jeu + duels classés + blocage (`H164`), bêta fermée réservée
+> aux grades Testeur+ (`H168`), release GitHub v0.3.3/v0.3.4 + CI Linux `.deb/.tar.gz/.AppImage`
+> (`H170`), correctifs duel 1v1 / anti-collision / niveau des monstres (`H174`). Les idées
+> **(2026-09-03)** découlent de ces systèmes ou comblent un manque repéré en les construisant.
+
 ## Gameplay
 
 - **Arbre de talents/compétences général** — explicitement mis de côté lors de l'ajout du
@@ -169,6 +178,47 @@ Notes en vrac, à trier plus tard.
   capitale : combat contre une créature au niveau/type choisi, sans butin ni XP ni conséquence,
   quittable à tout moment.
 
+- **(2026-09-03) Récompenses de parrainage réellement distribuées** — `ReferralService`
+  enregistre le lien parrain↔filleul (`UserEntity.ReferredByUserId`, `BetaApplicationEntity.
+  ReferralCodeUsed`) mais `ApplyOnApprovalAsync` ne crédite rien (TODO explicite). Or le système
+  de récompenses existe maintenant, calqué sur `GiftCodeRedeemer` (`H176` : gemmes au compte, or/
+  créature au personnage).
+  **Proposition** : constantes de config `REFERRAL_REWARD_GEMS` / `_GOLD` (parrain **et** filleul,
+  montants distincts), créditées dans `ApplyOnApprovalAsync` avec la même logique de résolution de
+  personnage que `GiftCodeRedeemer` ; palier bonus au 3ᵉ / 5ᵉ / 10ᵉ filleul. Journaliser chaque
+  versement dans le salon d'inscriptions Discord existant (`DiscordEventLog.LogReferral`).
+
+- **(2026-09-03) Saison de classement pour les duels classés** — `H164` a ajouté `/rankedduel`
+  avec ajustement ELO (`ApplyArenaResultAsync`), mais l'ELO ne se réinitialise jamais et il n'y a
+  pas de récompense de fin de période. `SeasonService` gère déjà des saisons pour les donjons.
+  **Proposition** : brancher le classement PvP sur `SeasonService` — à la bascule de saison,
+  archiver le classement, distribuer des récompenses par palier (titre exclusif, teinte de
+  personnage, gemmes) via le système de récompenses `H176`, puis compresser l'ELO vers 1000 (soft
+  reset). Annonce Discord d'ouverture/clôture de saison.
+
+- **(2026-09-03) Aperçu de puissance avant un duel** — une idée d'aperçu existe déjà pour les
+  donjons (« estimation de puissance avant d'entrer ») ; rien d'équivalent avant d'accepter un
+  duel classé, alors que l'enjeu ELO est réel.
+  **Proposition** : `DuelInvitePacket` porte déjà l'équipe adverse côté serveur — y ajouter la
+  somme des niveaux et le nombre de créatures, affichés dans `DrawDuelInvitePopup` (« Adversaire :
+  4 créatures, niv. moyen 22 — toi : niv. moyen 19 »). Purement informatif, aucune logique de
+  combat touchée.
+
+- **(2026-09-03) Revanche immédiate après un duel** — l'écran de victoire d'un duel renvoie
+  directement au monde ; relancer un duel demande de re-cibler le joueur et refaire toute
+  l'invitation.
+  **Proposition** : sur l'écran de fin d'un combat `IsPvp && IsFriendlyDuel`, un bouton
+  « Revanche » qui renvoie une `DuelInvitePacket` au même adversaire (mêmes équipes), avec une
+  fenêtre d'acceptation courte. Réutilise entièrement `DuelInviteService`.
+
+- **(2026-09-03) Créature offerte à l'acceptation en bêta** — `H176` permet à un code cadeau de
+  donner une créature ; `H167` attribue déjà des rôles Discord à l'acceptation. Rien ne
+  récompense la créature elle-même.
+  **Proposition** : un `GiftCodeEntity` « BETAWELCOME » à usage unique par compte, généré/associé
+  automatiquement à l'acceptation d'une candidature (au lieu d'un code partagé), donnant une
+  créature à variante spéciale non capturable autrement (`MonsterVariant` dédiée, marquée
+  `DungeonOnly`-style pour ne jamais apparaître en sauvage). Marque visuellement les pionniers.
+
 ## Contenu
 
 - **Contenu de saison réel** (nouveaux monstres, donjons, cosmétiques) au-delà du suivi de
@@ -217,6 +267,29 @@ Notes en vrac, à trier plus tard.
   remplacement des fonctions `DrawFigure`/silhouettes par un `SpriteBatch.Draw` texturé. À
   prioriser sur le personnage joueur et une espèce de monstre en premier, pour valider le pipeline
   avant de tout redessiner.
+
+- **(2026-09-03) Événements « code communautaire »** — maintenant que `GiftCodeRedeemer` crédite
+  réellement (`H176`), un code diffusé sur Discord/TikTok à chaque cap d'abonnés ou milestone est
+  du contenu léger à coût nul.
+  **Proposition** : rien de neuf à coder — juste un petit guide dans `Docs/` (« comment lancer un
+  code événementiel »), et éventuellement un bouton `/admin/codes` « générer un code aléatoire
+  lisible » (format `MOT-MOT-1234`) pour éviter les collisions et les codes devinables.
+
+- **(2026-09-03) Défis quotidiens / hebdomadaires** — le jeu a des statistiques à vie
+  (`CombatStatistics`, `Exploration`) mais aucun objectif court terme renouvelé.
+  **Proposition** : table `DailyChallengeEntity (CharacterId, DateUtc, Kind, Target, Progress,
+  Claimed)`, 3 défis tirés par jour UTC parmi une liste fixe (« gagne 3 combats », « capture 2
+  créatures », « descends à l'étage 5 d'un donjon »), progression incrémentée depuis les points
+  d'événement existants (`CaptureService`, `CombatService`, `DungeonMonsterLevel`), récompense en
+  or/gemmes via le système `H176`. Panneau réutilisant `DrawQuestPanel`.
+
+- **(2026-09-03) Marchand itinérant à stock tournant** — le shop du village a un stock fixe ;
+  aucune raison de revenir régulièrement en ville.
+  **Proposition** : un PNJ « Marchand ambulant » présent seulement quelques heures par jour UTC
+  (même logique horaire que la rotation des portails de donjon, `H142`), avec 4-5 objets tirés
+  d'une table élargie (objets de capture rares, cosmétiques, consommables de boost déjà existants)
+  à prix gonflé. Aucune nouvelle mécanique — un `ShopEntity` marqué `IsRotating` + un filtre
+  horaire côté `GetShopInventoryAsync`.
 
 ## Technique
 
@@ -278,6 +351,44 @@ Notes en vrac, à trier plus tard.
   recherche par `CharacterId` renvoie une session non terminée — même garde que celui déjà en
   place pour les combats de groupe, juste étendu à ce nouveau point d'entrée.
 
+- **(2026-09-03) CI de release Windows** — `H170` a ajouté `.github/workflows/release-linux.yml`
+  (deb + tar.gz + AppImage sur `ubuntu-latest`), mais `AetheriaSetup.exe` et `Payload.zip` restent
+  produits à la main sur la machine Windows.
+  **Proposition** : `release-windows.yml` sur `windows-latest` déclenché par le même tag `v*` :
+  `dotnet build Aetheria.sln -c Release` → `Compress-Archive` du Payload → `dotnet publish` de
+  l'installeur `-p:PublishSingleFile=true` → `gh release upload`. Rend la release entièrement
+  reproductible et supprime la dépendance à la machine de dev.
+
+- **(2026-09-03) Auto-diagnostic d'accessibilité au démarrage du serveur** — un ami sur un autre
+  réseau a vu « serveur hors ligne » à cause d'une redirection de port de la box pointant sur la
+  mauvaise IP locale (`.12` au lieu de `.117`). Rien ne signale ce genre d'erreur côté serveur.
+  **Proposition** : au démarrage, après l'ouverture des ports 7777/7778, le serveur interroge un
+  service tiers de vérification TCP (ou un endpoint léger hébergé sur le portail Render) sur sa
+  propre IP publique et logue en `warning` clair si les ports ne répondent pas de l'extérieur
+  (« port 7778 injoignable depuis Internet — vérifie la redirection de la box vers 192.168.x.x »).
+
+- **(2026-09-03) Le champ `ServerHost` du Launcher accepte un `host:port`** — `NormalizeHost`
+  (`MainViewModel`) retire systématiquement le port, ce qui empêche d'utiliser un tunnel type
+  playit.gg (port attribué aléatoire) ou un reverse-proxy sur un autre port.
+  **Proposition** : garder le port s'il est fourni, l'exposer via `ServerAccountApiPort` /
+  `ServerGamePort` (défauts `GameInfo.DefaultAccountApiPort` / `DefaultGamePort`), et le propager
+  à `AccountApiClient`, `ClientLauncher` (`--host`) et `SelfUpdateService`. Débloque toutes les
+  solutions de tunnel sans redirection de box.
+
+- **(2026-09-03) Alerte Discord si le serveur de jeu tombe** — le portail Render est toujours en
+  ligne mais ne surveille pas le serveur auto-hébergé ; si celui-ci s'arrête, les candidatures
+  bêta ne sont plus traitées et personne n'est prévenu.
+  **Proposition** : un `BackgroundService` sur Render qui `GET` `GAME_SERVER_HEALTH_URL` toutes
+  les 5 min ; à la 2ᵉ échec consécutif, poste un message dans un salon Discord d'ops (« ⚠️ serveur
+  de jeu injoignable depuis HH:MM »), et un message de rétablissement au retour. Réutilise le
+  `HttpClient` existant, aucun état persistant.
+
+- **(2026-09-03) Sauvegarde planifiée de la base Neon** — toute la prod (comptes, personnages,
+  créatures, candidatures) vit dans une seule base Neon gratuite, sans sauvegarde côté projet.
+  **Proposition** : un workflow GitHub Actions planifié (`schedule: cron`) qui fait un `pg_dump`
+  (le connecteur Neon accepte les connexions externes) et pousse l'archive compressée en artefact
+  de run (rétention 90 j) ou vers un stockage objet. `AETHERIA_DB_CONNECTION` en secret de dépôt.
+
 ## UI / UX
 
 - **Vraie image de profil** (toujours une pastille de couleur + initiale dérivées du pseudo,
@@ -329,6 +440,45 @@ Notes en vrac, à trier plus tard.
   (`CombatService`), affichée dans le panneau Monstres existant — une grille espèce × variante
   avec les cases obtenues en couleur. Donne un objectif de complétion long terme sans power creep.
 
+- **(2026-09-03) Tutoriel guidé « va ici » avec waypoints cliquables** — la chaîne de quêtes
+  tuto existe (`QuestCatalogSeeder` : premier combat → première capture → forgeron) et
+  `DrawQuestPanel` sait afficher des lignes cliquables, mais rien n'indique **où** aller ni ne
+  guide le déplacement ; un nouveau joueur reste perdu.
+  **Proposition** : associer chaque quête tuto à une position monde (zone d'herbe hors capitale
+  pour combat/capture, bâtiment Forge pour le forgeron — coordonnées déjà dans `TownLayout`) ;
+  dessiner une flèche directionnelle en bord d'écran pointant vers la cible + un marqueur au sol ;
+  ajouter dans `DrawQuestPanel` un bouton « M'y emmener » qui fixe la cible de déplacement clic
+  (`dungeonClickTarget`/cible extérieure) sur ce point. Encart animé réutilisant l'anneau lumineux
+  de montée de niveau (`LevelUpGlow`) pour montrer visuellement le geste de capture.
+
+- **(2026-09-03) Sélecteur de personnage pour la rédemption de code sur le site** — depuis
+  `H176`, un code qui donne de l'or/une créature va au 1ᵉʳ personnage du compte quand la
+  rédemption vient du site (`Web/Pages/Codes` ne connaît pas de personnage actif).
+  **Proposition** : si le compte a plus d'un personnage, afficher une liste déroulante sur
+  `/codes` et passer le `CharacterId` choisi à `GiftCodeRedeemer.RedeemAsync` (le paramètre existe
+  déjà). Sinon, comportement inchangé.
+
+- **(2026-09-03) Historique de codes cadeaux enrichi** — `/codes` et le Launcher affichent juste
+  le code utilisé et la date ; pas ce qui a été reçu.
+  **Proposition** : stocker le résumé de récompense (`GiftCodeRedeemer.Result.Message` sans le
+  préfixe) dans `GiftCodeRedemptionEntity` à la rédemption, et l'afficher dans les deux
+  historiques. Une colonne texte, pas de migration lourde.
+
+- **(2026-09-03) Motif du « serveur hors ligne » dans le Launcher** — `MainViewModel` met
+  `IsUpdateAvailable`/`ServerVersion` à partir d'un seul `GET /api/health` ; en cas d'échec, le
+  joueur ne sait pas si c'est une panne réseau, un serveur éteint ou une mauvaise adresse.
+  **Proposition** : distinguer les cas dans le message (timeout → « injoignable, vérifie ta
+  connexion ou l'adresse serveur » ; 200 mais version différente → « mise à jour requise » ;
+  refus de connexion → « serveur éteint »), et proposer un lien « changer l'adresse du serveur »
+  quand c'est un timeout.
+
+- **(2026-09-03) Bouton « copier mon lien de parrainage » dans le Launcher** — le lien
+  `<site>/beta?ref=CODE` n'est visible que sur `/mon-compte` du site ; le Launcher affiche déjà le
+  compte mais pas ça.
+  **Proposition** : le panneau « À propos » (déjà enrichi en `H157` avec le champ code cadeau)
+  affiche le code de parrainage du compte connecté + un bouton « Copier le lien », en récupérant
+  la valeur via un `GET /api/account/referral` (le code vit déjà sur `UserEntity.ReferralCode`).
+
 ## Autres
 
 - **Notifications Discord** : catégories supplémentaires (annonce dédiée guerre de royaumes,
@@ -362,3 +512,32 @@ Notes en vrac, à trier plus tard.
   **Proposition** : un champ de recherche en haut du panneau qui filtre la liste par sous-chaîne
   du libellé (insensible casse/accents, `MonsterVariantCatalog`-style) — purement côté Client,
   la logique de dispatch par index/libellé de `SubmitAdminPanelCommand` reste inchangée.
+
+- **(2026-09-03) Journal Discord des rédemptions de codes cadeaux** — `DiscordEventLog` journalise
+  déjà les codes de parrainage et les résultats de match ; les codes cadeaux (`H176`, qui donnent
+  maintenant de vraies récompenses) ne laissent aucune trace publique côté staff.
+  **Proposition** : `DiscordEventLog.LogGiftCodeRedemption(username, code, rewardSummary)` posté
+  dans un salon dédié à chaque `GiftCodeRedeemer.RedeemAsync` réussi — utile pour repérer un code
+  qui fuite (pic de rédemptions) et pour l'ambiance communautaire.
+
+- **(2026-09-03) Annonce Discord automatique à chaque release GitHub** — le pipeline changelog→
+  Discord poste le récap horaire des commits, mais la publication d'une release `v*` (nouvelle
+  version jouable) passe inaperçue sur le serveur.
+  **Proposition** : une étape finale dans les workflows de release (`release-linux.yml` + le futur
+  `release-windows.yml`) qui `POST` un embed « 🎮 Aetheria vX.Y.Z est disponible » avec les liens
+  de téléchargement `releases/latest/download/…` dans le salon devlog, via le webhook ou le bot.
+
+- **(2026-09-03) Rôle Discord « bêta-testeur actif » vs inactif** — `H167`/`H168` donnent le rôle
+  Testeur à l'acceptation et le gardent à vie ; rien ne distingue un testeur qui joue vraiment
+  d'un compte dormant, alors que la bêta fermée vise justement du retour terrain.
+  **Proposition** : un job quotidien (serveur de jeu) qui, pour chaque compte lié Discord de grade
+  Testeur, compare `CharacterEntity.LastSeenUtc` (ou la dernière connexion) à un seuil (7 j) et
+  bascule un rôle secondaire « Testeur actif » / le retire — sans jamais toucher au rôle Testeur
+  de base ni à l'accès au jeu. Donne au staff une vue immédiate de l'engagement réel.
+
+- **(2026-09-03) Page de statut publique** — le badge « serveur en ligne » du site dépend de
+  `GAME_SERVER_HEALTH_URL` ; il n'y a pas de page récapitulant l'état des 3 briques (serveur de
+  jeu auto-hébergé, portail Render, base Neon).
+  **Proposition** : une page `/statut` sur `Aetheria.Web` qui teste les 3 (health du jeu, sa
+  propre base, un ping Neon) et affiche 3 pastilles vert/rouge + la version de jeu courante. Zéro
+  dépendance externe, réutilise le `DbContext` et le `HttpClient` déjà en place.
