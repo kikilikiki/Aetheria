@@ -36,6 +36,17 @@ public sealed class GiftCodeEntity
     /// <summary>Contenu machine libre (JSON) pour une récompense non modélisée — inutilisé par défaut.</summary>
     public string RewardPayload { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Le Fondateur a coché « annoncer sur Discord » à la création. Le portail web (IP Render
+    /// rate-limitée par Discord, voir <c>BetaTicketProcessor</c>) se contente de poser ce drapeau ;
+    /// c'est le serveur de jeu qui poste réellement l'annonce et renseigne
+    /// <see cref="DiscordAnnouncedAtUtc"/>.
+    /// </summary>
+    public bool AnnounceOnDiscord { get; set; }
+
+    /// <summary>Date à laquelle l'annonce Discord a été postée (null = pas encore).</summary>
+    public DateTime? DiscordAnnouncedAtUtc { get; set; }
+
     /// <summary>Nombre maximum de rédemptions au total (null = illimité).</summary>
     public int? MaxRedemptions { get; set; }
 

@@ -49,10 +49,7 @@
             <input id="ann" name="NewAnnounce" type="checkbox" value="true" checked style="width:auto;" />
             <label for="ann" style="margin:0;text-transform:none;letter-spacing:0;">
                 Annoncer la création dans le salon Discord
-                @if (!Model.WebhookConfigured)
-                {
-                    <span class="hint" style="display:inline;"> — webhook non configuré (DISCORD_GIFTCODE_WEBHOOK_URL), la case n'aura pas d'effet</span>
-                }
+                <span class="hint" style="display:inline;"> — posté par le serveur de jeu, dans la minute (il doit tourner)</span>
             </label>
         </div>
         <button type="submit" class="btn btn-primary">Créer le code</button>

@@ -22,6 +22,7 @@ public static class DiscordEventLog
 
     private static string ReferralChannelId => Trim(Environment.GetEnvironmentVariable("DISCORD_REFERRAL_LOG_CHANNEL_ID")) ?? "1544780312171511828";
     private static string MatchChannelId => Trim(Environment.GetEnvironmentVariable("DISCORD_MATCH_LOG_CHANNEL_ID")) ?? "1544780577666764911";
+    private static string GiftCodeChannelId => Trim(Environment.GetEnvironmentVariable("DISCORD_GIFTCODE_LOG_CHANNEL_ID")) ?? "1531571662514950286";
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -30,6 +31,13 @@ public static class DiscordEventLog
 
     public static void LogMatch(string line) =>
         _ = PostAsync(MatchChannelId, line);
+
+    /// <summary>
+    /// Annonce la création d'un code cadeau (voir demande utilisateur) — posté par le serveur de
+    /// jeu et non par le portail web, dont l'IP Render est bloquée par Discord.
+    /// </summary>
+    public static void LogGiftCode(string code, string rewardDescription, string footer) =>
+        _ = PostEmbedAsync(GiftCodeChannelId, $"🎁 Nouveau code cadeau : {code}", rewardDescription, footer);
 
     private static async Task PostAsync(string channelId, string content)
     {
@@ -57,6 +65,44 @@ public static class DiscordEventLog
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[DiscordEventLog] {ex.Message}");
+        }
+    }
+
+    private static async Task PostEmbedAsync(string channelId, string title, string description, string footer)
+    {
+        if (Token is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"channels/{channelId}/messages");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bot", Token);
+            request.Content = JsonContent.Create(new
+            {
+                embeds = new[]
+                {
+                    new
+                    {
+                        title,
+                        description = description.Length > 4000 ? description[..4000] : description,
+                        color = 0xB5323A,
+                        footer = new { text = footer },
+                    },
+                },
+                allowed_mentions = new { parse = Array.Empty<string>() },
+            });
+
+            var response = await Http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine($"[DiscordEventLog] embed échoué canal {channelId} : {(int)response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DiscordEventLog] embed : {ex.Message}");
         }
     }
 }

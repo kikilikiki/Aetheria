@@ -1,7 +1,6 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Database.Services;
-using Aetheria.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
@@ -24,10 +23,10 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
     [BindProperty] public Aetheria.Shared.Enums.MonsterVariant NewMonsterVariant { get; set; } = Aetheria.Shared.Enums.MonsterVariant.Normal;
 
     // Voir demande utilisateur — case cochée par défaut : prévenir le salon Discord de la création
-    // (case décochée ⇒ le champ n'est pas posté ⇒ false ⇒ pas d'annonce).
+    // (case décochée ⇒ le champ n'est pas posté ⇒ false ⇒ pas d'annonce). L'annonce réelle est
+    // postée par le serveur de jeu (BetaTicketProcessor) : l'IP de Render est bloquée par Discord.
     [BindProperty] public bool NewAnnounce { get; set; }
 
-    public bool WebhookConfigured { get; } = GiftCodeWebhook.IsConfigured;
     public IReadOnlyList<(int Id, string Name)> Species { get; private set; } = [];
     public IReadOnlyList<GiftCodeEntity> Codes { get; private set; } = [];
     public string? Flash { get; private set; }
@@ -84,19 +83,15 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             RewardMonsterSpeciesId = NewMonsterSpeciesId is > 0 ? NewMonsterSpeciesId : null,
             RewardMonsterLevel = Math.Clamp(NewMonsterLevel, 1, 150),
             RewardMonsterVariant = NewMonsterVariant,
+            // Le serveur de jeu (BetaTicketProcessor, toutes les 30 s) poste l'annonce Discord —
+            // pas le portail web, dont l'IP Render est bloquée par Discord (voir H153).
+            AnnounceOnDiscord = NewAnnounce,
         };
         db.GiftCodes.Add(entity);
         await db.SaveChangesAsync();
 
-        if (NewAnnounce)
-        {
-            var monsterName = entity.RewardMonsterSpeciesId is { } rsid
-                ? await db.MonsterSpecies.Where(s => s.Id == rsid).Select(s => s.Name).FirstOrDefaultAsync()
-                : null;
-            GiftCodeWebhook.AnnounceCreated(entity, monsterName, User.Identity?.Name ?? "un Fondateur");
-        }
-
-        TempData["Flash"] = $"Code {code} créé." + (NewAnnounce && WebhookConfigured ? " Annonce Discord envoyée." : "");
+        TempData["Flash"] = $"Code {code} créé."
+            + (NewAnnounce ? " L'annonce Discord partira dans la minute (postée par le serveur de jeu)." : "");
         return RedirectToPage();
     }
 

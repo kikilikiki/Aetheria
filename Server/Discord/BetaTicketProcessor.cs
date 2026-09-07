@@ -65,6 +65,7 @@ public sealed class BetaTicketProcessor(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         await EnsureReferralCodesAsync(db, ct);
+        await AnnounceNewGiftCodesAsync(db, ct);
 
         // 1. Nouvelles candidatures : vérification Discord + création du salon (ou refus auto).
         var unprocessed = await db.BetaApplications
@@ -166,6 +167,53 @@ public sealed class BetaTicketProcessor(
             application.SyncedStatus = application.Status;
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Candidature {Id} : décision « {Status} » répercutée sur Discord.", application.Id, application.Status);
+        }
+    }
+
+    /// <summary>
+    /// Annonce sur Discord les codes cadeaux créés sur le portail web avec la case « annoncer »
+    /// cochée (voir demande utilisateur). Le portail (IP Render bloquée par Discord) pose juste
+    /// <c>AnnounceOnDiscord</c> ; l'annonce réelle part d'ici, depuis l'IP propre du serveur de jeu.
+    /// </summary>
+    private async Task AnnounceNewGiftCodesAsync(AetheriaDbContext db, CancellationToken ct)
+    {
+        var pending = await db.GiftCodes
+            .Where(c => c.AnnounceOnDiscord && c.DiscordAnnouncedAtUtc == null)
+            .OrderBy(c => c.CreatedAtUtc)
+            .Take(10)
+            .ToListAsync(ct);
+
+        foreach (var code in pending)
+        {
+            var rewards = new List<string>();
+            if (code.RewardGems != 0) rewards.Add($"💎 **{code.RewardGems}** gemme(s)");
+            if (code.RewardGold != 0) rewards.Add($"🪙 **{code.RewardGold}** or");
+            if (code.RewardMonsterSpeciesId is { } sid)
+            {
+                var name = await db.MonsterSpecies.Where(s => s.Id == sid).Select(s => s.Name).FirstOrDefaultAsync(ct) ?? "Créature";
+                var variant = code.RewardMonsterVariant != Aetheria.Shared.Enums.MonsterVariant.Normal ? $" ({code.RewardMonsterVariant})" : "";
+                rewards.Add($"🐾 **{name}** niv. {code.RewardMonsterLevel}{variant}");
+            }
+            if (!string.IsNullOrWhiteSpace(code.Description)) rewards.Add($"✨ {code.Description}");
+
+            var limits = new List<string>
+            {
+                code.MaxRedemptions is { } m ? $"{m} utilisation(s) max" : "utilisations illimitées",
+            };
+            if (code.ExpiresAtUtc is { } e) limits.Add($"expire le {e:dd/MM/yyyy}");
+
+            DiscordEventLog.LogGiftCode(
+                code.Code,
+                "**Récompense :**\n" + (rewards.Count > 0 ? string.Join("\n", rewards) : "_(aucune)_"),
+                string.Join("  ·  ", limits));
+
+            code.DiscordAnnouncedAtUtc = DateTime.UtcNow;
+            logger.LogInformation("Code cadeau {Code} annoncé sur Discord.", code.Code);
+        }
+
+        if (pending.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
         }
     }
 
