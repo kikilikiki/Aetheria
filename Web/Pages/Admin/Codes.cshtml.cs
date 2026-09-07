@@ -47,7 +47,9 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
 
     public async Task<IActionResult> OnPostCreateAsync()
     {
-        var code = GiftCodeRedeemer.Normalize(NewCode);
+        // Le model binding ASP.NET convertit un champ de formulaire vide en null (pas ""), donc
+        // NewCode / NewDescription peuvent être null ici même si leur valeur par défaut est "".
+        var code = GiftCodeRedeemer.Normalize(NewCode ?? string.Empty);
         if (code.Length < 3)
         {
             TempData["Flash"] = "Code trop court (3 caractères minimum).";
@@ -70,7 +72,7 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
         {
             Id = Guid.NewGuid(),
             Code = code,
-            Description = NewDescription.Trim(),
+            Description = (NewDescription ?? string.Empty).Trim(),
             MaxRedemptions = NewMaxRedemptions is > 0 ? NewMaxRedemptions : null,
             ExpiresAtUtc = NewExpiresAtUtc,
             IsActive = true,
