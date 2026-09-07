@@ -33,11 +33,20 @@ public static class DiscordEventLog
         _ = PostAsync(MatchChannelId, line);
 
     /// <summary>
-    /// Annonce la création d'un code cadeau (voir demande utilisateur) — posté par le serveur de
-    /// jeu et non par le portail web, dont l'IP Render est bloquée par Discord.
+    /// Annonce la création d'un code cadeau — posté par le serveur de jeu (IP propre), pas par le
+    /// portail web dont l'IP Render est bloquée par Discord. Via le webhook
+    /// <c>DISCORD_GIFTCODE_WEBHOOK_URL</c> s'il est défini (le message apparaît alors sous
+    /// l'identité du webhook, pas du bot — voir demande utilisateur) ; sinon via le bot dans
+    /// <c>DISCORD_GIFTCODE_LOG_CHANNEL_ID</c>.
     /// </summary>
-    public static void LogGiftCode(string code, string rewardDescription, string footer) =>
-        _ = PostEmbedAsync(GiftCodeChannelId, $"🎁 Nouveau code cadeau : {code}", rewardDescription, footer);
+    public static void LogGiftCode(string code, string rewardDescription, string footer)
+    {
+        var webhookUrl = Trim(Environment.GetEnvironmentVariable("DISCORD_GIFTCODE_WEBHOOK_URL"));
+        var title = $"🎁 Nouveau code cadeau : {code}";
+        _ = webhookUrl is not null
+            ? PostWebhookEmbedAsync(webhookUrl, title, rewardDescription, footer)
+            : PostEmbedAsync(GiftCodeChannelId, title, rewardDescription, footer);
+    }
 
     private static async Task PostAsync(string channelId, string content)
     {
@@ -103,6 +112,39 @@ public static class DiscordEventLog
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[DiscordEventLog] embed : {ex.Message}");
+        }
+    }
+
+    private static async Task PostWebhookEmbedAsync(string webhookUrl, string title, string description, string footer)
+    {
+        try
+        {
+            // URL absolue : ignore le BaseAddress de Http. Un webhook n'a pas besoin du jeton du bot.
+            var content = JsonContent.Create(new
+            {
+                embeds = new[]
+                {
+                    new
+                    {
+                        title,
+                        description = description.Length > 4000 ? description[..4000] : description,
+                        color = 0xB5323A,
+                        footer = new { text = footer },
+                    },
+                },
+                allowed_mentions = new { parse = Array.Empty<string>() },
+            });
+
+            var response = await Http.PostAsync(webhookUrl, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                Console.Error.WriteLine($"[DiscordEventLog] webhook code cadeau refusé : {(int)response.StatusCode} — {body}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DiscordEventLog] webhook code cadeau : {ex.Message}");
         }
     }
 }

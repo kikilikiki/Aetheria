@@ -47,6 +47,9 @@ public sealed class GiftCodeEntity
     /// <summary>Date à laquelle l'annonce Discord a été postée (null = pas encore).</summary>
     public DateTime? DiscordAnnouncedAtUtc { get; set; }
 
+    /// <summary>Pseudo du Fondateur qui a créé le code (affiché dans l'annonce Discord).</summary>
+    public string CreatedByUsername { get; set; } = string.Empty;
+
     /// <summary>Nombre maximum de rédemptions au total (null = illimité).</summary>
     public int? MaxRedemptions { get; set; }
 

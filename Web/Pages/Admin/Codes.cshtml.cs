@@ -86,6 +86,7 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             // Le serveur de jeu (BetaTicketProcessor, toutes les 30 s) poste l'annonce Discord —
             // pas le portail web, dont l'IP Render est bloquée par Discord (voir H153).
             AnnounceOnDiscord = NewAnnounce,
+            CreatedByUsername = User.Identity?.Name ?? "un Fondateur",
         };
         db.GiftCodes.Add(entity);
         await db.SaveChangesAsync();

@@ -201,6 +201,7 @@ public sealed class BetaTicketProcessor(
                 code.MaxRedemptions is { } m ? $"{m} utilisation(s) max" : "utilisations illimitées",
             };
             if (code.ExpiresAtUtc is { } e) limits.Add($"expire le {e:dd/MM/yyyy}");
+            if (!string.IsNullOrWhiteSpace(code.CreatedByUsername)) limits.Add($"créé par {code.CreatedByUsername}");
 
             DiscordEventLog.LogGiftCode(
                 code.Code,
