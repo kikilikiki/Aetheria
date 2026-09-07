@@ -33,6 +33,12 @@ public sealed class GiftCodeEntity
     /// <summary>Variante de la créature offerte (Normal par défaut).</summary>
     public MonsterVariant RewardMonsterVariant { get; set; } = MonsterVariant.Normal;
 
+    /// <summary>Niveaux de personnage offerts (0 = aucun) — « skip » de la progression. Crédités au personnage.</summary>
+    public int RewardCharacterLevels { get; set; }
+
+    /// <summary>Titre personnalisé offert (texte libre, "" = aucun) : ajouté aux titres du personnage et activé.</summary>
+    public string RewardTitle { get; set; } = string.Empty;
+
     /// <summary>Contenu machine libre (JSON) pour une récompense non modélisée — inutilisé par défaut.</summary>
     public string RewardPayload { get; set; } = string.Empty;
 

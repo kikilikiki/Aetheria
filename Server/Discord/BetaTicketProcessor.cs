@@ -194,6 +194,8 @@ public sealed class BetaTicketProcessor(
                 var variant = code.RewardMonsterVariant != Aetheria.Shared.Enums.MonsterVariant.Normal ? $" ({code.RewardMonsterVariant})" : "";
                 rewards.Add($"🐾 **{name}** niv. {code.RewardMonsterLevel}{variant}");
             }
+            if (code.RewardCharacterLevels > 0) rewards.Add($"📈 **+{code.RewardCharacterLevels}** niveau(x) de personnage");
+            if (!string.IsNullOrWhiteSpace(code.RewardTitle)) rewards.Add($"🏷️ titre **« {code.RewardTitle} »**");
             if (!string.IsNullOrWhiteSpace(code.Description)) rewards.Add($"✨ {code.Description}");
 
             var limits = new List<string>

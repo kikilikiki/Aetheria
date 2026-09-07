@@ -21,6 +21,8 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
     [BindProperty] public int? NewMonsterSpeciesId { get; set; }
     [BindProperty] public int NewMonsterLevel { get; set; } = 1;
     [BindProperty] public Aetheria.Shared.Enums.MonsterVariant NewMonsterVariant { get; set; } = Aetheria.Shared.Enums.MonsterVariant.Normal;
+    [BindProperty] public int NewCharacterLevels { get; set; }
+    [BindProperty] public string NewTitle { get; set; } = string.Empty;
 
     // Voir demande utilisateur — case cochée par défaut : prévenir le salon Discord de la création
     // (case décochée ⇒ le champ n'est pas posté ⇒ false ⇒ pas d'annonce). L'annonce réelle est
@@ -83,6 +85,8 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             RewardMonsterSpeciesId = NewMonsterSpeciesId is > 0 ? NewMonsterSpeciesId : null,
             RewardMonsterLevel = Math.Clamp(NewMonsterLevel, 1, 150),
             RewardMonsterVariant = NewMonsterVariant,
+            RewardCharacterLevels = Math.Clamp(NewCharacterLevels, 0, 100),
+            RewardTitle = (NewTitle ?? string.Empty).Trim(),
             // Le serveur de jeu (BetaTicketProcessor, toutes les 30 s) poste l'annonce Discord —
             // pas le portail web, dont l'IP Render est bloquée par Discord (voir H153).
             AnnounceOnDiscord = NewAnnounce,

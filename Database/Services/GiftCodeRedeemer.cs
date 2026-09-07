@@ -58,7 +58,10 @@ public static class GiftCodeRedeemer
             return new Result(false, "Tu as déjà utilisé ce code.");
         }
 
-        var needsCharacter = giftCode.RewardGold != 0 || giftCode.RewardMonsterSpeciesId is not null;
+        var needsCharacter = giftCode.RewardGold != 0
+            || giftCode.RewardMonsterSpeciesId is not null
+            || giftCode.RewardCharacterLevels > 0
+            || !string.IsNullOrWhiteSpace(giftCode.RewardTitle);
         CharacterEntity? character = null;
         if (needsCharacter)
         {
@@ -68,7 +71,7 @@ public static class GiftCodeRedeemer
 
             if (character is null)
             {
-                return new Result(false, "Ce code offre de l'or ou une créature : utilise-le depuis le jeu (Launcher), une fois un personnage créé.");
+                return new Result(false, "Ce code offre de l'or, une créature, des niveaux ou un titre : utilise-le depuis le jeu (Launcher), une fois un personnage créé.");
             }
         }
 
@@ -117,6 +120,27 @@ public static class GiftCodeRedeemer
             };
             db.Monsters.Add(monster);
             granted.Add($"{species.Name} niv. {level}" + (giftCode.RewardMonsterVariant != MonsterVariant.Normal ? $" ({giftCode.RewardMonsterVariant})" : ""));
+        }
+
+        if (giftCode.RewardCharacterLevels > 0 && character is not null)
+        {
+            // Le jeu ne plafonne pas le niveau de personnage (voir PlayerSession.SetCharacterLevel) ;
+            // on borne quand même le "skip" par code à un cran raisonnable.
+            var levels = Math.Clamp(giftCode.RewardCharacterLevels, 1, 100);
+            character.Level = Math.Max(1, character.Level + levels);
+            granted.Add($"+{levels} niveau(x) de personnage (niv. {character.Level})");
+        }
+
+        if (!string.IsNullOrWhiteSpace(giftCode.RewardTitle) && character is not null)
+        {
+            var title = giftCode.RewardTitle.Trim();
+            var alreadyOwned = await db.CharacterTitles.AnyAsync(t => t.CharacterId == character.Id && t.TitleKey == title, ct);
+            if (!alreadyOwned)
+            {
+                db.CharacterTitles.Add(new CharacterTitleEntity { Id = Guid.NewGuid(), CharacterId = character.Id, TitleKey = title });
+            }
+            character.ActiveTitle = title;
+            granted.Add($"titre « {title} »");
         }
 
         db.GiftCodeRedemptions.Add(new GiftCodeRedemptionEntity
