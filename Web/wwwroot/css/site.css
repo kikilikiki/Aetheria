@@ -140,12 +140,28 @@ h1, h2, h3 { letter-spacing: 0.02em; }
 
 .site-nav a, .site-nav .linklike {
     position: relative;
-    color: var(--text-dim);
+    color: #c9c8cf;
     font-size: 0.82rem;
+    font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     padding: 4px 0;
-    transition: color 0.15s ease;
+    transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+/* Chaque entrée de menu prend sa propre couleur (demande utilisateur). */
+.site-nav a[href="/"]            { color: #d8d7dd; }
+.site-nav a[href="/telecharger"] { color: var(--frost); }
+.site-nav a[href="/beta"]        { color: var(--ember); }
+.site-nav a[href="/admin"]       { color: #8a63c4; }
+.site-nav a[href="/codes"]       { color: #e8c34c; }
+.site-nav a[href="/connexion"]   { color: var(--accent-bright); }
+.site-nav a[href="/mon-compte"]  { color: #6fc27a; }
+.site-nav .linklike              { color: var(--accent-bright); opacity: 0.85; }
+
+.site-nav a:hover, .site-nav .linklike:hover {
+    filter: brightness(1.35);
+    text-shadow: 0 0 14px currentColor;
 }
 
 .site-nav a::after, .site-nav .linklike::after {
@@ -161,7 +177,6 @@ h1, h2, h3 { letter-spacing: 0.02em; }
     transition: transform 0.2s ease;
 }
 
-.site-nav a:hover, .site-nav .linklike:hover { color: var(--text); }
 .site-nav a:hover::after, .site-nav .linklike:hover::after { transform: scaleX(1); }
 
 .linklike {
