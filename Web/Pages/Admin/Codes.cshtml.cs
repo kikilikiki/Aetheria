@@ -1,6 +1,7 @@
 using Aetheria.Database.Context;
 using Aetheria.Database.Entities;
 using Aetheria.Database.Services;
+using Aetheria.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,11 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
     [BindProperty] public int NewMonsterLevel { get; set; } = 1;
     [BindProperty] public Aetheria.Shared.Enums.MonsterVariant NewMonsterVariant { get; set; } = Aetheria.Shared.Enums.MonsterVariant.Normal;
 
+    // Voir demande utilisateur — case cochée par défaut : prévenir le salon Discord de la création
+    // (case décochée ⇒ le champ n'est pas posté ⇒ false ⇒ pas d'annonce).
+    [BindProperty] public bool NewAnnounce { get; set; }
+
+    public bool WebhookConfigured { get; } = GiftCodeWebhook.IsConfigured;
     public IReadOnlyList<(int Id, string Name)> Species { get; private set; } = [];
     public IReadOnlyList<GiftCodeEntity> Codes { get; private set; } = [];
     public string? Flash { get; private set; }
@@ -60,7 +66,7 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             return RedirectToPage();
         }
 
-        db.GiftCodes.Add(new GiftCodeEntity
+        var entity = new GiftCodeEntity
         {
             Id = Guid.NewGuid(),
             Code = code,
@@ -73,10 +79,19 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             RewardMonsterSpeciesId = NewMonsterSpeciesId is > 0 ? NewMonsterSpeciesId : null,
             RewardMonsterLevel = Math.Clamp(NewMonsterLevel, 1, 150),
             RewardMonsterVariant = NewMonsterVariant,
-        });
+        };
+        db.GiftCodes.Add(entity);
         await db.SaveChangesAsync();
 
-        TempData["Flash"] = $"Code {code} créé.";
+        if (NewAnnounce)
+        {
+            var monsterName = entity.RewardMonsterSpeciesId is { } rsid
+                ? await db.MonsterSpecies.Where(s => s.Id == rsid).Select(s => s.Name).FirstOrDefaultAsync()
+                : null;
+            GiftCodeWebhook.AnnounceCreated(entity, monsterName, User.Identity?.Name ?? "un Fondateur");
+        }
+
+        TempData["Flash"] = $"Code {code} créé." + (NewAnnounce && WebhookConfigured ? " Annonce Discord envoyée." : "");
         return RedirectToPage();
     }
 

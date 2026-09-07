@@ -45,6 +45,16 @@
         </div>
         <div class="field"><label for="m">Limite d'utilisations (vide = illimité)</label><input id="m" name="NewMaxRedemptions" type="number" min="1" /></div>
         <div class="field"><label for="e">Expiration (vide = jamais)</label><input id="e" name="NewExpiresAtUtc" type="datetime-local" /></div>
+        <div class="field" style="display:flex;align-items:center;gap:10px;">
+            <input id="ann" name="NewAnnounce" type="checkbox" value="true" checked style="width:auto;" />
+            <label for="ann" style="margin:0;text-transform:none;letter-spacing:0;">
+                Annoncer la création dans le salon Discord
+                @if (!Model.WebhookConfigured)
+                {
+                    <span class="hint" style="display:inline;"> — webhook non configuré (DISCORD_GIFTCODE_WEBHOOK_URL), la case n'aura pas d'effet</span>
+                }
+            </label>
+        </div>
         <button type="submit" class="btn btn-primary">Créer le code</button>
     </form>
 

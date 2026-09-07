@@ -25,6 +25,8 @@ services:
         sync: false
       - key: AETHERIA_ADMIN_BOOTSTRAP_PASSWORD   # optionnel : amorce le compte admin si la base est vierge
         sync: false
+      - key: DISCORD_GIFTCODE_WEBHOOK_URL        # webhook du salon annoncant la creation d'un code cadeau
+        sync: false
 
       # --- Valeurs par défaut (surchargables) ---
       - key: DISCORD_BETA_CATEGORY_ID
