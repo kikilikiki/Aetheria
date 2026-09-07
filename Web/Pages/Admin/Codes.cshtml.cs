@@ -111,4 +111,21 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
 
         return RedirectToPage();
     }
+
+    /// <summary>
+    /// Voir demande utilisateur — bouton de suppression directe. Efface aussi l'historique de
+    /// rédemptions du code (FK <c>GiftCodeRedemption.GiftCodeId</c> en <c>Cascade</c>).
+    /// </summary>
+    public async Task<IActionResult> OnPostDeleteAsync(Guid id)
+    {
+        var code = await db.GiftCodes.FirstOrDefaultAsync(c => c.Id == id);
+        if (code is not null)
+        {
+            db.GiftCodes.Remove(code);
+            await db.SaveChangesAsync();
+            TempData["Flash"] = $"Code {code.Code} supprimé.";
+        }
+
+        return RedirectToPage();
+    }
 }

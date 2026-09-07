@@ -90,9 +90,15 @@
                         <td>@(c.ExpiresAtUtc?.ToString("dd/MM/yyyy") ?? "—")</td>
                         <td>@(c.IsActive ? "oui" : "non")</td>
                         <td>
-                            <form method="post" asp-page-handler="Toggle" asp-route-id="@c.Id">
-                                <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">@(c.IsActive ? "Désactiver" : "Réactiver")</button>
-                            </form>
+                            <div class="row-actions">
+                                <form method="post" asp-page-handler="Toggle" asp-route-id="@c.Id">
+                                    <button type="submit" class="btn btn-secondary" style="padding:6px 12px;">@(c.IsActive ? "Désactiver" : "Réactiver")</button>
+                                </form>
+                                <form method="post" asp-page-handler="Delete" asp-route-id="@c.Id"
+                                      onsubmit="return confirm('Supprimer définitivement le code @c.Code ? Cette action efface aussi son historique de rédemptions.');">
+                                    <button type="submit" class="btn btn-secondary" style="padding:6px 12px;border-color:var(--err);color:var(--err);">Supprimer</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                 }
