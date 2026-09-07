@@ -205,13 +205,21 @@ public sealed class BetaTicketProcessor(
             if (code.ExpiresAtUtc is { } e) limits.Add($"expire le {e:dd/MM/yyyy}");
             if (!string.IsNullOrWhiteSpace(code.CreatedByUsername)) limits.Add($"créé par {code.CreatedByUsername}");
 
-            DiscordEventLog.LogGiftCode(
+            var sent = await DiscordEventLog.LogGiftCodeAsync(
                 code.Code,
                 "**Récompense :**\n" + (rewards.Count > 0 ? string.Join("\n", rewards) : "_(aucune)_"),
                 string.Join("  ·  ", limits));
 
-            code.DiscordAnnouncedAtUtc = DateTime.UtcNow;
-            logger.LogInformation("Code cadeau {Code} annoncé sur Discord.", code.Code);
+            if (sent)
+            {
+                code.DiscordAnnouncedAtUtc = DateTime.UtcNow;
+                logger.LogInformation("Code cadeau {Code} annoncé sur Discord.", code.Code);
+            }
+            else
+            {
+                // Non marqué : réessai au prochain passage (30 s).
+                logger.LogWarning("Annonce Discord du code cadeau {Code} échouée — nouvel essai plus tard.", code.Code);
+            }
         }
 
         if (pending.Count > 0)

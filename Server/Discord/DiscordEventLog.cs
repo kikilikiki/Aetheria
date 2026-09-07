@@ -39,13 +39,18 @@ public static class DiscordEventLog
     /// l'identité du webhook, pas du bot — voir demande utilisateur) ; sinon via le bot dans
     /// <c>DISCORD_GIFTCODE_LOG_CHANNEL_ID</c>.
     /// </summary>
-    public static void LogGiftCode(string code, string rewardDescription, string footer)
+    /// <summary>Renvoie <c>true</c> si l'annonce a bien été acceptée par Discord (l'appelant marque
+    /// alors le code comme annoncé, sinon il retentera).</summary>
+    public static Task<bool> LogGiftCodeAsync(string code, string rewardDescription, string footer)
     {
         var webhookUrl = Trim(Environment.GetEnvironmentVariable("DISCORD_GIFTCODE_WEBHOOK_URL"));
-        var title = $"🎁 Nouveau code cadeau : {code}";
-        _ = webhookUrl is not null
-            ? PostWebhookEmbedAsync(webhookUrl, title, rewardDescription, footer)
-            : PostEmbedAsync(GiftCodeChannelId, title, rewardDescription, footer);
+        // Le code va dans la DESCRIPTION (limite 4096), pas dans le titre (limite 256) : un code
+        // peut être arbitrairement long (voir demande utilisateur — plus de limite de caractères).
+        const string title = "🎁 Nouveau code cadeau";
+        var description = $"```\n{code}\n```\n{rewardDescription}";
+        return webhookUrl is not null
+            ? PostWebhookEmbedAsync(webhookUrl, title, description, footer)
+            : PostEmbedAsync(GiftCodeChannelId, title, description, footer);
     }
 
     private static async Task PostAsync(string channelId, string content)
@@ -77,74 +82,67 @@ public static class DiscordEventLog
         }
     }
 
-    private static async Task PostEmbedAsync(string channelId, string title, string description, string footer)
+    private static object BuildEmbedPayload(string title, string description, string footer) => new
+    {
+        embeds = new[]
+        {
+            new
+            {
+                title = title.Length > 250 ? title[..250] : title,
+                description = description.Length > 4000 ? description[..4000] : description,
+                color = 0xB5323A,
+                footer = new { text = footer.Length > 2000 ? footer[..2000] : footer },
+            },
+        },
+        allowed_mentions = new { parse = Array.Empty<string>() },
+    };
+
+    private static async Task<bool> PostEmbedAsync(string channelId, string title, string description, string footer)
     {
         if (Token is null)
         {
-            return;
+            return false;
         }
 
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, $"channels/{channelId}/messages");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bot", Token);
-            request.Content = JsonContent.Create(new
-            {
-                embeds = new[]
-                {
-                    new
-                    {
-                        title,
-                        description = description.Length > 4000 ? description[..4000] : description,
-                        color = 0xB5323A,
-                        footer = new { text = footer },
-                    },
-                },
-                allowed_mentions = new { parse = Array.Empty<string>() },
-            });
+            request.Content = JsonContent.Create(BuildEmbedPayload(title, description, footer));
 
             var response = await Http.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
-                Console.Error.WriteLine($"[DiscordEventLog] embed échoué canal {channelId} : {(int)response.StatusCode}");
+                Console.Error.WriteLine($"[DiscordEventLog] embed échoué canal {channelId} : {(int)response.StatusCode} — {await response.Content.ReadAsStringAsync()}");
             }
+
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[DiscordEventLog] embed : {ex.Message}");
+            return false;
         }
     }
 
-    private static async Task PostWebhookEmbedAsync(string webhookUrl, string title, string description, string footer)
+    private static async Task<bool> PostWebhookEmbedAsync(string webhookUrl, string title, string description, string footer)
     {
         try
         {
             // URL absolue : ignore le BaseAddress de Http. Un webhook n'a pas besoin du jeton du bot.
-            var content = JsonContent.Create(new
-            {
-                embeds = new[]
-                {
-                    new
-                    {
-                        title,
-                        description = description.Length > 4000 ? description[..4000] : description,
-                        color = 0xB5323A,
-                        footer = new { text = footer },
-                    },
-                },
-                allowed_mentions = new { parse = Array.Empty<string>() },
-            });
-
+            var content = JsonContent.Create(BuildEmbedPayload(title, description, footer));
             var response = await Http.PostAsync(webhookUrl, content);
             if (!response.IsSuccessStatusCode)
             {
-                var body = await response.Content.ReadAsStringAsync();
-                Console.Error.WriteLine($"[DiscordEventLog] webhook code cadeau refusé : {(int)response.StatusCode} — {body}");
+                Console.Error.WriteLine($"[DiscordEventLog] webhook code cadeau refusé : {(int)response.StatusCode} — {await response.Content.ReadAsStringAsync()}");
             }
+
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[DiscordEventLog] webhook code cadeau : {ex.Message}");
+            return false;
         }
     }
 }
