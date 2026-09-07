@@ -26,6 +26,7 @@ public static class GiftCodeWebhook
         var url = Environment.GetEnvironmentVariable("DISCORD_GIFTCODE_WEBHOOK_URL");
         if (string.IsNullOrWhiteSpace(url))
         {
+            Console.Error.WriteLine($"[GiftCodeWebhook] code {code.Code} créé mais DISCORD_GIFTCODE_WEBHOOK_URL n'est pas défini — aucune annonce.");
             return;
         }
 
@@ -64,11 +65,21 @@ public static class GiftCodeWebhook
         {
             try
             {
-                await Http.PostAsJsonAsync(url, payload);
+                var response = await Http.PostAsJsonAsync(url, payload);
+                if (response.IsSuccessStatusCode)
+                {
+                    Console.Error.WriteLine($"[GiftCodeWebhook] annonce du code {code.Code} envoyée ({(int)response.StatusCode}).");
+                }
+                else
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    Console.Error.WriteLine($"[GiftCodeWebhook] Discord a REFUSÉ l'annonce du code {code.Code} : {(int)response.StatusCode} {response.StatusCode} — {body}");
+                }
             }
-            catch
+            catch (Exception ex)
             {
                 // Tir-et-oublie : la création du code a déjà réussi, l'annonce est secondaire.
+                Console.Error.WriteLine($"[GiftCodeWebhook] envoi de l'annonce du code {code.Code} impossible : {ex.GetType().Name} {ex.Message}");
             }
         });
     }
