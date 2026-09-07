@@ -391,6 +391,33 @@ Notes en vrac, à trier plus tard.
 
 ## UI / UX
 
+- **(2026-09-03) Fond visuel du portail web (façon site de jeu)** — `H178` a refait le CSS du
+  portail (dégradés, lueurs, cadres biseautés, trame d'étoiles CSS) mais le fond reste purement
+  procédural : aucune illustration, aucune profondeur. Les sites d'éditeurs (Honkai Star Rail,
+  Genshin…) reposent sur un splash art plein écran + parallaxe.
+  **Propositions, par ordre de coût :**
+  1. **Key art de hero** — une seule illustration large (créature emblématique + royaume en
+     arrière-plan, format ~2560×1440, `object-fit: cover`, assombrie par un dégradé pour garder
+     le texte lisible). Peut être commandée, tirée d'un rendu du jeu, ou générée. Chargée en
+     `webp` + `<img loading="eager">` de secours ; ~200-400 Ko.
+  2. **Parallaxe légère** — 2-3 calques PNG transparents (ciel, silhouette de montagne/donjon,
+     premier plan) qui se décalent à des vitesses différentes au scroll (`transform: translateY`
+     piloté par un petit script, désactivé sous `prefers-reduced-motion`).
+  3. **Bande héro animée** — une courte vidéo `.webm` en boucle muette (rendu du jeu : caméra qui
+     survole la capitale, combat sur grille) en fond du hero, `poster` = key art fixe pour le
+     premier rendu et le mobile.
+  4. **Motif de royaume par page** — teinter le halo de fond selon la section (rouge sur
+     l'accueil, vert sur une page « Nature », etc.), variable `--page-accent` posée sur `<body>`.
+  5. **Bannière de créature sur les cartes** — une petite vignette d'espèce en filigrane dans le
+     coin de chaque `.card` de fonctionnalité, réutilisant les sprites déjà présents côté Client.
+  Garder le fond CSS actuel comme repli (pas d'image = le site reste correct).
+
+- **(2026-09-03) Écran de chargement / transitions entre pages du portail** — navigation Razor
+  classique (rechargement plein), un peu sec après la mise en scène du hero.
+  **Proposition** : un mini-fondu au chargement (`body` en `opacity: 0` → `1` via une classe
+  retirée au `DOMContentLoaded`) et une barre de progression fine en haut (style `nprogress`,
+  réécrit en ~20 lignes) sur les soumissions de formulaire. Purement cosmétique, aucun back-end.
+
 - **Vraie image de profil** (toujours une pastille de couleur + initiale dérivées du pseudo,
   `Launcher/AvatarConverters.cs` — pas de pipeline d'upload/stockage d'image).
   **Proposition** : endpoint d'upload simple stockant l'image sur disque serveur (pas besoin de
