@@ -74,7 +74,10 @@ public sealed class CodesModel(AetheriaDbContext db) : PageModel
             Code = code,
             Description = (NewDescription ?? string.Empty).Trim(),
             MaxRedemptions = NewMaxRedemptions is > 0 ? NewMaxRedemptions : null,
-            ExpiresAtUtc = NewExpiresAtUtc,
+            // Le champ <input type="datetime-local"> renvoie une heure sans fuseau (Kind=Unspecified) ;
+            // Npgsql refuse d'écrire autre chose qu'UTC dans un "timestamp with time zone". On
+            // interprète la valeur saisie comme de l'UTC (le champ est libellé « UTC »).
+            ExpiresAtUtc = NewExpiresAtUtc is { } exp ? DateTime.SpecifyKind(exp, DateTimeKind.Utc) : null,
             IsActive = true,
             RewardGems = Math.Max(0, NewGems),
             RewardGold = Math.Max(0, NewGold),
